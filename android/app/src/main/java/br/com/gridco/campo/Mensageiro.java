@@ -1,5 +1,7 @@
 package br.com.gridco.campo;
 
+import android.annotation.SuppressLint;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.SystemClock;
 import android.util.Base64;
@@ -10,10 +12,12 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.LongSupplier;
@@ -28,9 +32,12 @@ import org.json.JSONObject;
  *
  * <pre>
  *   ls {k, v} · lsDel {k} · idbPut {k, tipo, v} · idbDel {k} · idbPedaco {k, id, i, n, mime, b64} · sentinela
- *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila} · idbPedir · fora {url}
- *   erro {onde, msg}
+ *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila}
+ *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg}
  * </pre>
+ *
+ * E a resposta do idbPedir, pela ponte da mesma mensagem: idbItem, idbPedaco e idbFim ({@link #enviarIdb}), ou
+ * idbRecusado ({@link #recusarIdb}) quando o disjuntor do dia não deixa.
  *
  * Regras que o código não mostra sozinho:
  * <ul>
@@ -47,6 +54,11 @@ import org.json.JSONObject;
  *       {@value #COMPLETOS_POR_JANELA} completos em 60 s, contados por processo ({@link Disjuntor}); daí em diante, até a
  *       janela andar, a recarga vai com o retrato sem conferência ({@link #semConferencia}), com que a página não para
  *       a carga.</li>
+ *   <li><b>No máximo {@value #RESTAURACOES_POR_DIA} restaurações por 24 h no aparelho</b> ({@link DisjuntorDaPerda}):
+ *       as de perda (o precisoRetrato 'perda') e as só do IndexedDB (o idbPedir que não é da perda) somam. A página
+ *       refaz a restauração que não terminou na carga seguinte, e o disco cheio que recusa sempre faria disso um laço
+ *       que segura a página a cada abertura. Estourado: a perda recarrega sem conferência (a página segue sem espelho até
+ *       a janela andar) e o idbPedir ganha um idbRecusado (a página abre na hora).</li>
  * </ul>
  *
  * Não é seguro entre threads: o plugin chama {@link #tratar} e {@link #enviarIdb} sempre da mesma thread (a do
@@ -60,6 +72,9 @@ public final class Mensageiro {
     static final long JANELA_DO_DISJUNTOR_MS = 60_000L;
     static final int COMPLETOS_POR_JANELA = 2;
 
+    static final long JANELA_DA_PERDA_MS = 24L * 60 * 60 * 1000;
+    static final int RESTAURACOES_POR_DIA = 3;
+
     /**
      * Os rótulos ({@code onde}) que o www/casca/inicio.js manda no {@code {t:'erro'}}. Lista fechada: o campo vem da
      * página e pode trazer qualquer coisa, então o que não estiver aqui vai ao log como 'outro'. O
@@ -68,10 +83,12 @@ public final class Mensageiro {
     static final Set<String> ONDES_DA_PAGINA = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
         "canal", "espelho-ls", "lote", "setItem", "removeItem", "descarregar",
         "sentinela", "marca", "perda", "fila", "stop", "precisoRetrato", "restaurado",
+        "reenvio",
         "idb", "idbOpen", "idbPut", "idbDel", "idbPedaco", "idbEnvio", "idbPedir", "idbReconciliar", "idbRestaurar",
         "idbSentinela",
         "janela", "open", "fora", "camada", "close", "location", "location.assign", "location.replace",
-        "location.href", "document.open", "document.write", "document.writeln", "document.close")));
+        "location.href", "document.open", "document.write", "document.writeln", "document.close",
+        "voltar")));
 
     /** O que o canal pede ao plugin. Todas chegam na thread do espelho; quem mexe na WebView passa para a de UI. */
     public interface Acoes {
@@ -86,6 +103,9 @@ public final class Mensageiro {
 
         /** A página pediu o IndexedDB guardado: responda pela ponte da própria mensagem com {@link #enviarIdb}. */
         void idbPedir();
+
+        /** O pedido do IndexedDB esbarrou no disjuntor do dia: responda pela ponte da mensagem com {@link #recusarIdb}. */
+        void idbRecusado();
 
         /** Um endereço http ou https de fora do App (o "Conectar Fracttal"), para a Custom Tab. */
         void abrirFora(String url);
@@ -130,24 +150,152 @@ public final class Mensageiro {
         }
     }
 
+    /**
+     * As restaurações dos últimos 24 h NO APARELHO: no máximo {@link Mensageiro#RESTAURACOES_POR_DIA}. Caso que o criou: a
+     * página refaz na carga seguinte a restauração que não terminou (a marca da perda e o banco sentinela da casca só
+     * saem com ela inteira), e o disco cheio, que recusa toda gravação, faria cada abertura do app pedir tudo de novo e
+     * segurar a página. A contagem fica fora da cota do IndexedDB e atravessa o processo (o renderer que morre recria a
+     * tela; o Android mata o app em segundo plano): na {@link Memoria}, que no app é o SharedPreferences. Se ela não
+     * gravar (o disco cheio pega o SharedPreferences também), vale a contagem deste objeto, que o plugin guarda um por
+     * processo.
+     *
+     * O relógio é o de parede (a janela atravessa a reinicialização do aparelho, que zera o elapsedRealtime). Uma marca
+     * "do futuro" (a hora do aparelho voltou) não conta: travaria o disjuntor pelo tempo que a hora voltou. Custo: trocar
+     * a hora rende mais tentativas.
+     */
+    static final class DisjuntorDaPerda {
+
+        /** A chave do SharedPreferences: os instantes, em milissegundos, separados por vírgula. */
+        static final String CHAVE = "restauracoes";
+
+        /** Onde a contagem fica entre os processos. */
+        interface Memoria {
+            String ler();
+
+            void gravar(String valor);
+        }
+
+        private final Memoria memoria;
+        private final LongSupplier relogio;
+        private List<Long> doProcesso = new ArrayList<>();
+
+        DisjuntorDaPerda(Memoria memoria, LongSupplier relogioDeParede) {
+            this.memoria = memoria;
+            this.relogio = relogioDeParede;
+        }
+
+        /** Conta uma restauração agora, se cabe na janela, e diz se ela pode sair. */
+        synchronized boolean libera() {
+            long agora = relogio.getAsLong();
+            List<Long> naJanela = naJanela(ler(), agora);
+            List<Long> doProcessoNaJanela = naJanela(doProcesso, agora);
+            if (doProcessoNaJanela.size() > naJanela.size()) naJanela = doProcessoNaJanela;
+            boolean libera = naJanela.size() < RESTAURACOES_POR_DIA;
+            if (libera) naJanela.add(agora);
+            doProcesso = naJanela;
+            StringBuilder texto = new StringBuilder();
+            for (Long t : naJanela) texto.append(texto.length() == 0 ? "" : ",").append(t);
+            try {
+                memoria.gravar(texto.toString());
+            } catch (RuntimeException e) {
+                // Fica a contagem do processo.
+            }
+            return libera;
+        }
+
+        private List<Long> ler() {
+            List<Long> lidos = new ArrayList<>();
+            String texto;
+            try {
+                texto = memoria.ler();
+            } catch (RuntimeException e) {
+                return lidos;
+            }
+            if (texto == null) return lidos;
+            for (String pedaco : texto.split(",")) {
+                try {
+                    lidos.add(Long.parseLong(pedaco.trim()));
+                } catch (NumberFormatException e) {
+                    // Um pedaço torto não conta.
+                }
+            }
+            return lidos;
+        }
+
+        private static List<Long> naJanela(List<Long> momentos, long agora) {
+            List<Long> dentro = new ArrayList<>();
+            for (Long t : momentos) if (t <= agora && agora - t < JANELA_DA_PERDA_MS) dentro.add(t);
+            return dentro;
+        }
+
+        /** A memória no SharedPreferences do app. Um valor de outro tipo na chave conta como vazio. */
+        static Memoria naPreferencia(SharedPreferences prefs) {
+            return new Memoria() {
+                @Override
+                public String ler() {
+                    try {
+                        return prefs.getString(CHAVE, "");
+                    } catch (ClassCastException e) {
+                        return "";
+                    }
+                }
+
+                // O commit (e não o apply) de propósito: roda na thread do espelho, e a contagem tem de estar no disco
+                // antes da recarga que vem logo depois, porque o caso é justo o do processo que morre (o renderer que
+                // morre na restauração).
+                @SuppressLint("ApplySharedPref")
+                @Override
+                public void gravar(String valor) {
+                    prefs.edit().putString(CHAVE, valor).commit();
+                }
+            };
+        }
+
+        /** A memória só deste objeto (o teste, e o Mensageiro do teste). */
+        static Memoria naMemoria() {
+            return new Memoria() {
+                private String valor = "";
+
+                @Override
+                public String ler() {
+                    return valor;
+                }
+
+                @Override
+                public void gravar(String novo) {
+                    valor = novo;
+                }
+            };
+        }
+    }
+
     private final ArmazemEspelho armazem;
     private final Acoes acoes;
     private final Disjuntor disjuntor;
+    private final DisjuntorDaPerda perdas;
     private final LongSupplier relogio;
     private int falhas = 0;
     private int errosDaPagina = 0;
 
-    /** @param disjuntor o do processo: a tela recriada passa o mesmo (ver {@link Disjuntor}) */
-    public Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor) {
+    /**
+     * @param disjuntor o do processo: a tela recriada passa o mesmo (ver {@link Disjuntor})
+     * @param perdas    o do aparelho (ver {@link DisjuntorDaPerda}), também um por processo
+     */
+    public Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, DisjuntorDaPerda perdas) {
         // O relógio que não anda para trás com a troca de hora do aparelho.
-        this(armazem, acoes, disjuntor, SystemClock::elapsedRealtime);
+        this(armazem, acoes, disjuntor, perdas, SystemClock::elapsedRealtime);
     }
 
-    /** Para o teste: o relógio do disjuntor, em milissegundos. */
+    /** Para o teste: o relógio dos dois disjuntores, em milissegundos, e o do dia só na memória. */
     Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, LongSupplier relogio) {
+        this(armazem, acoes, disjuntor, new DisjuntorDaPerda(DisjuntorDaPerda.naMemoria(), relogio), relogio);
+    }
+
+    Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, DisjuntorDaPerda perdas, LongSupplier relogio) {
         this.armazem = armazem;
         this.acoes = acoes;
         this.disjuntor = disjuntor;
+        this.perdas = perdas;
         this.relogio = relogio;
     }
 
@@ -210,6 +358,14 @@ public final class Mensageiro {
                 case "restaurado":
                     return restaurado(m);
                 case "idbPedir":
+                    // A restauração da perda já passou pelo disjuntor do dia no precisoRetrato; a só do IndexedDB
+                    // ('idb', ou sem motivo) passa aqui, a cada pedido.
+                    if (!"perda".equals(texto(m, "motivo")) && !perdas.libera()) {
+                        avisar("disjuntor", RESTAURACOES_POR_DIA + " restaurações em 24 h no aparelho; a do IndexedDB "
+                            + "fica para a próxima janela");
+                        acoes.idbRecusado();
+                        return true;
+                    }
                     acoes.idbPedir();
                     return true;
                 case "fora": {
@@ -275,7 +431,20 @@ public final class Mensageiro {
             return false;
         }
         JSONObject retrato;
-        if (disjuntor.liberaCompleto(relogio.getAsLong())) {
+        if (!disjuntor.liberaCompleto(relogio.getAsLong())) {
+            // Caso que o disjuntor segura: o sessionStorage que não guarda a trava da página (o "limpar só o login", que
+            // a apaga, ou a tela recriada depois do renderer que morreu, que começa sem ela) faz cada carga parar e pedir
+            // de novo. O sem conferência leva o semParar, e a carga seguinte não para. Vem antes do disjuntor do dia: a
+            // recarga em laço não gasta as restaurações dele.
+            avisar("disjuntor", disjuntor.pedidosNaJanela() + " pedidos de retrato em 60 s; recarrega sem conferir a fila");
+            retrato = semConferencia(armazem);
+        } else if ("perda".equals(motivo) && !perdas.libera()) {
+            // A restauração da perda que não termina (o disco cheio) seria refeita a cada abertura do app. Com o
+            // semParar, a página segue sem espelho e com a marca da perda de pé; a próxima janela restaura de novo.
+            avisar("disjuntor", RESTAURACOES_POR_DIA + " restaurações em 24 h no aparelho; recarrega sem conferir, e a "
+                + "página segue sem espelho até a janela andar");
+            retrato = semConferencia(armazem);
+        } else {
             try {
                 retrato = Retrato.completo(armazem, motivo);
             } catch (RuntimeException e) {
@@ -284,12 +453,6 @@ public final class Mensageiro {
                     + " falha(s) nesta partida)");
                 retrato = semConferencia(armazem);
             }
-        } else {
-            // Caso que o disjuntor segura: o sessionStorage que não guarda a trava da página (o "limpar só o login", que
-            // a apaga, ou a tela recriada depois do renderer que morreu, que começa sem ela) faz cada carga parar e pedir
-            // de novo. O sem conferência leva o semParar, e a carga seguinte não para.
-            avisar("disjuntor", disjuntor.pedidosNaJanela() + " pedidos de retrato em 60 s; recarrega sem conferir a fila");
-            retrato = semConferencia(armazem);
         }
         acoes.precisoRetrato(retrato);
         return true;
@@ -357,7 +520,7 @@ public final class Mensageiro {
      * Premissa (Task 5): durante a restauração a página não escreve no espelho (na perda o espelho está desligado; na
      * perda só do IndexedDB o open da página está segurado), então o arquivo que o paraCadaIdb entrega não muda no meio.
      *
-     * @return true se tudo saiu, inclusive o idbFim; false se a ponte caiu (sem o idbFim: o teto da página resolve)
+     * @return true se tudo saiu, inclusive o idbFim; false se a ponte caiu (sem o idbFim: o prazo da página resolve)
      */
     public boolean enviarIdb(Saida saida) {
         Envio envio = new Envio(saida);
@@ -370,6 +533,20 @@ public final class Mensageiro {
             avisar("idbPedir", envio.ilegiveis + " blob(s) ilegível(is) no espelho; a página os tem por pendentes");
         }
         return envio.mandar(json("t", "idbFim", "n", envio.mandadas.size()));
+    }
+
+    /**
+     * Diz à página que a restauração do IndexedDB não sai agora ({@code {t:'idbRecusado'}}): ela solta o banco das
+     * fotos na hora, sem esperar o prazo dela, e a carga de uma janela seguinte pede de novo.
+     *
+     * @return false se a ponte caiu (a página tem o prazo dela)
+     */
+    public boolean recusarIdb(Saida saida) {
+        try {
+            return saida.enviar(json("t", "idbRecusado"));
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     private final class Envio implements ArmazemEspelho.ItemIdb {

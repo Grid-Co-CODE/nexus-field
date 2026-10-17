@@ -112,6 +112,15 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     `semParar: true`). No `restaurado`, volta ao leve fresco; se o espelho falhar ao ler, vai o sem conferência, nunca
     fica no completo: ele seria reaplicado na carga sem o id no sessionStorage ("limpar só o login") e gravaria o `ls` e
     a fila velhos.
+  - **O disjuntor do dia** (`Mensageiro.DisjuntorDaPerda`): no máximo 3 restaurações por 24 h NO APARELHO, porque a
+    página refaz na carga seguinte a restauração que não terminou, e o disco cheio que recusa sempre faria cada abertura
+    pedir tudo de novo e segurar a página. Somam as de perda (o `precisoRetrato` 'perda'; estourado, vai o sem
+    conferência, e a página segue sem espelho com a marca de pé até a janela andar) e as só do IndexedDB (o `idbPedir`
+    com `motivo: 'idb'`, ou sem motivo; estourado, o nativo responde `{t:'idbRecusado'}` pela ponte e a página abre na
+    hora). O `idbPedir` da perda leva `motivo: 'perda'` e não conta de novo. O de 60 s é conferido antes: a recarga em
+    laço não gasta o do dia. A contagem mora no SharedPreferences `casca_espelho` (fora do backup, como tudo), com o
+    relógio de parede (atravessa a reinicialização); a marca "do futuro" (a hora do aparelho voltou) não conta, senão
+    travaria pelo tempo que a hora voltou. Se o SharedPreferences não gravar, vale a contagem do objeto, um por processo.
   - Com `semParar` o `inicio.js` nunca chama `win.stop()`: a perda (a marca, ou o localStorage vazio com espelho) segue
     com o espelho desligado, como na trava da sessão, e avisa `{t:'erro', onde:'perda'}`; a fila atrasada segue. Sem
     ele, com a marca da perda e o sessionStorage que não guarda a trava, o leve sem `filaHashes` não evitava a parada da
@@ -133,6 +142,48 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     montagem e pela prova no aparelho.
   - O AGP 8 não gera o `BuildConfig` sem `buildFeatures.buildConfig` (o user agent e o `DEBUG` vêm dele), e o
     `androidx.webkit` entra no app de novo porque o `capacitor-android` o tem só como `implementation`.
+- **O script de início e a restauração** (`www/casca/inicio.js`; os testes são `testes/restaurar-ls.test.mjs` e
+  `testes/espelho-idb.test.mjs`). O que não aparece no código sem ler os comentários longos:
+  - **A reconciliação nunca manda apagar no nativo** (nem `idbDel` nem `lsDel`): só reenvia o que falta lá. O nativo só
+    encolhe pelas exclusões da própria página, espelhadas na hora. Caso que criou a regra: com o disco cheio, a
+    restauração terminava sem gravar, e a reconciliação seguinte apagava no nativo a foto que só ele tinha. Custo aceito:
+    uma exclusão da página que se perdeu no canal pode voltar numa restauração (a faxina de órfãos da página a limpa).
+  - **A perda só termina inteira.** A marca `gc_casca_perda_pendente` sai, e a sentinela entra, só quando o localStorage
+    E o IndexedDB das fotos voltaram (o `idbFim` com o `n` batendo e toda chave gravada). O banco `gc_casca` quer dizer só
+    "a última restauração do IndexedDB terminou": toda restauração começa apagando-o e o recria no fim. A interrompida (o
+    loginRedirect logo depois da perda, o renderer que morre num vídeo) recomeça na carga seguinte: com a marca, a carga
+    para e pede o retrato de novo; sem o `gc_casca`, restaura de novo. A trava da sessão (`gc_casca_parou`) sai quando um
+    retrato completo é aplicado com a fila dele, senão a sessão inteira não pararia mais carga nenhuma. A carga que aplica
+    o retrato da perda espelha (o localStorage acabou de voltar do nativo); toda outra carga com a marca, não. Sem
+    IndexedDB na janela, a perda termina só com o localStorage. A chave que o `idbChaves` anunciou e o nativo não mandou
+    não conta (o `n` é o que ele mandou): contá-la travaria a perda para sempre por um blob ilegível no espelho.
+  - **A perda só do IndexedDB** (sem o `gc_casca`, ou a store das fotos vazia com o nativo cheio) grava só as chaves
+    AUSENTES na WebView, nunca sobrescreve: o espelho pode ter perdido a última gravação de um rascunho. A da perda grava
+    tudo (a mesma geração do localStorage). No fim de toda restauração, o que só a WebView tem vai ao nativo.
+  - **O prazo da seção do IndexedDB é de inatividade**: 20 s sem item nem pedaço do nativo, com teto absoluto de 180 s. O
+    teto fixo de 15 s soltava a página no meio de uma restauração saudável de vídeos, e o envio da fila dava por enviadas
+    as fotos que ainda não tinham chegado.
+  - **A fila feita numa carga sem espelho** (a trava, o `semParar`) é juntada à do retrato da perda, em vez de ir por
+    baixo dela: quando a da WebView difere da do retrato, não é uma versão que o nativo tem (`filaHashes` ou a última da
+    sessão) e as duas são listas em JSON, ficam os itens do nativo mais os da WebView que ele não tem (pelo JSON do
+    item), e a junta é espelhada depois do `restaurado`. Prefere duplicar a perder. A restauração só da fila não junta.
+  - **O espelho nativo recriado** (a sentinela na WebView e `temEspelho` falso: o SQLite corrompido que o Android recria
+    vazio) recebe, além da `sentinela` e da fila, todo o trabalho e o cache do localStorage (o trabalho primeiro), uma
+    vez por sessão (`gc_casca_ls_reenviado`): a `gc_campo_ident` é gravada uma vez, no login, e só chegaria a ele no
+    próximo login. Vale também na instalação nova com chaves na WebView.
+- **O voltar do Android, do lado do script** (seção 7 do `inicio.js`, `testes/voltar.test.mjs`): o Capacitor 8.5.3 não
+  trata o voltar e o `campo.html` não usa histórico, então o gesto saía do app no meio da OS. `window.__gcCascaVoltar()`
+  (não enumerável) decide NA HORA a camada de cima e devolve true, e a fecha num `setTimeout(0)` pelo botão ou função que
+  o técnico usaria (um `confirm()` da página não segura a resposta ao nativo). Sem nada aberto devolve false, e o nativo
+  manda o app para o fundo; erro vira `{t:'erro', onde:'voltar'}` e false. A ordem é a do z-index do `campo.html` v282:
+  a camada da casca; a foto `.rd-lb`; a câmera `#cam`; as esperas `#cham-wait`, `#geo-exige` e `#sonda.open` (consumidas
+  sem fazer nada); a APR (o rascunho é salvo ANTES do `aprFechar`, que o botão de fechar da página não salva); os Extintores; as
+  folhas de z 520 (o `#sheet` reabre a OS que ele tinha substituído); a OS, pelo botão do `#m-body` (o Cancelar da Pausa
+  volta para a OS); o menu; as abas (o voltar da Ronda e da Zeladoria; as outras vão para Tarefas). Os nomes ficam todos
+  no `VOLTAR` exportado, que o contrato com o site exige; um nome trocado no site só faz o voltar minimizar, nunca fecha a
+  camada de baixo no lugar da de cima. O `sheetTask` é um `let` de topo do site, que não vira propriedade da janela: é
+  lido pelo nome (o teste prova num jsdom que roda o script e a página como scripts de verdade). Se o site adotar o
+  histórico (pushState ao abrir camada), a seção sai e o nativo passa ao `goBack()`.
 - **A atualização da casca** (`Atualizador`, `VersaoRemota`; o `CascaPlugin` a chama no `load()` e no `handleOnResume()`):
   - Lê o `versao.json` de `releases/latest/download/` (não conta no limite da API do GitHub), com as chaves `versionCode`
     (inteiro), `versionName`, `apk`, `sha256` (64 dígitos hex) e `novidades` (lista de textos). O `ferramentas/versao-json.mjs`

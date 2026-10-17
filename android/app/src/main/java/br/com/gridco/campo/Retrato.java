@@ -24,8 +24,10 @@ import org.json.JSONObject;
  *     ls: { chave: valor, ... },     // vazio no motivo 'fila'
  *     fila: texto da fila mais nova, ou null }
  *
- * sem conferência (Mensageiro.semConferencia: o disjuntor desarmou, o pedido veio torto ou o espelho não leu):
- *   o leve com filaHashes vazio e semParar: true (a página não chama win.stop() nesta carga)
+ * sem conferência (Mensageiro.semConferencia: um disjuntor desarmou, o de 60 s ou o das restaurações por 24 h; o
+ * pedido veio torto; ou o espelho não leu):
+ *   o leve com filaHashes vazio e semParar: true (a página não chama win.stop() nesta carga; com a marca da perda,
+ *   ela segue sem espelho)
  * </pre>
  *
  * O {@code id} muda a cada chamada de propósito: o script grava o do último retrato que aplicou e não aplica o mesmo

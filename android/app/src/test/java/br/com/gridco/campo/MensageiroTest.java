@@ -7,6 +7,8 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Base64;
 
 import java.io.ByteArrayOutputStream;
@@ -28,6 +30,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.shadows.ShadowLog;
 
 /**
@@ -282,6 +285,154 @@ public class MensageiroTest {
         assertEquals("restaurar", acoes.retratos.get(3).getString("modo"));
     }
 
+    // --- o disjuntor da perda: 3 restaurações por 24 h no aparelho ------------------------------------------------------
+
+    @Test
+    public void disjuntorDaPerdaDeixaTresEm24hPeloRelogioDeParede() {
+        Mensageiro.DisjuntorDaPerda.Memoria memoria = Mensageiro.DisjuntorDaPerda.naMemoria();
+        long[] parede = {5_000_000_000L};
+        Mensageiro.DisjuntorDaPerda d = new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]);
+        assertTrue(d.libera());
+        assertTrue("dois no mesmo instante contam dois", d.libera());
+        parede[0] += 1_000L;
+        assertTrue(d.libera());
+        assertFalse("a quarta em 24 h não sai", d.libera());
+        parede[0] += Mensageiro.JANELA_DA_PERDA_MS - 1_001L;
+        assertFalse("um milissegundo antes de as duas primeiras saírem da janela", d.libera());
+        parede[0] += 1L;
+        assertTrue("as duas primeiras saíram da janela", d.libera());
+        assertTrue(d.libera());
+        assertFalse(d.libera());
+    }
+
+    @Test
+    public void disjuntorDaPerdaAtravessaOProcessoPelaMemoria() {
+        // O processo morre (o renderer que morre na restauração, o Android que mata o app em segundo plano): a contagem
+        // é do aparelho, na memória que fica (o SharedPreferences), não do processo.
+        Mensageiro.DisjuntorDaPerda.Memoria memoria = Mensageiro.DisjuntorDaPerda.naMemoria();
+        long[] parede = {7_000_000_000L};
+        assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
+        assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
+        assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
+        assertFalse(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
+    }
+
+    @Test
+    public void disjuntorDaPerdaSemGravarNaMemoriaAindaContaNoProcesso() {
+        // O disco cheio, que é o caso do laço, também pode recusar o SharedPreferences.
+        Mensageiro.DisjuntorDaPerda.Memoria quebrada = new Mensageiro.DisjuntorDaPerda.Memoria() {
+            @Override public String ler() { return ""; }
+            @Override public void gravar(String valor) { throw new IllegalStateException("disco cheio"); }
+        };
+        Mensageiro.DisjuntorDaPerda d = new Mensageiro.DisjuntorDaPerda(quebrada, () -> 9_000_000_000L);
+        assertTrue(d.libera());
+        assertTrue(d.libera());
+        assertTrue(d.libera());
+        assertFalse(d.libera());
+    }
+
+    @Test
+    public void disjuntorDaPerdaComORelogioQueVoltouOuAMemoriaTortaNaoTravaParaSempre() {
+        Mensageiro.DisjuntorDaPerda.Memoria memoria = Mensageiro.DisjuntorDaPerda.naMemoria();
+        long[] parede = {10_000_000_000L};
+        Mensageiro.DisjuntorDaPerda d = new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]);
+        assertTrue(d.libera());
+        assertTrue(d.libera());
+        assertTrue(d.libera());
+        assertFalse(d.libera());
+        // A hora do aparelho voltou um ano: as marcas "do futuro" não valem (senão travariam por um ano).
+        parede[0] -= 365L * Mensageiro.JANELA_DA_PERDA_MS;
+        assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
+
+        Mensageiro.DisjuntorDaPerda.Memoria torta = Mensageiro.DisjuntorDaPerda.naMemoria();
+        torta.gravar("x,,-3,abc," + Long.MAX_VALUE);
+        assertTrue(new Mensageiro.DisjuntorDaPerda(torta, () -> parede[0]).libera());
+    }
+
+    @Test
+    public void perdaComODisjuntorDoDiaEstouradoRecarregaSemConferenciaEAFilaContinua() throws JSONException {
+        fake.sentinela = true;
+        fake.hashes = Arrays.asList("aaaaaaaa");
+        for (int i = 0; i < 3; i++) {
+            assertTrue(m.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+            agora += 61_000L; // fora da janela de 60 s: só o disjuntor do dia conta
+        }
+        assertTrue(m.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+        assertEquals(4, acoes.retratos.size());
+        for (int i = 0; i < 3; i++) assertEquals("restaurar", acoes.retratos.get(i).getString("modo"));
+        JSONObject quarto = acoes.retratos.get(3);
+        assertFalse("a quarta perda em 24 h recarrega sem o completo", quarto.has("modo"));
+        assertTrue("e a página não para a carga: segue sem espelho até a janela andar", quarto.getBoolean("semParar"));
+        assertEquals(0, quarto.getJSONArray("filaHashes").length());
+        assertEquals(1, acoes.erros.size());
+        assertTrue(acoes.erros.get(0), acoes.erros.get(0).startsWith("disjuntor:"));
+        assertTrue(acoes.erros.get(0), acoes.erros.get(0).contains("24 h"));
+
+        // O retrato da fila não é restauração de perda: continua saindo.
+        agora += 61_000L;
+        assertTrue(m.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"fila\"}"));
+        assertEquals("restaurar", acoes.retratos.get(4).getString("modo"));
+        semDadosDoTecnico();
+    }
+
+    @Test
+    public void disjuntorDe60sNaoGastaAsRestauracoesDoDia() throws JSONException {
+        // A recarga em laço (o renderer que morre na recarga com o completo) para no de 60 s, sem gastar o dia.
+        for (int i = 0; i < 5; i++) assertTrue(m.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+        agora += 61_000L;
+        assertTrue(m.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+        assertEquals("a terceira restauração do dia ainda sai", "restaurar", acoes.retratos.get(5).getString("modo"));
+    }
+
+    @Test
+    public void idbPedirSoDoIndexedDbContaNoDisjuntorEODaPerdaNao() throws JSONException {
+        // A restauração da perda já passou pelo disjuntor no precisoRetrato.
+        for (int i = 0; i < 5; i++) assertTrue(m.tratar("{\"t\":\"idbPedir\",\"motivo\":\"perda\"}"));
+        assertEquals(5, acoes.idbPedidos);
+        // A só do IndexedDB (sem o banco sentinela da casca, a restauração que não terminou): 3 por 24 h, junto com as de
+        // perda. Sem motivo conta como ela.
+        assertTrue(m.tratar("{\"t\":\"idbPedir\",\"motivo\":\"idb\"}"));
+        assertTrue(m.tratar("{\"t\":\"idbPedir\"}"));
+        assertTrue(m.tratar("{\"t\":\"idbPedir\",\"motivo\":\"idb\"}"));
+        assertEquals(8, acoes.idbPedidos);
+        assertEquals(0, acoes.idbRecusas);
+        assertTrue(m.tratar("{\"t\":\"idbPedir\",\"motivo\":\"idb\"}"));
+        assertEquals("a quarta é recusada", 8, acoes.idbPedidos);
+        assertEquals(1, acoes.idbRecusas);
+        assertTrue(acoes.erros.toString(), acoes.erros.get(0).startsWith("disjuntor:"));
+
+        // E a perda que vem depois também esbarra no mesmo dia.
+        assertTrue(m.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+        assertTrue(acoes.retratos.get(0).getBoolean("semParar"));
+    }
+
+    @Test
+    public void recusarIdbMandaOIdbRecusadoPelaPonte() throws JSONException {
+        List<String> saiu = new ArrayList<>();
+        assertTrue(m.recusarIdb(msg -> { saiu.add(msg); return true; }));
+        assertEquals(1, saiu.size());
+        assertEquals("idbRecusado", new JSONObject(saiu.get(0)).getString("t"));
+        assertFalse(m.recusarIdb(msg -> { throw new IllegalStateException("a ponte caiu"); }));
+    }
+
+    @Test
+    public void aMemoriaDoDisjuntorNoSharedPreferencesGuardaEntreAsInstancias() {
+        SharedPreferences prefs = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("casca_espelho_teste", Context.MODE_PRIVATE);
+        prefs.edit().clear().commit();
+        long[] parede = {11_000_000_000L};
+        for (int i = 0; i < 3; i++) {
+            assertTrue(new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naPreferencia(prefs), () -> parede[0])
+                .libera());
+        }
+        assertFalse(new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naPreferencia(prefs), () -> parede[0])
+            .libera());
+        // Um valor de outro tipo na chave (versão antiga, arquivo mexido) conta como vazio, sem lançar.
+        prefs.edit().clear().putInt(Mensageiro.DisjuntorDaPerda.CHAVE, 7).commit();
+        assertTrue(new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naPreferencia(prefs), () -> parede[0])
+            .libera());
+    }
+
     @Test
     public void motivoInvalidoRecarregaSemConferirAFilaEAvisaSemOValor() throws JSONException {
         // A página que mandou o pedido já chamou win.stop(): sem a recarga, fica em branco até matar o app. O motivo
@@ -402,12 +553,14 @@ public class MensageiroTest {
 
     @Test
     public void erroDaPaginaComRotuloDoScriptVaiAoLogComORotulo() {
-        for (String onde : new String[] {"idbRestaurar", "espelho-ls", "document.write", "location.href", "perda"}) {
+        for (String onde : new String[] {"idbRestaurar", "espelho-ls", "document.write", "location.href", "perda",
+                "voltar", "reenvio"}) {
             assertTrue(onde, m.tratar("{\"t\":\"erro\",\"onde\":\"" + onde + "\",\"msg\":\"qualquer\"}"));
         }
         assertEquals(Arrays.asList("idbRestaurar: erro da página (1 nesta partida)",
             "espelho-ls: erro da página (2 nesta partida)", "document.write: erro da página (3 nesta partida)",
-            "location.href: erro da página (4 nesta partida)", "perda: erro da página (5 nesta partida)"), acoes.erros);
+            "location.href: erro da página (4 nesta partida)", "perda: erro da página (5 nesta partida)",
+            "voltar: erro da página (6 nesta partida)", "reenvio: erro da página (7 nesta partida)"), acoes.erros);
     }
 
     // --- a resposta do idbPedir -----------------------------------------------------------------------------------------
@@ -609,10 +762,12 @@ public class MensageiroTest {
         final List<String> fora = new ArrayList<>();
         final List<String> erros = new ArrayList<>();
         int idbPedidos;
+        int idbRecusas;
 
         @Override public void precisoRetrato(JSONObject retrato) { retratos.add(retrato); }
         @Override public void restaurado(JSONObject retratoLeve) { leves.add(retratoLeve); }
         @Override public void idbPedir() { idbPedidos++; }
+        @Override public void idbRecusado() { idbRecusas++; }
         @Override public void abrirFora(String url) { fora.add(url); }
         @Override public void erro(String onde, String msg) { erros.add(onde + ": " + msg); }
     }

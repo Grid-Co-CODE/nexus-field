@@ -16,8 +16,7 @@ import { JSDOM } from 'jsdom';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 
 const require = createRequire(import.meta.url);
-const { SENTINELA_LS, BANCO_SENTINELA, STORE_PENDENTES, STORE_ESTADO, CHAVE_RESTAURACAO } =
-  require('../www/casca/inicio.js');
+const { SENTINELA_LS, BANCO_SENTINELA } = require('../www/casca/inicio.js');
 
 // O banco e a store das fotos do campo.html (`IDB_NAME`, `IDB_STORE`).
 export const BANCO_FOTOS = 'gc_campo_fotos';
@@ -227,29 +226,11 @@ function abrirFotos(aparelho) {
   return pedir(req);
 }
 
-// Abre o banco sentinela da casca como o script o cria (versão 1, as stores das pendentes e do estado).
-function abrirCasca(aparelho) {
-  const req = aparelho.open(BANCO_SENTINELA, 1);
-  req.onupgradeneeded = () => {
-    for (const nome of [STORE_PENDENTES, STORE_ESTADO]) {
-      if (!req.result.objectStoreNames.contains(nome)) req.result.createObjectStore(nome);
-    }
-  };
-  return pedir(req);
-}
-
-// Põe no aparelho, antes da carga, o que uma WebView em uso já teria: o banco sentinela da casca (`casca`, com as
-// chaves `pendentes` de uma restauração que não as trouxe e a marca `incompleta`) e as fotos (`fotos`, chave -> valor;
-// `{}` cria o banco com a store vazia). Grava pelos originais, sem passar por embrulho nenhum.
-export async function semear(aparelho, { casca = false, pendentes = [], incompleta = false, fotos = null } = {}) {
-  if (casca) {
-    const db = await abrirCasca(aparelho);
-    const tx = db.transaction([STORE_PENDENTES, STORE_ESTADO], 'readwrite');
-    for (const k of pendentes) PUT_ORIGINAL.call(tx.objectStore(STORE_PENDENTES), 1, k);
-    if (incompleta) PUT_ORIGINAL.call(tx.objectStore(STORE_ESTADO), 'incompleta', CHAVE_RESTAURACAO);
-    await concluir(tx);
-    db.close();
-  }
+// Põe no aparelho, antes da carga, o que uma WebView em uso já teria: o banco sentinela da casca (`casca`: o IndexedDB
+// desta WebView já foi conferido com o nativo; só a existência dele conta, como o script o cria) e as fotos (`fotos`,
+// chave -> valor; `{}` cria o banco com a store vazia). Grava pelos originais, sem passar por embrulho nenhum.
+export async function semear(aparelho, { casca = false, fotos = null } = {}) {
+  if (casca) (await pedir(aparelho.open(BANCO_SENTINELA, 1))).close();
   if (fotos) {
     const db = await abrirFotos(aparelho);
     const tx = db.transaction(STORE_FOTOS, 'readwrite');
@@ -281,23 +262,9 @@ export async function lerFotos(aparelho) {
   return tudo;
 }
 
-// O que o banco sentinela da casca guarda agora: { pendentes (ordenadas), incompleta }, ou null se ele não existe.
-export async function lerCasca(aparelho) {
-  if (!(await bancos(aparelho)).includes(BANCO_SENTINELA)) return null;
-  const db = await pedir(aparelho.open(BANCO_SENTINELA));
-  const nomes = [...db.objectStoreNames];
-  if (!nomes.includes(STORE_PENDENTES) || !nomes.includes(STORE_ESTADO)) {
-    db.close();
-    return { semStores: true };
-  }
-  const tx = db.transaction([STORE_PENDENTES, STORE_ESTADO], 'readonly');
-  const fim = concluir(tx);
-  const [chaves, estado] = await Promise.all([
-    pedir(tx.objectStore(STORE_PENDENTES).getAllKeys()), pedir(tx.objectStore(STORE_ESTADO).get(CHAVE_RESTAURACAO)),
-  ]);
-  await fim;
-  db.close();
-  return { pendentes: chaves.map(String).sort(), incompleta: estado === 'incompleta' };
+// O banco sentinela da casca existe agora? (Ele quer dizer: a última restauração do IndexedDB terminou.)
+export async function temCasca(aparelho) {
+  return (await bancos(aparelho)).includes(BANCO_SENTINELA);
 }
 
 // Os bytes de um Blob, para comparar.

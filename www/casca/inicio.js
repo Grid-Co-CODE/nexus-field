@@ -15,6 +15,7 @@
  *   4. sentinela do localStorage, versões da fila e restauração  (Task 3; roda ANTES da 3)
  *   5. espelho e restauração do IndexedDB das fotos              (Task 4; depois da 3 e da 4)
  *   6. window.open: o login da Microsoft e o "Conectar Fracttal"  (Task 4)
+ *   7. o voltar do Android (window.__gcCascaVoltar)               (onda final)
  */
 (function () {
   'use strict';
@@ -60,6 +61,33 @@
       ],
       prefixos: ['gc_subs_', 'gc_v1_almox_'],
     },
+  };
+
+  // O que o VOLTAR DO ANDROID (seção 7) usa do campo.html (v282, lido em 17/10/2026), e só daqui: o teste de contrato com
+  // o site importa este objeto e exige cada nome no HTML vivo. Se o site trocar um, o voltar daquela camada só manda o
+  // app para o fundo (como antes da casca tratar o voltar), sem quebrar a página.
+  //   id:     as camadas e as telas das abas (sem o '#');
+  //   classe: os botões que o técnico tocaria e as marcas de camada aberta ('open') e de aba ativa ('on');
+  //   funcao: as funções de topo da página, que no script clássico dela são propriedades da janela;
+  //   global: o `let` de topo que não vira propriedade da janela e é lido pelo nome (ver tarefaDoFechamento).
+  var VOLTAR = {
+    id: {
+      camera: 'cam', sonda: 'sonda', esperaChamado: 'cham-wait', exigeGps: 'geo-exige', apr: 'apr-modal',
+      extintores: 'ext-tela', fora: 'fora-modal', ver: 'ver-modal', fechamento: 'sheet', feedback: 'fb-sheet',
+      os: 'modal', corpoDaOs: 'm-body', menu: 'user-menu', ronda: 'tela-ronda', zeladoria: 'tela-zl',
+      sincronizacao: 'tela-sync', conquistas: 'tela-conquistas', acompanhamento: 'tela-acomp',
+    },
+    classe: {
+      aberta: 'open', abaAtiva: 'on', foto: 'rd-lb', cameraVolta: 'cam-volta', extintoresVolta: 'ext-volta',
+      fecharOs: 'm-close-btn', rondaVolta: 'rd-voltar', zeladoriaVolta: 'zl-volta',
+    },
+    funcao: {
+      camera: 'camFechar', aprSalvar: '_aprRascSalvar', aprFechar: 'aprFechar', extintores: 'extFechar',
+      fora: 'foraFechar', ver: 'fecharVer', fechamento: 'fecharSheet', abrirOs: 'abrirModal', feedback: 'fecharFeedback',
+      os: 'fecharModal', menu: 'fecharUserMenu', aba: 'setTab',
+    },
+    global: { tarefaDoFechamento: 'sheetTask' },
+    abaInicial: 'tarefas',
   };
 
   // Conjuntos para o teste de pertinência: `Array.includes` serve, mas a chave 'constructor' ou '__proto__' não pode
@@ -128,7 +156,14 @@
 
       // Ligado pela seção 4 quando esta carga aplicou o retrato completo de uma perda (motivo 'perda', ou sem motivo):
       // a seção 5 devolve também o IndexedDB inteiro do nativo, a mesma geração do localStorage que acabou de voltar.
+      // Esta carga espelha (o localStorage acabou de voltar do nativo), mesmo com a marca da perda ainda de pé.
       restauracaoDePerda: false,
+
+      // Na carga da restauração da perda, a função (da seção 4) que tira a marca e grava a sentinela: a perda só termina
+      // quando o localStorage E o IndexedDB voltaram (ver A MARCA DA PERDA). Quem a chama é a seção 5, no fim da
+      // restauração dela (`idbCuidaDaPerda`), ou o `instalar`, quando a seção 5 nem roda nesta carga (sem IndexedDB).
+      concluirPerda: null,
+      idbCuidaDaPerda: false,
 
       // O localStorage e a memória da sessão capturados pela seção 4 (capturarLS), ou null. A seção 5 guarda ali a
       // marca da reconciliação.
@@ -312,9 +347,16 @@
   // gravou '[]' na fila e o gc_vivo, e a carga seguinte, tomada por faxina, ligaria o espelho e mandaria o '[]' por
   // cima da fila que o nativo guardou. Por isso, ao ver a perda, o script grava MARCA_PERDA (pelo original, antes do
   // stop) e, enquanto ela estiver no localStorage, toda carga é perda, tenha a WebView chaves ou sentinela, e roda
-  // sem espelho. Só a restauração de uma perda a apaga; a da fila não mexe nela. A página nunca a grava nem a apaga
-  // de propósito (o classificar a deixa fora do espelho e da restauração); o despejo do `lsS` vai da maior chave para a
-  // menor e só chegaria a ela, que é pequena, depois de derrubar todas as maiores que ele não protege (os caches).
+  // sem espelho. A exceção é a carga que aplica o retrato completo da perda: o localStorage dela acabou de voltar do
+  // nativo, e ela espelha. A marca só sai quando a restauração inteira terminou, o localStorage E o IndexedDB das fotos
+  // (o idbFim recebido e as gravações conferidas, na seção 5). Caso que criou a regra: a restauração do IndexedDB que
+  // morria no meio (o técnico toca em Entrar logo depois da perda e o loginRedirect leva a página) não era retomada, e a
+  // página dava por enviadas as fotos que só o nativo tinha. Com a marca de pé, a carga seguinte para e pede o retrato de
+  // novo, e a restauração recomeça inteira (é idempotente: o localStorage é o do nativo, que já tem o que esta carga
+  // espelhou, e as fotos são regravadas). Quem segura o laço é o disjuntor do nativo (3 restaurações de perda por 24 h).
+  // A da fila não mexe na marca. A página nunca a grava nem a apaga de propósito (o classificar a deixa fora do espelho
+  // e da restauração); o despejo do `lsS` vai da maior chave para a menor e só chegaria a ela, que é pequena, depois de
+  // derrubar todas as maiores que ele não protege (os caches).
   var VALOR_MARCA = '1';
 
   // A MEMÓRIA DA SESSÃO. O nativo registra o retrato leve uma vez por partida, e ele vale para toda carga dela: as
@@ -325,15 +367,20 @@
   // e guarda três chaves, sempre pelo setItem original (o espelho só olha o localStorage):
   //   SESSAO_FILA     fnv1a32 da última fila que o script espelhou ou restaurou nesta sessão: o nativo a tem como a
   //                   mais nova, então a WebView com ela está em dia, diga o retrato o que disser;
-  //   SESSAO_PAROU    esta sessão já parou uma carga. O script nunca para duas: se o nativo não atendesse o segundo
-  //                   pedido, a página ficaria em branco até matar o app;
+  //   SESSAO_PAROU    esta sessão parou uma carga e o pedido ainda não foi atendido. O script nunca para duas: se o
+  //                   nativo não atendesse o segundo pedido, a página ficaria em branco até matar o app. Sai quando um
+  //                   retrato completo é aplicado (com a fila dele no lugar): senão, depois de uma restauração, a sessão
+  //                   inteira (às vezes o dia, com o app vivo) não pararia mais carga nenhuma, e uma segunda perda nela,
+  //                   ou a restauração interrompida, cairia na carga sem espelho;
   //   SESSAO_RETRATO  o id do último retrato completo aplicado: o mesmo retrato, de novo, regravaria sem espelhar por
-  //                   cima do que a página fez depois dele.
+  //                   cima do que a página fez depois dele;
+  //   SESSAO_LS       o localStorage já foi mandado inteiro ao espelho recriado nesta sessão (ver reenviarLS).
   // Sem sessionStorage (falta, lança, ou a página o limpou no "limpar só o login"), vale a regra de antes: só as
   // versões do retrato.
   var SESSAO_FILA = 'gc_casca_fila_sessao';
   var SESSAO_PAROU = 'gc_casca_parou';
   var SESSAO_RETRATO = 'gc_casca_retrato_aplicado';
+  var SESSAO_LS = 'gc_casca_ls_reenviado';
 
   // Captura o localStorage real e os métodos originais UMA vez, antes de qualquer embrulho e de qualquer script da
   // página. A restauração grava por eles (pelos embrulhados, ecoaria ao nativo o que acabou de vir dele) e o espelho
@@ -364,6 +411,9 @@
   }
   function gravarSessao(ls, chave, valor) {
     try { if (ls.sessao) ls.setItem.call(ls.sessao, chave, valor); } catch (e) { /* sem memória: a regra de antes */ }
+  }
+  function apagarSessao(ls, chave) {
+    try { if (ls.sessao) ls.removeItem.call(ls.sessao, chave); } catch (e) { /* sem memória: nada a apagar */ }
   }
 
   // Manda a fila da WebView ao nativo e, se a mensagem saiu, lembra dela na sessão (SESSAO_FILA). É o caminho único da
@@ -458,7 +508,8 @@
   //   sem sentinela, com espelho, WebView vazia        → perda: grava a marca, para e pede o retrato;
   //   sem sentinela, com espelho, WebView com chaves   → a faxina da página levou a sentinela: regrava e confere
   //                                                       a fila;
-  //   com sentinela, sem espelho                       → reenvia 'sentinela' e confere a fila;
+  //   com sentinela, sem espelho                       → reenvia 'sentinela', confere a fila e manda o resto do
+  //                                                       localStorage (reenviarLS);
   //   com sentinela, com espelho                       → confere a fila.
   // Fora da restauração, esta seção nunca escreve na página além da sentinela e da marca da perda.
   function conferirSentinelaEFila(ctx, ls) {
@@ -479,9 +530,10 @@
 
     // Só `true` vale: um retrato torto não pode parar a carga do técnico.
     var temEspelho = retrato.temEspelho === true;
+    var mandarOResto = false;
     if (ls.getItem.call(ls.real, SENTINELA_LS) === null) {
       if (!temEspelho) {
-        if (gravarSentinela(ctx, ls)) ctx.enviar({ t: 'sentinela' }, 'sentinela');
+        if (gravarSentinela(ctx, ls)) mandarOResto = ctx.enviar({ t: 'sentinela' }, 'sentinela');
       } else if (ls.real.length === 0) {
         // Lido agora, antes de qualquer script da página: nesta hora só a perda de verdade deixa o localStorage vazio.
         // A marca gravada aqui faz as cargas seguintes também verem a perda, mesmo depois de a página gravar alguma
@@ -498,10 +550,40 @@
       // A sentinela está na WebView, mas o nativo não marcou o espelho (a `sentinela` da instalação se perdeu, ou o
       // banco dele foi recriado). Sem o reenvio, uma perda futura seria tomada por instalação nova e nada voltaria.
       // O nativo trata a mensagem repetida como a primeira.
-      ctx.enviar({ t: 'sentinela' }, 'sentinela');
+      mandarOResto = ctx.enviar({ t: 'sentinela' }, 'sentinela');
     }
 
     conferirFila(ctx, ls);
+    if (mandarOResto && !ctx.espelhoDesligado) reenviarLS(ctx, ls);
+  }
+
+  // O ESPELHO RECRIADO. O nativo sem a marca do espelho (temEspelho falso) com a WebView em uso é o banco dele que foi
+  // recriado: o SQLite corrompido que o Android apaga e abre vazio, ou a `sentinela` da instalação que se perdeu. A fila
+  // a conferirFila já mandou (sem versões no nativo, a da WebView está à frente); o resto do localStorage só chegaria a
+  // ele quando a página o regravasse, e a gc_campo_ident é gravada uma vez, no login. Uma perda nesse meio tempo
+  // devolveria a fila sem os rascunhos. Então vai tudo que é trabalho e cache (o trabalho primeiro), lido agora, antes
+  // de qualquer script da página, uma vez por sessão (SESSAO_LS: o retrato leve da partida continua dizendo temEspelho
+  // falso nas recargas dela). Só manda o que a WebView tem; nunca manda apagar. Se o canal recusar alguma, a marca da
+  // sessão não entra e a carga seguinte manda de novo.
+  function reenviarLS(ctx, ls) {
+    if (lerSessao(ls, SESSAO_LS) !== null) return;
+    var real = ls.real;
+    var trabalho = [];
+    var cache = [];
+    for (var i = 0; i < real.length; i++) {
+      var chave = real.key(i);
+      var classe = classificar(chave);
+      if (classe === 'trabalho') trabalho.push(chave);
+      else if (classe === 'cache') cache.push(chave);
+    }
+    var todas = true;
+    var chaves = trabalho.concat(cache);
+    for (var j = 0; j < chaves.length; j++) {
+      var k = chaves[j];
+      var v = ls.getItem.call(real, k);
+      if (v !== null && !ctx.enviar({ t: 'ls', k: k, v: v }, 'reenvio')) todas = false;
+    }
+    if (todas) gravarSessao(ls, SESSAO_LS, '1');
   }
 
   // Compara a fila da WebView com as versões do retrato (mais nova primeiro, até 3, em fnv1a32) e com a última que esta
@@ -533,23 +615,30 @@
 
   // Devolve ao localStorage o que o retrato completo traz, pelos métodos originais (sem eco ao nativo, que já tem
   // tudo isso). Ordem: a fila, depois o trabalho, depois o cache, chave por chave; a que não couber vai para a lista
-  // `naoCouberam` e a próxima ainda é tentada (uma pequena pode caber depois de uma grande). Depois sai a marca da
-  // perda (só no retrato da perda) e, por último, entra a sentinela.
-  // A fila que voltou e o id do retrato ficam na memória da sessão (SESSAO_FILA e SESSAO_RETRATO).
+  // `naoCouberam` e a próxima ainda é tentada (uma pequena pode caber depois de uma grande). Na perda, a marca sai e a
+  // sentinela entra só quando o IndexedDB também voltou (ctx.concluirPerda); na fila, a sentinela entra já.
+  // A fila que voltou e o id do retrato ficam na memória da sessão (SESSAO_FILA e SESSAO_RETRATO), e a trava sai.
   // O `motivo` do retrato é o do pedido que ele atende. Com 'fila' o nativo manda `ls` vazio, e só a fila é regravada.
   // Do `ls` do retrato só entra o que o classificar diz que é trabalho ou cache: msal.*, a sentinela, a própria fila
   // (que vem no campo `fila`) e as preferências ficam de fora, mesmo que o nativo as mande por engano.
   function restaurarLS(ctx, ls) {
     var retrato = ctx.retrato;
     var origem = retrato.ls && typeof retrato.ls === 'object' ? retrato.ls : {};
+    // Sem `motivo` conta como perda: uma marca que nunca saísse deixaria toda carga sem espelho, partida após partida.
+    var daPerda = retrato.motivo !== 'fila';
     var naoCouberam = [];
     var chaves = 0;
     var fila = false;
+    var juntada = null;
 
     if (typeof retrato.fila === 'string') {
-      fila = gravarOriginal(ls, CHAVE_FILA, retrato.fila);
-      if (fila) gravarSessao(ls, SESSAO_FILA, fnv1a32(retrato.fila));
-      else naoCouberam.push(CHAVE_FILA);
+      // Na perda, a fila que o técnico fez numa carga sem espelho (a trava, o semParar) entra junto com a do nativo.
+      if (daPerda) juntada = juntarFilas(ctx, ls, retrato.fila);
+      var valorFila = juntada !== null ? juntada : retrato.fila;
+      fila = gravarOriginal(ls, CHAVE_FILA, valorFila);
+      if (!fila) naoCouberam.push(CHAVE_FILA);
+      // A do nativo, ele já tem como a mais nova. A junta só vale como em dia depois de chegar a ele (abaixo).
+      else if (juntada === null) gravarSessao(ls, SESSAO_FILA, fnv1a32(valorFila));
     }
 
     var nomes = Object.keys(origem);
@@ -564,24 +653,67 @@
       }
     }
 
-    // A perda está respondida: a marca sai pelo original (sem eco), depois do que voltou (se a carga morrer no meio, a
-    // seguinte ainda vê a perda e pede de novo) e antes da sentinela, que ganha o espaço dela. O retrato da fila não
-    // mexe na marca: uma perda pendente continua pendente. Sem `motivo` conta como perda, porque uma marca que nunca
-    // saísse deixaria toda carga sem espelho, partida após partida. Na perda, o IndexedDB volta junto (seção 5).
-    if (retrato.motivo !== 'fila') {
+    if (daPerda) {
+      // A perda só termina com o IndexedDB das fotos de volta (seção 5, ou o `instalar` sem ela): a marca sai pelo
+      // original (sem eco), depois do que voltou, e antes da sentinela, que ganha o espaço dela. Se a carga morrer antes,
+      // a seguinte ainda vê a perda e pede de novo (ver A MARCA DA PERDA). O retrato da fila não mexe na marca.
       ctx.restauracaoDePerda = true;
-      try { ls.removeItem.call(ls.real, MARCA_PERDA); } catch (e) { ctx.falhou('marca', e); }
+      ctx.concluirPerda = function () {
+        ctx.concluirPerda = null; // uma vez só
+        try { ls.removeItem.call(ls.real, MARCA_PERDA); } catch (e) { ctx.falhou('marca', e); }
+        gravarSentinela(ctx, ls);
+      };
+    } else {
+      // Por último a sentinela. Se não couber, o que voltou fica (inclusive o cache, que o técnico usa sem sinal): a
+      // carga seguinte acha a WebView com chaves e não toma a falta da sentinela por perda.
+      gravarSentinela(ctx, ls);
     }
 
-    // Por último a sentinela. Se não couber, o que voltou fica (inclusive o cache, que o técnico usa sem sinal): a
-    // carga seguinte acha a WebView com chaves e não toma a falta da sentinela por perda.
-    gravarSentinela(ctx, ls);
-
-    // Aplicado: o mesmo retrato numa recarga desta sessão segue como leve (ver SESSAO_RETRATO).
+    // Aplicado: o mesmo retrato numa recarga desta sessão segue como leve (ver SESSAO_RETRATO), e o pedido que parou a
+    // carga está atendido, então a trava sai. Com a fila que não coube, fica: senão a fila nula com versões no nativo
+    // pararia a carga seguinte e pediria o mesmo retrato que de novo não cabe.
     var id = idDoRetrato(retrato);
     if (id !== null) gravarSessao(ls, SESSAO_RETRATO, id);
+    if (fila || typeof retrato.fila !== 'string') apagarSessao(ls, SESSAO_PAROU);
 
     ctx.enviar({ t: 'restaurado', chaves: chaves, naoCouberam: naoCouberam, fila: fila }, 'restaurado');
+    // A junta é nova para o nativo: vai depois do restaurado, pelo caminho único da fila (e fica lembrada na sessão).
+    if (juntada !== null && fila) espelharFila(ctx, ls, juntada, 'fila');
+  }
+
+  // JUNTAR AS FILAS (só na restauração da perda). A WebView pode ter fila própria, feita numa carga que rodou sem espelho
+  // com a marca de pé (a trava da sessão, o semParar do disjuntor): o técnico fechou OS sem sinal, e a fila e as fotos
+  // ficaram só na WebView. Gravar a do nativo por cima apagaria esses itens, e a faxina de órfãos da página levaria as
+  // fotos deles. Se a da WebView difere da do retrato, não é uma versão que o nativo tem (filaHashes, ou a última que
+  // esta sessão espelhou) e as duas são listas em JSON, fica a do nativo mais os itens da WebView que ela não tem
+  // (comparando o JSON de cada item). Prefere duplicar a perder: um item que mudou na WebView entra de novo ao lado do
+  // antigo. Devolve o texto da junta, ou null (vale a do nativo, como antes).
+  function juntarFilas(ctx, ls, doNativo) {
+    var daWebView = ls.getItem.call(ls.real, CHAVE_FILA);
+    if (daWebView === null || daWebView === doNativo) return null;
+    var hash = fnv1a32(daWebView);
+    var versoes = Array.isArray(ctx.retrato.filaHashes) ? ctx.retrato.filaHashes : [];
+    if (versoes.indexOf(hash) >= 0 || hash === lerSessao(ls, SESSAO_FILA)) return null;
+    var nativo = null;
+    var webview = null;
+    try {
+      nativo = JSON.parse(doNativo);
+      webview = JSON.parse(daWebView);
+    } catch (e) { /* abaixo: o erro do JSON.parse cita o texto, e ele não vai ao nativo */ }
+    if (!Array.isArray(nativo) || !Array.isArray(webview)) {
+      ctx.falhou('fila', new Error('a fila da WebView não é uma lista em JSON: fica a do nativo'));
+      return null;
+    }
+    var vistos = new Set();
+    for (var i = 0; i < nativo.length; i++) vistos.add(JSON.stringify(nativo[i]));
+    var junta = nativo.slice();
+    for (var j = 0; j < webview.length; j++) {
+      var item = JSON.stringify(webview[j]);
+      if (vistos.has(item)) continue;
+      vistos.add(item);
+      junta.push(webview[j]);
+    }
+    return junta.length > nativo.length ? JSON.stringify(junta) : null;
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -597,39 +729,41 @@
   // aparelho de 4 GB. O nativo junta os pedaços pelo `id` e só cria a entrada no último (i === n-1).
   var TAMANHO_PEDACO = 524288;
 
-  // O teto da seção (ver O TETO DA SEÇÃO): o máximo que a página espera para abrir o banco das fotos, com a conferência
-  // ou a restauração terminadas ou não.
-  var ESPERA_NATIVO_MS = 15000;
+  // O PRAZO DA SEÇÃO (ver comPrazo): a página espera para abrir o banco das fotos enquanto a conferência anda. É de
+  // INATIVIDADE: reinicia a cada item ou pedaço que o nativo manda, e vence com ESPERA_INATIVIDADE_MS sem nada; com um
+  // teto absoluto TETO_ABSOLUTO_MS desde o começo. Caso que criou a regra: o teto fixo de 15 s soltava a página no meio
+  // de uma restauração saudável (vários vídeos de 15 MB, 512 KB por mensagem, num aparelho de 4 GB), e o envio da fila,
+  // que roda no início com sinal, dava por enviadas as fotos que ainda não tinham chegado. Só o nativo que parou de
+  // responder solta a página antes do teto.
+  var ESPERA_INATIVIDADE_MS = 20000;
+  var TETO_ABSOLUTO_MS = 180000;
 
   // Memória da sessão (ver A MEMÓRIA DA SESSÃO, na seção 4): a reconciliação já rodou nesta sessão da WebView.
   var SESSAO_IDB = 'gc_casca_idb_reconciliado';
 
-  // O que o banco sentinela guarda (versão 1): na store `pendentes`, as chaves que a última restauração não trouxe de
-  // volta (chave -> 1); na store `estado`, a marca CHAVE_RESTAURACAO -> 'incompleta' quando o `n` do nativo não bateu
-  // (ou não chegou), ou desde o começo de uma restauração (ela entra antes do idbPedir) até as pendentes dela entrarem.
-  var STORE_PENDENTES = 'pendentes';
-  var STORE_ESTADO = 'estado';
-  var CHAVE_RESTAURACAO = 'restauracao';
-
-  // O BANCO SENTINELA (BANCO_SENTINELA, `gc_casca`) quer dizer: o IndexedDB desta WebView já foi conferido com o
-  // nativo (na instalação nova ou numa restauração). Numa carga normal (sem a marca da perda), a falta dele é o
-  // IndexedDB que se perdeu sozinho (o despejo do Chromium pode levar uma loja e deixar a outra): restaura do nativo.
-  // Com ele de pé, a carga reconcilia, uma vez por sessão.
-  // Ele nasce (ou é marcado 'incompleta') no começo de toda restauração, antes do idbPedir, e no fim guarda na store
-  // STORE_PENDENTES as chaves que não voltaram. Caso da revisão: com o banco sentinela só depois da restauração
-  // completa, bastava uma entrada recusada (o disco cheio) e TODA carga pedia tudo de novo, segurava a página 15 s e
-  // regravava por cima dela. Agora não há nova tentativa automática: a reconciliação nunca manda apagar no nativo uma
-  // chave pendente (ele ainda a tem e a WebView não), não pede de novo quando todas as chaves do nativo são pendentes,
-  // e com a marca 'incompleta' (o `n` do nativo não bateu ou não chegou, ou a restauração morreu no meio: pode faltar
-  // uma chave que nem se sabe qual) não manda apagar nada. Custo aceito: uma chave velha pode ficar no nativo e voltar
-  // numa restauração futura; a faxina de órfãos da página a limpa.
+  // O BANCO SENTINELA (BANCO_SENTINELA, `gc_casca`) quer dizer uma coisa só: a última restauração do IndexedDB desta
+  // WebView terminou (ou não havia o que restaurar: a instalação nova). Só a existência dele conta (ele não guarda nada;
+  // o de uma versão antiga da casca, com stores, vale igual). Toda restauração começa apagando-o, e ele só volta no fim
+  // dela: com o idbFim recebido, o `n` batendo com as chaves que chegaram, e cada uma gravada, já presente na WebView ou
+  // tocada pela página depois do prazo. A restauração que morre no meio (o loginRedirect, o renderer que morre num vídeo
+  // grande) ou que não grava tudo (o disco cheio) deixa o banco faltando, e a carga seguinte restaura de novo: só as
+  // chaves ausentes, sem passar por cima do que a WebView tem (ver restaurarIDB). Quem segura o laço do disco que recusa
+  // sempre é o disjuntor do nativo (no máximo 3 restaurações por 24 h no aparelho, contadas fora da cota do IndexedDB):
+  // estourado, ele responde idbRecusado, e a página abre na hora. Na perda (a marca no localStorage), o mesmo vale para a
+  // marca, que só sai no fim (ver A MARCA DA PERDA, na seção 4).
+  //
+  // A RECONCILIAÇÃO (o banco sentinela de pé) nunca manda apagar no nativo: só reenvia o que falta lá. Uma chave que o
+  // nativo tem e a WebView não pode ser a exclusão da página que se perdeu no canal, mas também o que ainda não voltou, e
+  // na dúvida a cópia fica: o nativo só encolhe pelas exclusões da própria página, espelhadas na hora. Caso que criou a
+  // regra: com o disco cheio, a restauração terminava sem gravar e sem registrar o que faltava, e a reconciliação da
+  // partida seguinte apagava no nativo a foto que só ele tinha. Custo aceito: uma chave que a página apagou e cuja
+  // exclusão se perdeu pode voltar numa restauração futura; a faxina de órfãos da página a limpa.
   //
   // A CARGA SEM ESPELHO (a perda que a trava não deixou parar, o stop que lançou, a marca da perda) não toca no
   // IndexedDB: nem restaura, nem reconcilia, nem cria ou apaga o banco sentinela. A faxina de órfãos da página que roda
   // assim (`idbKeys` + `idbDel` do campo.html, com o localStorage vazio) apaga fotos sem espelhar; quem as devolve é a
   // marca da perda, que leva a carga seguinte ao retrato completo, e a restauração da perda devolve o IndexedDB inteiro
-  // junto com o localStorage, da mesma geração, com o banco sentinela de pé ou não. A reconciliação nunca roda com a
-  // marca (sem espelho não há seção 5), então o que a página apagou sem espelho não vira idbDel no nativo.
+  // junto com o localStorage, da mesma geração, com o banco sentinela de pé ou não.
 
   // Captura o IndexedDB e os métodos originais UMA vez, antes de qualquer embrulho e de qualquer script da página. A
   // restauração grava pelo put original (pelo embrulhado, ecoaria ao nativo o que acabou de vir dele).
@@ -640,6 +774,7 @@
     return {
       fabrica: fabrica,
       abrir: fabrica.open,
+      apagarBanco: fabrica.deleteDatabase,
       listarBancos: fabrica.databases,
       proto: proto,
       put: proto.put,
@@ -809,11 +944,12 @@
   }
 
   // Decide, antes de a página abrir o banco das fotos, o que esta carga (com espelho) faz com o IndexedDB. Devolve uma
-  // Promise que nunca rejeita; o `comTeto` a corta em ESPERA_NATIVO_MS.
+  // Promise que nunca rejeita; o `comPrazo` a corta (ver O PRAZO DA SEÇÃO).
   //   restauração da perda (retrato completo, motivo   → restaura o IndexedDB inteiro do nativo, esteja o banco
   //   'perda' ou sem motivo)                              sentinela de pé ou não (a mesma geração do localStorage);
   //   sem indexedDB.databases()                        → "não sei": avisa e segue sem restaurar nem reconciliar;
-  //   sem o banco sentinela                            → perda só do IndexedDB: com espelho no nativo, restaura; sem
+  //   sem o banco sentinela                            → perda só do IndexedDB (ou a restauração que não terminou):
+  //                                                       com espelho no nativo, restaura só as chaves ausentes; sem
   //                                                       (instalação nova), só cria o banco sentinela;
   //   com o banco sentinela                            → reconcilia, uma vez por sessão.
   function conferirIDB(ctx, idb, envio, estado) {
@@ -821,7 +957,7 @@
     // O localStorage acabou de voltar do retrato completo (seção 4). Sem o IndexedDB da mesma geração, a faxina de órfãos
     // da página apagaria o que a WebView tem e o localStorage restaurado não cita, e as fotos que ele cita e a WebView
     // perdeu (ou que a página apagou numa carga sem espelho) não voltariam.
-    if (ctx.restauracaoDePerda) return restaurarIDB(ctx, idb, estado, doNativo);
+    if (ctx.restauracaoDePerda) return restaurarIDB(ctx, idb, envio, estado, 'perda', doNativo);
     if (typeof idb.listarBancos !== 'function') {
       ctx.falhou('idb', new Error('indexedDB.databases() indisponível: sem conferência do IndexedDB nesta carga'));
       return Promise.resolve();
@@ -834,8 +970,8 @@
         var nomes = new Set();
         (Array.isArray(lista) ? lista : []).forEach(function (d) { if (d && typeof d.name === 'string') nomes.add(d.name); });
         if (!nomes.has(BANCO_SENTINELA)) {
-          if (ctx.retrato.temEspelho === true) return restaurarIDB(ctx, idb, estado, doNativo);
-          return gravarCasca(ctx, idb, [], false);
+          if (ctx.retrato.temEspelho === true) return restaurarIDB(ctx, idb, envio, estado, 'idb', doNativo);
+          return criarCasca(ctx, idb);
         }
         if (lerSessaoCtx(ctx, SESSAO_IDB) !== null) return undefined;
         return reconciliar(ctx, idb, envio, estado, nomes.has(BANCO_FOTOS), doNativo);
@@ -843,17 +979,14 @@
       .then(null, function (e) { ctx.falhou('idb', e); });
   }
 
-  // A RECONCILIAÇÃO, com o banco sentinela de pé e o espelho ligado (então sem a marca da perda): a WebView é a verdade.
+  // A RECONCILIAÇÃO, com o banco sentinela de pé e o espelho ligado (então sem a marca da perda): a WebView é a verdade,
+  // e o que falta no nativo vai a ele. Nunca manda apagar nada lá (ver A RECONCILIAÇÃO).
   //   a store das fotos vazia e idbChaves não vazio → perda só do IndexedDB: restaura (nenhuma faxina da página esvazia
-  //                                                   o banco inteiro, e reconciliar mandaria apagar tudo no nativo),
-  //                                                   a menos que toda chave de idbChaves já seja pendente: a última
-  //                                                   restauração não gravou nenhuma (o disco cheio recusou todas), e
-  //                                                   pedir de novo seria o laço que as pendentes evitam; segue sem
-  //                                                   restaurar nem apagar, com um aviso sem chave;
-  //   chave de idbChaves que falta na WebView        → idbDel (o espelho perdeu a exclusão), se ela não for pendente
-  //                                                   e o banco sentinela não estiver marcado 'incompleta';
+  //                                                   o banco inteiro; o despejo do Chromium pode levar um banco e
+  //                                                   deixar o outro);
   //   chave da WebView que falta em idbChaves        → reenvia (o espelho perdeu a gravação: canal fora, app morto no
-  //                                                   meio dos pedaços).
+  //                                                   meio dos pedaços);
+  //   chave de idbChaves que falta na WebView        → nada.
   // Uma vez por sessão da WebView (SESSAO_IDB): o idbChaves do retrato leve é o do começo da partida e envelhece dentro
   // dela; numa recarga ele reenviaria as mesmas fotos de novo. Sem sessionStorage, roda em toda carga.
   // O `pronto` espera só a decisão; os reenvios seguem depois, uma chave por vez (lida, mandada, e só então a seguinte:
@@ -864,45 +997,28 @@
       if (temFotos && !db) return undefined; // o erro já foi avisado; a próxima carga confere de novo
       return (db ? lerChaves(ctx, db) : Promise.resolve([])).then(function (locais) {
         if (locais === null || estado.vencido) { fechar(db); return undefined; }
-        if (!locais.length) {
+        if (!locais.length && doNativo.length) {
           fechar(db);
-          if (!doNativo.length) { gravarSessaoCtx(ctx, SESSAO_IDB, '1'); return undefined; }
-          return lerCasca(ctx, idb).then(function (casca) {
-            if (estado.vencido) return undefined;
-            if (casca && doNativo.every(function (k) { return casca.pendentes.has(k); })) {
-              // Só a contagem: nada de chave.
-              ctx.falhou('idb', new Error('a store das fotos está vazia e as ' + doNativo.length + ' entradas do ' +
-                'nativo são pendentes da última restauração: sem novo pedido nesta carga'));
-              gravarSessaoCtx(ctx, SESSAO_IDB, '1');
-              return undefined;
-            }
-            return restaurarIDB(ctx, idb, estado, doNativo);
-          });
+          return restaurarIDB(ctx, idb, envio, estado, 'idb', doNativo);
         }
-        return lerCasca(ctx, idb).then(function (casca) {
-          if (estado.vencido) { fechar(db); return undefined; }
-          var naWebView = new Set(locais);
-          var noNativo = new Set(doNativo);
-          // Sem o estado do banco sentinela (não abriu), ou com a marca, não se sabe o que a restauração deixou de
-          // trazer: nada é apagado no nativo.
-          if (casca && !casca.incompleta) {
-            doNativo.forEach(function (k) {
-              if (!naWebView.has(k) && !casca.pendentes.has(k)) envio.operacao({ t: 'del', k: k });
-            });
-          }
-          var faltam = locais.filter(function (k) { return !noNativo.has(k); });
-          reenviar(ctx, db, envio, faltam).then(function (terminou) {
-            fechar(db);
-            if (terminou) gravarSessaoCtx(ctx, SESSAO_IDB, '1');
-          });
-          return undefined;
-        });
+        reenviarOQueFalta(ctx, db, envio, locais, new Set(doNativo));
+        return undefined;
       });
     });
   }
 
+  // Manda ao nativo as `locais` que ele não tem (`noNativo`), uma por vez, fecha o banco e marca a sessão se passou por
+  // todas. Não segura a página: é o fim da reconciliação e da restauração.
+  function reenviarOQueFalta(ctx, db, envio, locais, noNativo) {
+    var faltam = locais.filter(function (k) { return !noNativo.has(k); });
+    return reenviar(ctx, db, envio, faltam).then(function (terminou) {
+      fechar(db);
+      if (terminou) gravarSessaoCtx(ctx, SESSAO_IDB, '1');
+    });
+  }
+
   // Abre o banco das fotos só para ler. Ele estava na lista do databases(); se sumiu desde então, o open o criaria vazio
-  // e a reconciliação mandaria apagar tudo no nativo: aborta, nada é criado, e a próxima carga confere de novo.
+  // e a reconciliação o tomaria por perda: aborta, nada é criado, e a próxima carga confere de novo.
   function abrirFotosParaLer(ctx, idb) {
     return new Promise(function (ok) {
       var r;
@@ -963,44 +1079,43 @@
     });
   }
 
-  // A RESTAURAÇÃO: pede ao nativo o que ele guarda (idbPedir) e grava cada item no banco real pelo put original, sem
-  // espelhar. Respostas: {t:'idbItem', k, tipo, v} e {t:'idbPedaco', k, i, n, mime, b64} (pedaços de um Blob, na
-  // ordem ou não), e no fim {t:'idbFim', n}, com `n` = quantas entradas (chaves) o nativo mandou.
-  // Antes do idbPedir, a marca 'incompleta' entra no banco sentinela (que nasce, se faltar). Caso da revisão: a
-  // restauração que roda por cima de um banco sentinela no estado velho, completo (a da perda, ou a da store vazia),
-  // e que morre antes do idbFim e do teto (o técnico fecha o app na espera, o renderer morre num vídeo grande),
-  // deixava esse estado; a reconciliação da partida seguinte mandava idbDel de toda chave que ainda não tinha voltado, e
-  // o nativo perdia a única cópia. Custo aceito: a restauração que morre no meio não é tentada de novo sozinha (a store
-  // com alguma coisa vai à reconciliação, que com a marca só reenvia); o que não voltou fica guardado no nativo.
-  // No idbFim grava o estado no banco sentinela (e o cria, se faltar), completa ou não: as PENDENTES são as chaves que o
-  // nativo anunciou (`anunciadas`, o idbChaves do retrato) ou mandou e que não foram gravadas; a marca 'incompleta' vai
-  // quando o `n` não bate com as chaves que chegaram. Nada de nova tentativa automática (ver O BANCO SENTINELA).
-  // O prazo é o do `comTeto`: vencido antes do idbFim, o estado é gravado já (tudo que falta pendente, e a marca), a
-  // página abre o banco, o que chegar depois ainda é gravado (menos o que a página tocou: `estado.tocadas`) e o idbFim
-  // atrasado refaz o estado.
-  function restaurarIDB(ctx, idb, estado, anunciadas) {
+  // A RESTAURAÇÃO: apaga o banco sentinela (ver O BANCO SENTINELA), pede ao nativo o que ele guarda
+  // ({t:'idbPedir', motivo}) e grava cada item no banco real pelo put original, sem espelhar. Respostas:
+  // {t:'idbItem', k, tipo, v} e {t:'idbPedaco', k, i, n, mime, b64} (pedaços de um Blob, na ordem ou não), e no fim
+  // {t:'idbFim', n}, com `n` = quantas entradas (chaves) o nativo mandou; ou {t:'idbRecusado'}, quando o disjuntor do
+  // nativo não deixa (a página abre na hora, e a próxima janela tenta de novo).
+  // O `motivo` vai ao nativo porque o disjuntor dele conta a restauração uma vez só: a da perda ('perda') já foi contada
+  // no precisoRetrato; a só do IndexedDB ('idb') é contada aqui.
+  //   'perda': a cópia do nativo vence (o localStorage que acabou de voltar é dela, a mesma geração), e no fim a perda
+  //            termina (ctx.concluirPerda: sai a marca, entra a sentinela);
+  //   'idb':   o localStorage está intacto, e a restauração grava só as chaves AUSENTES na WebView, nunca sobrescreve
+  //            uma que existe (o espelho pode ter perdido a última gravação de um rascunho, e o da WebView é o novo).
+  // Terminou (idbFim com o `n` batendo, nenhuma falha, todo Blob inteiro, toda chave resolvida): o banco sentinela volta
+  // e o que só a WebView tem vai ao nativo (o mesmo reenvio da reconciliação). Não terminou: avisa só com contagens, e a
+  // carga seguinte restaura de novo. Uma chave que o idbChaves anunciou e o nativo não mandou não conta: o `n` é o que ele
+  // mandou (o blob ilegível no espelho fica de fora lá, com aviso no log dele), e contá-la travaria a perda para sempre.
+  // Depois do prazo a página já abriu o banco: o que chega atrasado ainda é gravado, menos o que a página tocou
+  // (`estado.tocadas`, que conta como resolvido: o dela vence), e o idbFim atrasado ainda termina a restauração.
+  function restaurarIDB(ctx, idb, envio, estado, motivo, doNativo) {
     var win = ctx.win;
+    var daPerda = motivo === 'perda';
     return new Promise(function (resolver) {
-      var conhecidas = new Set(anunciadas); // o que o nativo disse ter: o retrato e as chaves que chegaram
-      var recebidas = new Set();            // as chaves que chegaram, inteiras ou não
-      var gravadas = new Set();
+      var recebidas = new Set();  // as chaves que chegaram, inteiras ou não
+      var resolvidas = new Set(); // gravadas, já presentes (fora da perda) ou tocadas pela página depois do prazo
       var falhas = 0;
       var fim = false;
       var pedacos = new Map(); // chave -> { n, mime, partes, chegaram }
-      var banco = abrirParaRestaurar(ctx, idb);
+      var banco = Promise.resolve(null); // o banco das fotos, aberto depois de o banco sentinela sair
       var gravacoes = Promise.resolve();
-      // As gravações do estado, uma depois da outra (a última vence), e a primeira é a marca, antes do idbPedir.
-      var registro = marcarIncompleta(ctx, idb);
 
       function gravar(k, valor) {
         gravacoes = gravacoes.then(function () {
           return banco.then(function (db) {
             if (!db) { falhas++; return undefined; }
-            // O que a página gravou ou apagou depois do prazo vence a cópia que chega atrasada. A chave fica pendente
-            // (a transação da página pode ter abortado: aí o nativo ainda é o único que a tem).
-            if (estado.tocadas.has(k)) return undefined;
-            return gravarNoBanco(idb, db, k, valor).then(function (gravou) {
-              if (gravou) gravadas.add(k); else falhas++;
+            // O que a página gravou ou apagou depois do prazo vence a cópia que chega atrasada.
+            if (estado.tocadas.has(k)) { resolvidas.add(k); return undefined; }
+            return gravarNoBanco(idb, db, k, valor, !daPerda).then(function (gravou) {
+              if (gravou) resolvidas.add(k); else falhas++;
             });
           });
         });
@@ -1008,17 +1123,12 @@
 
       function inteiro(x) { return typeof x === 'number' && x % 1 === 0; }
 
-      function anotar(k) {
-        conhecidas.add(k);
-        recebidas.add(k);
-      }
-
       function receberPedaco(m) {
         var k = m.k;
         var n = m.n;
         var i = m.i;
         if (typeof k !== 'string') { falhas++; return; }
-        anotar(k);
+        recebidas.add(k);
         if (!inteiro(n) || n < 1 || !inteiro(i) || i < 0 || i >= n || typeof m.b64 !== 'string') { falhas++; return; }
         var p = pedacos.get(k);
         if (!p) {
@@ -1036,7 +1146,7 @@
 
       function receberItem(m) {
         if (typeof m.k !== 'string') { falhas++; return; }
-        anotar(m.k);
+        recebidas.add(m.k);
         if (typeof m.v !== 'string') { falhas++; return; }
         var valor;
         if (m.tipo === 'texto') valor = m.v;
@@ -1046,53 +1156,66 @@
         gravar(m.k, valor);
       }
 
-      function pendentes() {
-        var lista = [];
-        conhecidas.forEach(function (k) { if (!gravadas.has(k)) lista.push(k); });
-        return lista;
-      }
-
-      function registrar(incompleta) {
-        var lista = pendentes();
-        registro = registro.then(function () { return gravarCasca(ctx, idb, lista, incompleta); });
-        return registro;
+      function terminou(n) {
+        if (n !== recebidas.size || falhas || pedacos.size) return false;
+        var todas = true;
+        recebidas.forEach(function (k) { if (!resolvidas.has(k)) todas = false; });
+        return todas;
       }
 
       function concluir(n) {
-        banco.then(fechar);
-        var todas = n === recebidas.size; // nenhuma entrada sumiu no caminho
-        var faltam = pendentes().length;
-        if (!todas || falhas || pedacos.size || faltam) {
+        if (!terminou(n)) {
+          banco.then(fechar);
           // Só contagens: nada de chave nem de valor.
           ctx.falhou('idbRestaurar', new Error('restauração incompleta: ' + recebidas.size + ' de ' +
-            (typeof n === 'number' ? n : '?') + ' entradas, ' + falhas + ' falhas, ' + pedacos.size +
-            ' sem todos os pedaços, ' + faltam + ' pendentes'));
+            (inteiro(n) ? n : '?') + ' entradas, ' + falhas + ' falhas, ' + pedacos.size +
+            ' sem todos os pedaços; a próxima carga restaura de novo'));
+          return undefined;
         }
-        return registrar(!todas);
+        return criarCasca(ctx, idb).then(function () {
+          // Mesmo sem o banco sentinela (o disco cheio pegou só ele), as fotos voltaram: a perda termina, e a carga
+          // seguinte confere de novo só as ausentes, que já estão todas.
+          if (daPerda && ctx.concluirPerda) ctx.concluirPerda();
+          var noNativo = new Set(doNativo);
+          recebidas.forEach(function (k) { noNativo.add(k); });
+          return banco.then(function (db) {
+            if (!db) return undefined;
+            return lerChaves(ctx, db).then(function (locais) {
+              if (locais === null) { fechar(db); return undefined; }
+              reenviarOQueFalta(ctx, db, envio, locais, noNativo);
+              return undefined;
+            });
+          });
+        });
       }
-
-      // O prazo venceu antes do idbFim: o banco sentinela nasce agora, com o que ainda não voltou pendente e a marca (o
-      // `n` não chegou). Com o idbFim já recebido, quem grava o estado é o `concluir`, logo depois das gravações.
-      estado.aoVencer.push(function () { if (!fim) registrar(true); });
 
       ctx.ouvirNativo(function (m) {
         if (fim || !m || typeof m !== 'object') return;
-        if (m.t === 'idbItem') receberItem(m);
-        else if (m.t === 'idbPedaco') receberPedaco(m);
+        if (m.t === 'idbItem') { estado.atividade(); receberItem(m); }
+        else if (m.t === 'idbPedaco') { estado.atividade(); receberPedaco(m); }
         else if (m.t === 'idbFim') {
           fim = true;
           gravacoes.then(function () { return concluir(m.n); })
             .then(null, function (e) { ctx.falhou('idbRestaurar', e); })
             .then(function () { resolver(); });
+        } else if (m.t === 'idbRecusado') {
+          fim = true;
+          banco.then(fechar);
+          ctx.falhou('idbRestaurar', new Error('o nativo recusou a restauração (o disjuntor dele, 3 por 24 h): a ' +
+            'próxima janela tenta de novo'));
+          resolver();
         }
       });
 
-      // O pedido só sai com a marca gravada (ou com a gravação dela falhada e avisada: sem restaurar, a reconciliação
-      // seguinte apagaria no nativo o que a WebView perdeu, que é pior). Se ele nem sai (o canal caiu), nada foi
-      // restaurado, e a marca fica: a carga seguinte não apaga nada no nativo. Isso não vira o laço da revisão: o envio
-      // falha na hora, sem segurar a página.
-      registro.then(function () {
-        if (!ctx.enviar({ t: 'idbPedir' }, 'idbPedir')) resolver();
+      // O pedido só sai com o banco sentinela apagado e o banco das fotos aberto. Sem um dos dois, nada a fazer nesta
+      // carga: a restauração não terminou, e a seguinte tenta de novo. Se o pedido nem sai (o canal caiu), também.
+      apagarCasca(ctx, idb).then(function (apagou) {
+        if (!apagou || estado.vencido || fim) { resolver(); return undefined; }
+        banco = abrirParaRestaurar(ctx, idb);
+        return banco.then(function (db) {
+          if (!db || estado.vencido || fim) { fechar(db); resolver(); return; }
+          if (!ctx.enviar({ t: 'idbPedir', motivo: motivo }, 'idbPedir')) { fechar(db); resolver(); }
+        });
       });
     });
   }
@@ -1120,119 +1243,50 @@
     });
   }
 
-  function gravarNoBanco(idb, db, k, valor) {
+  // Grava uma entrada pelo put original, numa transação só dela. Com `soAusente`, conta a chave antes, na mesma
+  // transação, e só grava se ela não está lá (a chave presente resolve do mesmo jeito: true). Resolve false se a
+  // transação não terminou (o disco cheio aborta, ou o put lança). Nunca rejeita.
+  function gravarNoBanco(idb, db, k, valor, soAusente) {
     return new Promise(function (ok) {
       try {
         var tx = db.transaction(STORE_FOTOS, 'readwrite');
-        idb.put.call(tx.objectStore(STORE_FOTOS), valor, k);
+        var store = tx.objectStore(STORE_FOTOS);
         tx.oncomplete = function () { ok(true); };
         tx.onabort = function () { ok(false); };
+        if (!soAusente) {
+          idb.put.call(store, valor, k);
+          return;
+        }
+        var conta = store.count(k);
+        conta.onsuccess = function () {
+          if (conta.result !== 0) return;
+          try { idb.put.call(store, valor, k); } catch (e) { try { tx.abort(); } catch (_) { /* já terminou */ } }
+        };
       } catch (e) {
         ok(false);
       }
     });
   }
 
-  // Abre o banco sentinela (versão 1, com as duas stores). O banco que nasce aqui já nasce com a marca 'incompleta', na
-  // mesma transação que o cria: se a gravação das pendentes não entrar depois, a reconciliação não apaga nada no nativo.
-  function abrirCasca(ctx, idb) {
+  // Apaga o banco sentinela (o começo de toda restauração). Resolve true quando ele não existe mais (inclusive quando nem
+  // existia), false se o apagar falhou (avisado). Um apagar que nunca responde fica para o prazo da seção.
+  function apagarCasca(ctx, idb) {
     return new Promise(function (ok) {
       var r;
-      try { r = idb.abrir.call(idb.fabrica, BANCO_SENTINELA, 1); } catch (e) { ctx.falhou('idbSentinela', e); ok(null); return; }
-      r.onupgradeneeded = function () {
-        var db = r.result;
-        if (!db.objectStoreNames.contains(STORE_PENDENTES)) db.createObjectStore(STORE_PENDENTES);
-        if (!db.objectStoreNames.contains(STORE_ESTADO)) {
-          idb.put.call(db.createObjectStore(STORE_ESTADO), 'incompleta', CHAVE_RESTAURACAO);
-        }
-      };
-      r.onsuccess = function () {
-        var db = r.result;
-        db.onversionchange = function () { db.close(); };
-        if (db.objectStoreNames.contains(STORE_PENDENTES) && db.objectStoreNames.contains(STORE_ESTADO)) { ok(db); return; }
-        db.close();
-        ctx.falhou('idbSentinela', new Error('o banco sentinela está sem as stores'));
-        ok(null);
-      };
-      r.onerror = function () { ctx.falhou('idbSentinela', r.error); ok(null); };
+      try { r = idb.apagarBanco.call(idb.fabrica, BANCO_SENTINELA); } catch (e) { ctx.falhou('idbSentinela', e); ok(false); return; }
+      r.onsuccess = function () { ok(true); };
+      r.onerror = function () { ctx.falhou('idbSentinela', r.error); ok(false); };
     });
   }
 
-  // { pendentes: Set, incompleta } do banco sentinela, ou null se não deu para ler (quem chama não apaga nada no nativo).
-  // Qualquer valor na marca conta como 'incompleta': na dúvida, o lado que não apaga.
-  function lerCasca(ctx, idb) {
-    return abrirCasca(ctx, idb).then(function (db) {
-      if (!db) return null;
-      return new Promise(function (ok) {
-        var pendentes = new Set();
-        var incompleta = true;
-        try {
-          var tx = db.transaction([STORE_PENDENTES, STORE_ESTADO], 'readonly');
-          var chaves = tx.objectStore(STORE_PENDENTES).getAllKeys();
-          chaves.onsuccess = function () { (chaves.result || []).forEach(function (k) { pendentes.add(k); }); };
-          var marca = tx.objectStore(STORE_ESTADO).get(CHAVE_RESTAURACAO);
-          marca.onsuccess = function () { incompleta = marca.result !== undefined; };
-          tx.oncomplete = function () { fechar(db); ok({ pendentes: pendentes, incompleta: incompleta }); };
-          tx.onabort = function () {
-            fechar(db);
-            ctx.falhou('idbSentinela', tx.error || new Error('leitura do banco sentinela abortada'));
-            ok(null);
-          };
-        } catch (e) {
-          fechar(db);
-          ctx.falhou('idbSentinela', e);
-          ok(null);
-        }
-      });
-    });
-  }
-
-  // Uma transação de escrita nas duas stores do banco sentinela. Resolve true se ela terminou (complete), false se não
-  // (o erro já foi avisado). Nunca rejeita.
-  function transacaoCasca(ctx, db, fn) {
+  // Cria o banco sentinela (vazio, versão 1; um que já existe só é aberto e fechado). Resolve true se deu, false se não
+  // (avisado). Nunca rejeita.
+  function criarCasca(ctx, idb) {
     return new Promise(function (ok) {
-      var tx = null;
-      try {
-        tx = db.transaction([STORE_PENDENTES, STORE_ESTADO], 'readwrite');
-        fn(tx.objectStore(STORE_PENDENTES), tx.objectStore(STORE_ESTADO));
-      } catch (e) {
-        try { if (tx) tx.abort(); } catch (_) { /* já terminou */ }
-        ctx.falhou('idbSentinela', e);
-        ok(false);
-        return;
-      }
-      tx.oncomplete = function () { ok(true); };
-      tx.onabort = function () { ctx.falhou('idbSentinela', tx.error || new Error('gravação abortada')); ok(false); };
-    });
-  }
-
-  // Só a marca 'incompleta', no banco sentinela (que nasce com ela, se faltar); as pendentes ficam como estão. É o
-  // primeiro passo de toda restauração, antes do idbPedir (ver A RESTAURAÇÃO). Resolve true se gravou; nunca rejeita.
-  function marcarIncompleta(ctx, idb) {
-    return abrirCasca(ctx, idb).then(function (db) {
-      if (!db) return false;
-      return transacaoCasca(ctx, db, function (lista, marca) { idb.put.call(marca, 'incompleta', CHAVE_RESTAURACAO); })
-        .then(function (marcou) { fechar(db); return marcou; });
-    });
-  }
-
-  // Grava o estado de uma restauração no banco sentinela (e o cria, se faltar): as `pendentes` trocam as de antes, e a
-  // marca vai ou sai. Em duas transações: primeiro só a marca, depois as pendentes e a marca final juntas. Entre as duas,
-  // ou se a segunda não entrar (o disco cheio), o estado diz 'incompleta', e a reconciliação não apaga nada no nativo.
-  function gravarCasca(ctx, idb, pendentes, incompleta) {
-    return abrirCasca(ctx, idb).then(function (db) {
-      if (!db) return undefined;
-      return transacaoCasca(ctx, db, function (lista, marca) { idb.put.call(marca, 'incompleta', CHAVE_RESTAURACAO); })
-        .then(function (marcou) {
-          if (!marcou) return undefined;
-          return transacaoCasca(ctx, db, function (lista, marca) {
-            lista.clear();
-            for (var i = 0; i < pendentes.length; i++) idb.put.call(lista, 1, pendentes[i]);
-            if (incompleta) idb.put.call(marca, 'incompleta', CHAVE_RESTAURACAO);
-            else idb.apagar.call(marca, CHAVE_RESTAURACAO);
-          });
-        })
-        .then(function () { fechar(db); });
+      var r;
+      try { r = idb.abrir.call(idb.fabrica, BANCO_SENTINELA); } catch (e) { ctx.falhou('idbSentinela', e); ok(false); return; }
+      r.onsuccess = function () { fechar(r.result); ok(true); };
+      r.onerror = function () { ctx.falhou('idbSentinela', r.error); ok(false); };
     });
   }
 
@@ -1314,48 +1368,63 @@
     };
   }
 
-  // O TETO DA SEÇÃO: o `pronto` (e com ele o open da página) espera a conferência no máximo ESPERA_NATIVO_MS, seja o
-  // que for que não responda: o databases(), um open, o nativo. No prazo, `estado.vencido` liga e os `estado.aoVencer`
-  // rodam (a restauração em andamento grava o banco sentinela). Daí em diante a conferência não decide mais nada, e a
-  // restauração atrasada pula as chaves que a página gravou ou apagou (`estado.tocadas`, anotadas pelo espelho).
-  function comTeto(ctx, idb, estado, conferir) {
+  // O PRAZO DA SEÇÃO (ESPERA_INATIVIDADE_MS sem nada do nativo, ou TETO_ABSOLUTO_MS desde o começo): o `pronto` (e com
+  // ele o open da página) espera a conferência, seja o que for que não responda: o databases(), um open, o apagar do
+  // banco sentinela, o nativo. `estado.atividade()` (a restauração chama a cada item ou pedaço) reinicia a espera. No
+  // prazo, `estado.vencido` liga: daí em diante a conferência não decide mais nada, e a restauração atrasada pula as
+  // chaves que a página gravou ou apagou (`estado.tocadas`, anotadas pelo espelho).
+  function comPrazo(ctx, idb, estado, conferir) {
     return new Promise(function (resolver) {
       var solto = false;
-      var timer = null;
+      var inativo = null;
+      var absoluto = null;
       function soltar() {
         if (solto) return;
         solto = true;
-        if (timer !== null) { idb.cancelar(timer); timer = null; }
+        if (inativo !== null) { idb.cancelar(inativo); inativo = null; }
+        if (absoluto !== null) { idb.cancelar(absoluto); absoluto = null; }
         resolver();
       }
-      timer = idb.agendar(function () {
-        timer = null;
+      function vencer(motivo) {
         if (solto) return;
         estado.vencido = true;
-        ctx.falhou('idb', new Error('a conferência do IndexedDB não terminou em 15 s: a página segue'));
-        for (var i = 0; i < estado.aoVencer.length; i++) {
-          try { estado.aoVencer[i](); } catch (e) { ctx.falhou('idb', e); }
-        }
+        ctx.falhou('idb', new Error(motivo));
         soltar();
-      }, ESPERA_NATIVO_MS);
+      }
+      function armar() {
+        if (solto) return;
+        if (inativo !== null) idb.cancelar(inativo);
+        inativo = idb.agendar(function () {
+          inativo = null;
+          vencer('a conferência do IndexedDB ficou 20 s sem resposta: a página segue');
+        }, ESPERA_INATIVIDADE_MS);
+      }
+      estado.atividade = armar;
+      armar();
+      absoluto = idb.agendar(function () {
+        absoluto = null;
+        vencer('a conferência do IndexedDB passou de 180 s: a página segue');
+      }, TETO_ABSOLUTO_MS);
       var conferencia;
       try { conferencia = conferir(); } catch (e) { ctx.falhou('idb', e); }
       Promise.resolve(conferencia).then(soltar, function (e) { ctx.falhou('idb', e); soltar(); });
     });
   }
 
-  // Liga a seção 5: o espelho, a conferência da partida e o open segurado até ela terminar (ou até o teto). A carga
+  // Liga a seção 5: o espelho, a conferência da partida e o open segurado até ela terminar (ou até o prazo). A carga
   // parada vai recarregar, e a carga sem espelho não toca no IndexedDB (ver A CARGA SEM ESPELHO): nas duas, nada é
   // embrulhado, e o open da página passa direto.
   function instalarIDB(ctx) {
     if (ctx.cargaParada || ctx.espelhoDesligado) return;
     var idb = capturarIDB(ctx.win);
     if (!idb) return;
-    // vencido: o teto passou; aoVencer: o que roda nessa hora; tocadas: as chaves que a página mexeu depois dele.
-    var estado = { vencido: false, aoVencer: [], tocadas: new Set() };
+    // vencido: o prazo passou; tocadas: as chaves que a página mexeu depois dele; atividade: o comPrazo a troca.
+    var estado = { vencido: false, tocadas: new Set(), atividade: function () {} };
     var envio = criarEnvioIDB(ctx);
     instalarEspelhoIDB(ctx, idb, envio, estado);
-    var pronto = comTeto(ctx, idb, estado, function () { return conferirIDB(ctx, idb, envio, estado); });
+    // Daqui em diante, na carga da restauração da perda, é esta seção que a termina (no fim da restauração dela).
+    if (ctx.restauracaoDePerda) ctx.idbCuidaDaPerda = true;
+    var pronto = comPrazo(ctx, idb, estado, function () { return conferirIDB(ctx, idb, envio, estado); });
     ctx.prontos.push(pronto);
     segurarAbertura(ctx, idb, pronto);
   }
@@ -1549,6 +1618,159 @@
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+  // 7. O voltar do Android
+  // ---------------------------------------------------------------------------------------------------------------
+
+  // O Capacitor 8.5.3 não trata o voltar, e o campo.html não põe nada no histórico ao abrir uma camada (nem pushState,
+  // nem <dialog>, nem popover): o gesto tirava o técnico do app no meio da OS. O nativo (um OnBackPressedCallback)
+  // pergunta à página por window.__gcCascaVoltar(): ela decide NA HORA qual é a camada de cima e devolve true (o nativo
+  // não faz mais nada), e a fecha no tempo seguinte (setTimeout 0), pelo mesmo botão ou função que o técnico usaria,
+  // para um confirm() da página (o da Ronda com pendência) não segurar a resposta. Sem nada aberto devolve false, e o
+  // nativo manda o app para o fundo (nunca o fecha). Um nome que o site trocou faz a camada não ser achada, ou a função
+  // dela faltar: devolve false (só minimiza, como antes), nunca fecha a camada de baixo no lugar da de cima. Os nomes
+  // vêm todos do VOLTAR (seção 1), que o contrato com o site confere. Se o site um dia adotar o histórico (pushState ao
+  // abrir uma camada), esta seção sai: o nativo passa ao goBack(), senão a mesma camada fecha duas vezes.
+
+  // O voltar consumido sem fazer nada: as esperas que travam a tela (o chamado sendo aberto, o GPS exigido, a sonda da
+  // câmera) são de propósito sem saída, ou a única saída envia algo.
+  var CONSUMIR = {};
+
+  // A camada de cima e como fechá-la: uma função (que roda no tempo seguinte), CONSUMIR, ou null (nada aberto, ou o
+  // jeito de fechar sumiu). A ordem é a do z-index do campo.html, de cima para baixo.
+  function decidirVoltar(ctx) {
+    var win = ctx.win;
+    var doc = win.document;
+    if (!doc || typeof doc.getElementById !== 'function') return null;
+    function porId(id) { return doc.getElementById(id); }
+    function temClasse(el, classe) { return !!el && !!el.classList && el.classList.contains(classe); }
+    function aberta(el) { return temClasse(el, VOLTAR.classe.aberta); }
+    function ativa(el) { return temClasse(el, VOLTAR.classe.abaAtiva); }
+    function dentro(el, classe) { return el ? el.querySelector('.' + classe) : null; }
+    function clicar(el) { return function () { el.click(); }; }
+    function funcao(nome) {
+      var f = win[nome];
+      return typeof f === 'function' ? f : null;
+    }
+    function chamar(nome, args) {
+      var f = funcao(nome);
+      return f ? function () { return f.apply(win, args || []); } : null;
+    }
+    function botaoOu(botao, alternativa) { return botao ? clicar(botao) : alternativa; }
+    var irParaTarefas = chamar(VOLTAR.funcao.aba, [VOLTAR.abaInicial]);
+
+    // 1. A camada da própria casca (o aviso do Fracttal, seção 6), por cima de tudo: o Fechar dela.
+    var camada = porId(ID_CAMADA);
+    if (camada) {
+      var fecharCamada = camada.querySelector('button');
+      if (fecharCamada) return clicar(fecharCamada);
+      return function () { if (camada.parentNode) camada.parentNode.removeChild(camada); };
+    }
+    // 2. A foto ampliada (z 9999): a última aberta é a de cima; o clique dela fecha e devolve o objectURL.
+    var fotos = doc.querySelectorAll('.' + VOLTAR.classe.foto);
+    if (fotos.length) return clicar(fotos[fotos.length - 1]);
+    // 3. A câmera do App (z 1500; o elemento só existe aberta): o Voltar dela. As fotos já tiradas seguem na fila.
+    var camera = porId(VOLTAR.id.camera);
+    if (camera) return botaoOu(dentro(camera, VOLTAR.classe.cameraVolta), chamar(VOLTAR.funcao.camera));
+    // 4. As esperas que travam a tela (z 560 e 1500).
+    if (porId(VOLTAR.id.esperaChamado) || porId(VOLTAR.id.exigeGps) || aberta(porId(VOLTAR.id.sonda))) return CONSUMIR;
+    // 5. A APR (z 555). O botão de fechar dela fecha sem salvar o rascunho (ele espera 300 ms, e o aprFechar zera a
+    //    APR antes): aqui o rascunho é salvo primeiro, e a APR só é fechada se ainda estiver aberta. O rascunho que
+    //    falha não segura o voltar (é o que o botão de fechar faria).
+    if (aberta(porId(VOLTAR.id.apr))) {
+      var aprFechar = funcao(VOLTAR.funcao.aprFechar);
+      if (!aprFechar) return null;
+      var aprSalvar = funcao(VOLTAR.funcao.aprSalvar);
+      return function () {
+        var salvo;
+        try { salvo = aprSalvar ? aprSalvar.call(win) : undefined; } catch (e) { salvo = Promise.reject(e); }
+        return Promise.resolve(salvo).then(null, function (e) { ctx.falhou('voltar', e); }).then(function () {
+          if (aberta(porId(VOLTAR.id.apr))) aprFechar.call(win);
+        });
+      };
+    }
+    // 6. Os Extintores (z 545): o voltar da subtela (da conferência para a lista, da lista para fora).
+    var extintores = porId(VOLTAR.id.extintores);
+    if (aberta(extintores)) {
+      return botaoOu(dentro(extintores, VOLTAR.classe.extintoresVolta), chamar(VOLTAR.funcao.extintores));
+    }
+    // 7. As folhas de baixo de z 520. O Concluir (#sheet) tinha substituído a OS (o abrirFechamentoTask a fecha): o
+    //    fecharSheet salva o rascunho, e a OS volta, com a tarefa em foco.
+    if (aberta(porId(VOLTAR.id.fora))) return chamar(VOLTAR.funcao.fora);
+    if (aberta(porId(VOLTAR.id.ver))) return chamar(VOLTAR.funcao.ver);
+    if (aberta(porId(VOLTAR.id.fechamento))) {
+      var fecharSheet = funcao(VOLTAR.funcao.fechamento);
+      if (!fecharSheet) return null;
+      var abrirOs = funcao(VOLTAR.funcao.abrirOs);
+      return function () {
+        var tarefa = tarefaDoFechamento(win); // antes do fecharSheet, que a solta
+        fecharSheet.call(win);
+        if (tarefa && abrirOs && tarefa.osRef !== undefined && tarefa.osRef !== null) {
+          abrirOs.call(win, tarefa.osRef, tarefa.tid);
+        }
+      };
+    }
+    if (aberta(porId(VOLTAR.id.feedback))) return chamar(VOLTAR.funcao.feedback);
+    // 8. A OS (z 500), e também a Pausa e os avisos que reaproveitam o #modal: o botão do #m-body já é o passo anterior
+    //    (o Cancelar da Pausa volta para a OS).
+    if (aberta(porId(VOLTAR.id.os))) {
+      return botaoOu(dentro(porId(VOLTAR.id.corpoDaOs), VOLTAR.classe.fecharOs), chamar(VOLTAR.funcao.os));
+    }
+    // 9. O menu do usuário.
+    if (aberta(porId(VOLTAR.id.menu))) return chamar(VOLTAR.funcao.menu);
+    // 10. As abas: a Ronda e a Zeladoria pelo voltar delas (o da Ronda pede confirmação com pendência); fora de uma
+    //     tela interna, e nas outras abas, para Tarefas.
+    var ronda = porId(VOLTAR.id.ronda);
+    if (ativa(ronda)) return botaoOu(dentro(ronda, VOLTAR.classe.rondaVolta), irParaTarefas);
+    var zeladoria = porId(VOLTAR.id.zeladoria);
+    if (ativa(zeladoria)) return botaoOu(dentro(zeladoria, VOLTAR.classe.zeladoriaVolta), irParaTarefas);
+    if (ativa(porId(VOLTAR.id.sincronizacao)) || ativa(porId(VOLTAR.id.conquistas)) ||
+        ativa(porId(VOLTAR.id.acompanhamento))) return irParaTarefas;
+    // 11. Tarefas, sem nada aberto.
+    return null;
+  }
+
+  // A tarefa do Concluir. O `let` de topo do campo.html não vira propriedade da janela, mas todo script clássico da
+  // página o enxerga pelo nome (o ambiente léxico global é um só, e este script também roda nele). Lido com typeof
+  // dentro de try: antes da declaração dele (a zona morta), até o typeof lança.
+  function tarefaDoFechamento(win) {
+    var naJanela = win[VOLTAR.global.tarefaDoFechamento];
+    if (naJanela) return naJanela;
+    try {
+      return typeof sheetTask !== 'undefined' ? sheetTask : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function instalarVoltar(ctx) {
+    var win = ctx.win;
+    // Guardado agora, atado à janela, como no espelho do localStorage.
+    var agendar = win.setTimeout.bind(win);
+    function voltar() {
+      try {
+        var acao = decidirVoltar(ctx);
+        if (acao === null) return false;
+        if (acao !== CONSUMIR) {
+          agendar(function () {
+            try {
+              var r = acao();
+              if (r && typeof r.then === 'function') r.then(null, function (e) { ctx.falhou('voltar', e); });
+            } catch (e) {
+              ctx.falhou('voltar', e);
+            }
+          }, 0);
+        }
+        return true;
+      } catch (e) {
+        ctx.falhou('voltar', e);
+        return false;
+      }
+    }
+    // Não enumerável: o que da página varre a janela não a vê.
+    Object.defineProperty(win, '__gcCascaVoltar', { value: voltar, enumerable: false, configurable: true, writable: false });
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
   // Ponto único de entrada
   // ---------------------------------------------------------------------------------------------------------------
 
@@ -1570,14 +1792,20 @@
       // venha a marca de onde vier (a perda que parou, a que a trava não deixou parar, a restauração só da fila): a
       // cópia boa está no nativo. Isso vai em `espelhoDesligado`, que é o que as outras seções conferem. Se a 4 falhar
       // por um erro nosso sem marca, a página abre com o espelho ligado.
+      // A exceção é a carga que aplicou o retrato completo da perda: o localStorage dela acabou de voltar do nativo, e o
+      // que a página gravar nela vai a ele (se a restauração for interrompida, a próxima a refaz com isso junto).
       tentar(ctx, 'sentinela', function () { conferirSentinelaEFila(ctx, ls); });
-      if (temMarcaDePerda(ls)) ctx.espelhoDesligado = true;
+      if (temMarcaDePerda(ls) && !ctx.restauracaoDePerda) ctx.espelhoDesligado = true;
       if (!ctx.espelhoDesligado) instalarEspelhoLS(ctx, ls);
     });
-    // A 5 depois da 3 e da 4: ela lê o `espelhoDesligado` e o `cargaParada` que a 4 decidiu. A 6 não espelha nada e
-    // vale em toda carga.
+    // A 5 depois da 3 e da 4: ela lê o `espelhoDesligado` e o `cargaParada` que a 4 decidiu. A 6 e a 7 não espelham
+    // nada e valem em toda carga.
     tentar(ctx, 'idb', function () { instalarIDB(ctx); });
+    // Sem a seção 5 nesta carga (a janela sem IndexedDB, ou ele negado), a perda termina só com o localStorage: não há
+    // fotos a esperar, e uma marca que nunca saísse deixaria toda carga sem espelho.
+    if (ctx.concluirPerda && !ctx.idbCuidaDaPerda) tentar(ctx, 'marca', function () { ctx.concluirPerda(); });
     tentar(ctx, 'janela', function () { instalarJanela(ctx); });
+    tentar(ctx, 'voltar', function () { instalarVoltar(ctx); });
 
     return {
       pronto: Promise.all(ctx.prontos).then(function () { return undefined; }),
@@ -1603,9 +1831,7 @@
       SENTINELA_LS: SENTINELA_LS,
       MARCA_PERDA: MARCA_PERDA,
       BANCO_SENTINELA: BANCO_SENTINELA,
-      STORE_PENDENTES: STORE_PENDENTES,
-      STORE_ESTADO: STORE_ESTADO,
-      CHAVE_RESTAURACAO: CHAVE_RESTAURACAO,
+      VOLTAR: VOLTAR,
     };
   } else if (typeof window !== 'undefined') {
     instalar(window, window.gcCasca, window.__GC_RETRATO__ || {});

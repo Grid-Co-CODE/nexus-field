@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -65,7 +66,7 @@ public class CascaPlugin extends Plugin {
     private static final String LOJA_DA_WEBVIEW_NA_WEB =
         "https://play.google.com/store/apps/details?id=com.google.android.webview";
     // Quanto a thread do espelho espera a de UI mandar cada pedaço do idbPedir. Passou disso, a de UI está travada, e
-    // o envio para (a página tem o teto dela de 15 s).
+    // o envio para (a página tem o prazo dela: 20 s sem nada, 180 s no máximo).
     private static final long ESPERA_POR_MENSAGEM_S = 10;
     // O pedaço do caminho que vai ao log como está (ver navegacaoParaOLog).
     private static final Pattern PEDACO_COMUM = Pattern.compile("[A-Za-z0-9._~-]{1,64}");
@@ -76,6 +77,10 @@ public class CascaPlugin extends Plugin {
     // E um disjuntor por processo: o renderer que morre na recarga com o retrato completo recria a tela (plugin e
     // Mensageiro novos), e a contagem dos completos tem de atravessar a recriação, senão o laço não para.
     private static final Mensageiro.Disjuntor DISJUNTOR_DO_PROCESSO = new Mensageiro.Disjuntor();
+    // O das restaurações por 24 h, que mora no SharedPreferences (atravessa o processo) e também é um por processo (a
+    // contagem dele vale quando o SharedPreferences não grava). Fora do backup, como tudo (regras_dados.xml).
+    private static final String PREFERENCIAS_DO_ESPELHO = "casca_espelho";
+    private static Mensageiro.DisjuntorDaPerda perdasDoProcesso;
 
     private String origem;
     // Ligado quando a tela sai (onDestroy) ou o renderer morre: nada mais toca nesta WebView.
@@ -166,7 +171,7 @@ public class CascaPlugin extends Plugin {
             return;
         }
         threadDoEspelho = Executors.newSingleThreadExecutor(tarefa -> new Thread(tarefa, "GcCasca-espelho"));
-        mensageiro = new Mensageiro(armazem, new AcoesDaCasca(), DISJUNTOR_DO_PROCESSO);
+        mensageiro = new Mensageiro(armazem, new AcoesDaCasca(), DISJUNTOR_DO_PROCESSO, perdas(getContext()));
 
         try {
             WebViewCompat.addWebMessageListener(webView, CANAL, Collections.singleton(origem), this::aoReceber);
@@ -188,6 +193,16 @@ public class CascaPlugin extends Plugin {
     private static synchronized ArmazemEspelho espelho(Context contexto) {
         if (espelhoDoProcesso == null) espelhoDoProcesso = new EspelhoSqlite(contexto, new CifraKeystore());
         return espelhoDoProcesso;
+    }
+
+    private static synchronized Mensageiro.DisjuntorDaPerda perdas(Context contexto) {
+        if (perdasDoProcesso == null) {
+            SharedPreferences prefs = contexto.getApplicationContext()
+                .getSharedPreferences(PREFERENCIAS_DO_ESPELHO, Context.MODE_PRIVATE);
+            perdasDoProcesso = new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naPreferencia(prefs),
+                System::currentTimeMillis);
+        }
+        return perdasDoProcesso;
     }
 
     private String lerScriptDeInicio() throws IOException {
@@ -392,6 +407,12 @@ public class CascaPlugin extends Plugin {
         public void idbPedir() {
             JavaScriptReplyProxy ponte = ponteDaMensagem;
             if (ponte != null) mensageiro.enviarIdb(mensagem -> responder(ponte, mensagem));
+        }
+
+        @Override
+        public void idbRecusado() {
+            JavaScriptReplyProxy ponte = ponteDaMensagem;
+            if (ponte != null) mensageiro.recusarIdb(mensagem -> responder(ponte, mensagem));
         }
 
         @Override
