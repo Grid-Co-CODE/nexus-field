@@ -123,8 +123,12 @@
 
       // Ligado pela seção 4 quando o win.stop() não lançou: a página não roda, o nativo a recarrega com o retrato
       // completo, e a seção 5 não confere nem restaura o IndexedDB nesta carga. Se o stop lançou, a página roda até a
-      // recarga, sem espelho, e a seção 5 a trata como qualquer carga sem espelho.
+      // recarga, sem espelho, e a seção 5 a trata como qualquer carga sem espelho (não toca no IndexedDB).
       cargaParada: false,
+
+      // Ligado pela seção 4 quando esta carga aplicou o retrato completo de uma perda (motivo 'perda', ou sem motivo):
+      // a seção 5 devolve também o IndexedDB inteiro do nativo, a mesma geração do localStorage que acabou de voltar.
+      restauracaoDePerda: false,
 
       // O localStorage e a memória da sessão capturados pela seção 4 (capturarLS), ou null. A seção 5 guarda ali a
       // marca da reconciliação.
@@ -557,8 +561,9 @@
     // A perda está respondida: a marca sai pelo original (sem eco), depois do que voltou (se a carga morrer no meio, a
     // seguinte ainda vê a perda e pede de novo) e antes da sentinela, que ganha o espaço dela. O retrato da fila não
     // mexe na marca: uma perda pendente continua pendente. Sem `motivo` conta como perda, porque uma marca que nunca
-    // saísse deixaria toda carga sem espelho, partida após partida.
+    // saísse deixaria toda carga sem espelho, partida após partida. Na perda, o IndexedDB volta junto (seção 5).
     if (retrato.motivo !== 'fila') {
+      ctx.restauracaoDePerda = true;
       try { ls.removeItem.call(ls.real, MARCA_PERDA); } catch (e) { ctx.falhou('marca', e); }
     }
 
@@ -586,18 +591,38 @@
   // aparelho de 4 GB. O nativo junta os pedaços pelo `id` e só cria a entrada no último (i === n-1).
   var TAMANHO_PEDACO = 524288;
 
-  // Quanto a página espera a restauração das fotos antes de abrir o banco do mesmo jeito.
+  // O teto da seção (ver O TETO DA SEÇÃO): o máximo que a página espera para abrir o banco das fotos, com a conferência
+  // ou a restauração terminadas ou não.
   var ESPERA_NATIVO_MS = 15000;
 
   // Memória da sessão (ver A MEMÓRIA DA SESSÃO, na seção 4): a reconciliação já rodou nesta sessão da WebView.
   var SESSAO_IDB = 'gc_casca_idb_reconciliado';
 
-  // O banco sentinela da casca (BANCO_SENTINELA, `gc_casca`) quer dizer: o IndexedDB desta WebView está em dia com o
-  // nativo, sob o espelho. É ele que autoriza a reconciliação a mandar apagar no nativo o que falta na WebView. Por
-  // isso só nasce numa carga com o espelho ligado (na instalação nova, ou depois de uma restauração completa), e sai
-  // numa carga sem espelho: a página que roda sem espelho (a perda que a trava da sessão não deixou parar) roda com o
-  // localStorage vazio, e a faxina de órfãos dela (`idbKeys` + `idbDel` do campo.html) apaga as fotos que nenhum
-  // registro cita. Com o banco sentinela de pé, a próxima reconciliação mandaria apagar no nativo a cópia boa delas.
+  // O que o banco sentinela guarda (versão 1): na store `pendentes`, as chaves que a última restauração não trouxe de
+  // volta (chave -> 1); na store `estado`, a marca CHAVE_RESTAURACAO -> 'incompleta' quando o `n` do nativo não bateu
+  // (ou não chegou), ou enquanto as pendentes ainda não foram gravadas.
+  var STORE_PENDENTES = 'pendentes';
+  var STORE_ESTADO = 'estado';
+  var CHAVE_RESTAURACAO = 'restauracao';
+
+  // O BANCO SENTINELA (BANCO_SENTINELA, `gc_casca`) quer dizer: o IndexedDB desta WebView já foi conferido com o
+  // nativo (na instalação nova ou numa restauração). Numa carga normal (sem a marca da perda), a falta dele é o
+  // IndexedDB que se perdeu sozinho (o despejo do Chromium pode levar uma loja e deixar a outra): restaura do nativo.
+  // Com ele de pé, a carga reconcilia, uma vez por sessão.
+  // Ele nasce mesmo de uma restauração incompleta, e guarda na store STORE_PENDENTES as chaves que não voltaram. Caso
+  // da revisão: com o banco sentinela só depois da restauração completa, bastava uma entrada recusada (o disco cheio) e
+  // TODA carga pedia tudo de novo, segurava a página 15 s e regravava por cima dela. Agora não há nova tentativa
+  // automática: a reconciliação nunca manda apagar no nativo uma chave pendente (ele ainda a tem e a WebView não), e
+  // com a marca 'incompleta' (o `n` do nativo não bateu ou não chegou: pode faltar uma chave que nem se sabe qual) não
+  // manda apagar nada. Custo aceito: uma chave velha pode ficar no nativo e voltar numa restauração futura; a faxina de
+  // órfãos da página a limpa.
+  //
+  // A CARGA SEM ESPELHO (a perda que a trava não deixou parar, o stop que lançou, a marca da perda) não toca no
+  // IndexedDB: nem restaura, nem reconcilia, nem cria ou apaga o banco sentinela. A faxina de órfãos da página que roda
+  // assim (`idbKeys` + `idbDel` do campo.html, com o localStorage vazio) apaga fotos sem espelhar; quem as devolve é a
+  // marca da perda, que leva a carga seguinte ao retrato completo, e a restauração da perda devolve o IndexedDB inteiro
+  // junto com o localStorage, da mesma geração, com o banco sentinela de pé ou não. A reconciliação nunca roda com a
+  // marca (sem espelho não há seção 5), então o que a página apagou sem espelho não vira idbDel no nativo.
 
   // Captura o IndexedDB e os métodos originais UMA vez, antes de qualquer embrulho e de qualquer script da página. A
   // restauração grava pelo put original (pelo embrulhado, ecoaria ao nativo o que acabou de vir dele).
@@ -608,7 +633,6 @@
     return {
       fabrica: fabrica,
       abrir: fabrica.open,
-      apagarBanco: fabrica.deleteDatabase,
       listarBancos: fabrica.databases,
       proto: proto,
       put: proto.put,
@@ -665,6 +689,10 @@
   function lerSessaoCtx(ctx, chave) { return ctx.ls ? lerSessao(ctx.ls, chave) : null; }
   function gravarSessaoCtx(ctx, chave, valor) { if (ctx.ls) gravarSessao(ctx.ls, chave, valor); }
 
+  function fechar(db) {
+    if (db) { try { db.close(); } catch (e) { /* já fechado */ } }
+  }
+
   // O envio ao nativo, numa fila só: as operações saem na ordem dos complete, e um Blob termina todos os pedaços antes
   // da operação seguinte. Caso: a página grava um vídeo e logo o apaga; com o idbDel no meio dos pedaços, o último
   // pedaço chegaria depois dele, e o nativo ficaria com o vídeo que a página apagou.
@@ -705,8 +733,11 @@
     }
 
     return {
+      // Devolve a promessa da fila até esta operação sair (nunca rejeita): a reconciliação só lê o valor seguinte
+      // depois dela.
       operacao: function (op) {
         cadeia = cadeia.then(function () { return enviar(op); }).then(null, function (e) { ctx.falhou('idbEnvio', e); });
+        return cadeia;
       },
     };
   }
@@ -714,7 +745,7 @@
   // Embrulha IDBObjectStore.prototype.put e delete e espelha só o banco e a store das fotos. O original vem primeiro, e
   // a exceção dele sobe intacta; a operação fica anotada na transação e só vai ao nativo no `complete` dela: a
   // transação que aborta não gravou nada. get, getAll, getAllKeys e o resto ficam intocados.
-  function instalarEspelhoIDB(ctx, idb, envio) {
+  function instalarEspelhoIDB(ctx, idb, envio, estado) {
     var putOriginal = idb.put;
     var apagarOriginal = idb.apagar;
     var porTransacao = new WeakMap(); // transação -> Map(chave -> última operação)
@@ -743,6 +774,9 @@
         ctx.falhou(onde, new Error('chave que não é texto: fica fora do espelho'));
         return;
       }
+      // Depois do prazo a página já abriu o banco e mexe nele: a restauração atrasada pula esta chave (ver O TETO).
+      // Anotada na chamada, não no complete: a transação da página foi criada antes da que a restauração criaria.
+      if (estado.vencido) estado.tocadas.add(chave);
       anotar(store, criarOp());
     }
 
@@ -767,153 +801,198 @@
     };
   }
 
-  // Decide, antes de a página abrir o banco das fotos, o que esta carga faz com o IndexedDB. Devolve uma Promise que
-  // nunca rejeita (é o que segura o open da página):
-  //   carga parada                                 → nada (a página vai recarregar);
-  //   sem indexedDB.databases()                    → "não sei": avisa e segue sem restaurar nem reconciliar;
-  //   espelho desligado                            → derruba o banco sentinela (ver o comentário dele) e, se a WebView
-  //                                                  perdeu as fotos e o nativo tem espelho, restaura sem recriá-lo;
-  //   sem o banco sentinela (ou sem o banco das     → com espelho no nativo, restaura e cria o banco sentinela; sem,
-  //   fotos, com chaves no nativo)                     só o cria;
-  //   com o banco sentinela                        → reconcilia, uma vez por sessão.
-  // O banco das fotos sumir inteiro com o banco sentinela de pé conta como perda: nenhuma faxina da página apaga o
-  // banco, e a reconciliação mandaria apagar no nativo todas as fotos que ele guarda.
-  function conferirIDB(ctx, idb, envio) {
-    if (ctx.cargaParada) return Promise.resolve();
+  // Decide, antes de a página abrir o banco das fotos, o que esta carga (com espelho) faz com o IndexedDB. Devolve uma
+  // Promise que nunca rejeita; o `comTeto` a corta em ESPERA_NATIVO_MS.
+  //   restauração da perda (retrato completo, motivo   → restaura o IndexedDB inteiro do nativo, esteja o banco
+  //   'perda' ou sem motivo)                              sentinela de pé ou não (a mesma geração do localStorage);
+  //   sem indexedDB.databases()                        → "não sei": avisa e segue sem restaurar nem reconciliar;
+  //   sem o banco sentinela                            → perda só do IndexedDB: com espelho no nativo, restaura; sem
+  //                                                       (instalação nova), só cria o banco sentinela;
+  //   com o banco sentinela                            → reconcilia, uma vez por sessão.
+  function conferirIDB(ctx, idb, envio, estado) {
+    var doNativo = chavesDoNativo(ctx.retrato);
+    // O localStorage acabou de voltar do retrato completo (seção 4). Sem o IndexedDB da mesma geração, a faxina de órfãos
+    // da página apagaria o que a WebView tem e o localStorage restaurado não cita, e as fotos que ele cita e a WebView
+    // perdeu (ou que a página apagou numa carga sem espelho) não voltariam.
+    if (ctx.restauracaoDePerda) return restaurarIDB(ctx, idb, estado, doNativo);
     if (typeof idb.listarBancos !== 'function') {
       ctx.falhou('idb', new Error('indexedDB.databases() indisponível: sem conferência do IndexedDB nesta carga'));
       return Promise.resolve();
     }
     return new Promise(function (ok) { ok(idb.listarBancos.call(idb.fabrica)); }) // a chamada que lança vira recusa
       .then(function (lista) {
+        // Depois do prazo a página já abriu o banco das fotos: restaurar ou reconciliar agora seria agir às cegas. A
+        // próxima carga confere de novo.
+        if (estado.vencido) return undefined;
         var nomes = new Set();
         (Array.isArray(lista) ? lista : []).forEach(function (d) { if (d && typeof d.name === 'string') nomes.add(d.name); });
-        var temCasca = nomes.has(BANCO_SENTINELA);
-        var temFotos = nomes.has(BANCO_FOTOS);
-        var temEspelho = ctx.retrato.temEspelho === true;
-        var doNativo = chavesDoNativo(ctx.retrato);
-        var perdeu = !temCasca || (!temFotos && doNativo.length > 0);
-
-        if (ctx.espelhoDesligado) {
-          var antes = temCasca ? apagarBancoSentinela(ctx, idb) : Promise.resolve();
-          // Ler do nativo não escreve nele: a restauração roda mesmo sem espelho, mas não recria o banco sentinela.
-          return antes.then(function () { return perdeu && temEspelho ? restaurarIDB(ctx, idb, false) : undefined; });
+        if (!nomes.has(BANCO_SENTINELA)) {
+          if (ctx.retrato.temEspelho === true) return restaurarIDB(ctx, idb, estado, doNativo);
+          return gravarCasca(ctx, idb, [], false);
         }
-        if (perdeu) return temEspelho ? restaurarIDB(ctx, idb, true) : criarBancoSentinela(ctx, idb);
         if (lerSessaoCtx(ctx, SESSAO_IDB) !== null) return undefined;
-        return reconciliar(ctx, idb, envio, temFotos, doNativo);
+        return reconciliar(ctx, idb, envio, estado, nomes.has(BANCO_FOTOS), doNativo);
       })
       .then(null, function (e) { ctx.falhou('idb', e); });
   }
 
-  // A RECONCILIAÇÃO, com o banco sentinela de pé: a WebView é a verdade.
-  //   chave do banco real que falta em idbChaves  → reenvia (o espelho perdeu a gravação: canal fora, app morto no
-  //                                                meio dos pedaços);
-  //   chave de idbChaves que falta no banco real  → idbDel (o espelho perdeu a exclusão).
+  // A RECONCILIAÇÃO, com o banco sentinela de pé e o espelho ligado (então sem a marca da perda): a WebView é a verdade.
+  //   a store das fotos vazia e idbChaves não vazio → perda só do IndexedDB: restaura (nenhuma faxina da página esvazia
+  //                                                   o banco inteiro, e reconciliar mandaria apagar tudo no nativo);
+  //   chave de idbChaves que falta na WebView        → idbDel (o espelho perdeu a exclusão), se ela não for pendente
+  //                                                   e o banco sentinela não estiver marcado 'incompleta';
+  //   chave da WebView que falta em idbChaves        → reenvia (o espelho perdeu a gravação: canal fora, app morto no
+  //                                                   meio dos pedaços).
   // Uma vez por sessão da WebView (SESSAO_IDB): o idbChaves do retrato leve é o do começo da partida e envelhece dentro
   // dela; numa recarga ele reenviaria as mesmas fotos de novo. Sem sessionStorage, roda em toda carga.
-  // Só lê da página: o banco das fotos é aberto e fechado aqui, e nada é gravado nele.
-  function reconciliar(ctx, idb, envio, temFotos, doNativo) {
-    var noNativo = new Set(doNativo);
-    var leitura = temFotos ? lerParaReconciliar(ctx, idb, noNativo) : Promise.resolve({ chaves: new Set(), faltam: [] });
-    return leitura.then(function (r) {
-      if (!r) return; // o erro já foi avisado; a próxima carga tenta de novo
-      noNativo.forEach(function (k) { if (!r.chaves.has(k)) envio.operacao({ t: 'del', k: k }); });
-      r.faltam.forEach(function (item) {
-        try { envio.operacao(representar(ctx.win, item.k, item.v)); } catch (e) { ctx.falhou('idbReconciliar', e); }
+  // O `pronto` espera só a decisão; os reenvios seguem depois, uma chave por vez (lida, mandada, e só então a seguinte:
+  // um vídeo de 15 MB por vez na memória, nunca todos), e a marca da sessão entra depois do último. Só lê da página.
+  function reconciliar(ctx, idb, envio, estado, temFotos, doNativo) {
+    var aberto = temFotos ? abrirFotosParaLer(ctx, idb) : Promise.resolve(null);
+    return aberto.then(function (db) {
+      if (temFotos && !db) return undefined; // o erro já foi avisado; a próxima carga confere de novo
+      return (db ? lerChaves(ctx, db) : Promise.resolve([])).then(function (locais) {
+        if (locais === null || estado.vencido) { fechar(db); return undefined; }
+        if (!locais.length) {
+          fechar(db);
+          if (doNativo.length) return restaurarIDB(ctx, idb, estado, doNativo);
+          gravarSessaoCtx(ctx, SESSAO_IDB, '1');
+          return undefined;
+        }
+        return lerCasca(ctx, idb).then(function (casca) {
+          if (estado.vencido) { fechar(db); return undefined; }
+          var naWebView = new Set(locais);
+          var noNativo = new Set(doNativo);
+          // Sem o estado do banco sentinela (não abriu), ou com a marca, não se sabe o que a restauração deixou de
+          // trazer: nada é apagado no nativo.
+          if (casca && !casca.incompleta) {
+            doNativo.forEach(function (k) {
+              if (!naWebView.has(k) && !casca.pendentes.has(k)) envio.operacao({ t: 'del', k: k });
+            });
+          }
+          var faltam = locais.filter(function (k) { return !noNativo.has(k); });
+          reenviar(ctx, db, envio, faltam).then(function (terminou) {
+            fechar(db);
+            if (terminou) gravarSessaoCtx(ctx, SESSAO_IDB, '1');
+          });
+          return undefined;
+        });
       });
-      gravarSessaoCtx(ctx, SESSAO_IDB, '1');
     });
   }
 
-  // As chaves do banco das fotos e o valor das que o nativo não tem, numa transação só de leitura. null em erro.
-  function lerParaReconciliar(ctx, idb, noNativo) {
+  // Abre o banco das fotos só para ler. Ele estava na lista do databases(); se sumiu desde então, o open o criaria vazio
+  // e a reconciliação mandaria apagar tudo no nativo: aborta, nada é criado, e a próxima carga confere de novo.
+  function abrirFotosParaLer(ctx, idb) {
     return new Promise(function (ok) {
       var r;
       try { r = idb.abrir.call(idb.fabrica, BANCO_FOTOS); } catch (e) { ctx.falhou('idbReconciliar', e); ok(null); return; }
-      // O banco estava na lista do databases(); se sumiu desde então, o open o criaria vazio, e a reconciliação mandaria
-      // apagar tudo no nativo. Aborta: nada é criado, e a próxima carga confere de novo.
       r.onupgradeneeded = function () { r.transaction.abort(); };
       r.onerror = function () { ctx.falhou('idbReconciliar', r.error); ok(null); };
       r.onsuccess = function () {
         var db = r.result;
-        function sair(valor) { try { db.close(); } catch (_) { /* já fechado */ } ok(valor); }
-        if (!db.objectStoreNames.contains(STORE_FOTOS)) {
-          ctx.falhou('idbReconciliar', new Error('o banco das fotos está sem a store'));
-          sair(null);
-          return;
-        }
-        var chaves = new Set();
-        var faltam = [];
-        try {
-          var tx = db.transaction(STORE_FOTOS, 'readonly');
-          var store = tx.objectStore(STORE_FOTOS);
-          var pedido = store.getAllKeys();
-          pedido.onsuccess = function () {
-            (pedido.result || []).forEach(function (k) {
-              if (typeof k !== 'string') return;
-              chaves.add(k);
-              if (noNativo.has(k)) return;
-              var g = store.get(k);
-              g.onsuccess = function () { faltam.push({ k: k, v: g.result }); };
-            });
-          };
-          tx.oncomplete = function () { sair({ chaves: chaves, faltam: faltam }); };
-          tx.onabort = function () { ctx.falhou('idbReconciliar', tx.error || new Error('leitura abortada')); sair(null); };
-        } catch (e) {
-          ctx.falhou('idbReconciliar', e);
-          sair(null);
-        }
+        // Uma versão nova da página que suba a versão do banco não pode ficar presa nesta conexão (os reenvios param).
+        db.onversionchange = function () { db.close(); };
+        if (db.objectStoreNames.contains(STORE_FOTOS)) { ok(db); return; }
+        db.close();
+        ctx.falhou('idbReconciliar', new Error('o banco das fotos está sem a store'));
+        ok(null);
       };
+    });
+  }
+
+  // As chaves (só elas) da store das fotos, ou null em erro.
+  function lerChaves(ctx, db) {
+    return new Promise(function (ok) {
+      try {
+        var pedido = db.transaction(STORE_FOTOS, 'readonly').objectStore(STORE_FOTOS).getAllKeys();
+        pedido.onsuccess = function () {
+          ok((pedido.result || []).filter(function (k) { return typeof k === 'string'; }));
+        };
+        pedido.onerror = function () { ctx.falhou('idbReconciliar', pedido.error); ok(null); };
+      } catch (e) {
+        ctx.falhou('idbReconciliar', e);
+        ok(null);
+      }
+    });
+  }
+
+  // Lê e manda as `chaves`, uma por vez: a seguinte só é lida depois de a anterior sair inteira pela fila do envio.
+  // Resolve true se passou por todas, false se parou num erro (o banco fechou: a próxima carga reconcilia de novo).
+  function reenviar(ctx, db, envio, chaves) {
+    var i = 0;
+    function proxima() {
+      if (i >= chaves.length) return true;
+      var k = chaves[i++];
+      return lerValor(db, k).then(function (lido) {
+        // Sumiu desde a lista: a página a apagou, e o espelho já mandou o idbDel.
+        if (!lido.achou) return proxima();
+        var op;
+        try { op = representar(ctx.win, k, lido.valor); } catch (e) { ctx.falhou('idbReconciliar', e); return proxima(); }
+        return envio.operacao(op).then(proxima);
+      });
+    }
+    return Promise.resolve().then(proxima).then(null, function (e) { ctx.falhou('idbReconciliar', e); return false; });
+  }
+
+  function lerValor(db, k) {
+    return new Promise(function (ok, falha) {
+      var pedido = db.transaction(STORE_FOTOS, 'readonly').objectStore(STORE_FOTOS).get(k); // lança com o banco fechado
+      pedido.onsuccess = function () { ok({ achou: pedido.result !== undefined, valor: pedido.result }); };
+      pedido.onerror = function () { falha(pedido.error); };
     });
   }
 
   // A RESTAURAÇÃO: pede ao nativo o que ele guarda (idbPedir) e grava cada item no banco real pelo put original, sem
   // espelhar. Respostas: {t:'idbItem', k, tipo, v} e {t:'idbPedaco', k, i, n, mime, b64} (pedaços de um Blob, na
-  // ordem ou não), e no fim {t:'idbFim', n}, com `n` = quantas entradas o nativo mandou.
-  // Resolve no que vier primeiro: o fim da restauração, ou ESPERA_NATIVO_MS sem ele (a página não pode esperar para
-  // sempre). Depois do prazo, o que chegar ainda é gravado.
-  // O banco sentinela só é criado (com `criarSentinela`) se tudo voltou: cada entrada gravada, nenhum pedaço faltando,
-  // e o `n` igual ao que chegou. Sem ele a próxima carga restaura de novo, em vez de reconciliar, porque a
-  // reconciliação mandaria apagar no nativo o que não voltou.
-  function restaurarIDB(ctx, idb, criarSentinela) {
+  // ordem ou não), e no fim {t:'idbFim', n}, com `n` = quantas entradas (chaves) o nativo mandou.
+  // No idbFim grava o estado no banco sentinela (e o cria, se faltar), completa ou não: as PENDENTES são as chaves que o
+  // nativo anunciou (`anunciadas`, o idbChaves do retrato) ou mandou e que não foram gravadas; a marca 'incompleta' vai
+  // quando o `n` não bate com as chaves que chegaram. Nada de nova tentativa automática (ver O BANCO SENTINELA).
+  // O prazo é o do `comTeto`: vencido antes do idbFim, o estado é gravado já (tudo que falta pendente, e a marca), a
+  // página abre o banco, o que chegar depois ainda é gravado (menos o que a página tocou: `estado.tocadas`) e o idbFim
+  // atrasado refaz o estado.
+  function restaurarIDB(ctx, idb, estado, anunciadas) {
     var win = ctx.win;
     return new Promise(function (resolver) {
-      var acabou = false;
-      var timer = null;
-      function soltar() {
-        if (acabou) return;
-        acabou = true;
-        if (timer !== null) { idb.cancelar(timer); timer = null; }
-        resolver();
-      }
-
-      var entradas = 0;
+      var conhecidas = new Set(anunciadas); // o que o nativo disse ter: o retrato e as chaves que chegaram
+      var recebidas = new Set();            // as chaves que chegaram, inteiras ou não
+      var gravadas = new Set();
       var falhas = 0;
       var fim = false;
       var pedacos = new Map(); // chave -> { n, mime, partes, chegaram }
       var banco = abrirParaRestaurar(ctx, idb);
       var gravacoes = Promise.resolve();
+      var registro = Promise.resolve(); // as gravações do estado, uma depois da outra: a última vence
 
       function gravar(k, valor) {
         gravacoes = gravacoes.then(function () {
           return banco.then(function (db) {
             if (!db) { falhas++; return undefined; }
-            return gravarNoBanco(idb, db, k, valor).then(function (gravou) { if (!gravou) falhas++; });
+            // O que a página gravou ou apagou depois do prazo vence a cópia que chega atrasada. A chave fica pendente
+            // (a transação da página pode ter abortado: aí o nativo ainda é o único que a tem).
+            if (estado.tocadas.has(k)) return undefined;
+            return gravarNoBanco(idb, db, k, valor).then(function (gravou) {
+              if (gravou) gravadas.add(k); else falhas++;
+            });
           });
         });
       }
 
       function inteiro(x) { return typeof x === 'number' && x % 1 === 0; }
 
+      function anotar(k) {
+        conhecidas.add(k);
+        recebidas.add(k);
+      }
+
       function receberPedaco(m) {
         var k = m.k;
         var n = m.n;
         var i = m.i;
-        if (typeof k !== 'string' || !inteiro(n) || n < 1 || !inteiro(i) || i < 0 || i >= n || typeof m.b64 !== 'string') {
-          falhas++;
-          return;
-        }
+        if (typeof k !== 'string') { falhas++; return; }
+        anotar(k);
+        if (!inteiro(n) || n < 1 || !inteiro(i) || i < 0 || i >= n || typeof m.b64 !== 'string') { falhas++; return; }
         var p = pedacos.get(k);
         if (!p) {
           p = { n: n, mime: typeof m.mime === 'string' ? m.mime : '', partes: new Array(n), chegaram: 0 };
@@ -924,14 +1003,14 @@
         p.chegaram++;
         if (p.chegaram === p.n) {
           pedacos['delete'](k);
-          entradas++;
           gravar(k, new win.Blob(p.partes, { type: p.mime }));
         }
       }
 
       function receberItem(m) {
-        if (typeof m.k !== 'string' || typeof m.v !== 'string') { falhas++; return; }
-        entradas++;
+        if (typeof m.k !== 'string') { falhas++; return; }
+        anotar(m.k);
+        if (typeof m.v !== 'string') { falhas++; return; }
         var valor;
         if (m.tipo === 'texto') valor = m.v;
         else if (m.tipo === 'json') {
@@ -940,19 +1019,34 @@
         gravar(m.k, valor);
       }
 
-      function concluir(n) {
-        banco.then(function (db) { if (db) db.close(); });
-        var completa = falhas === 0 && pedacos.size === 0 && n === entradas;
-        if (!completa) {
-          // Só contagens: nada de chave nem de valor.
-          ctx.falhou('idbRestaurar', new Error('restauração incompleta: ' + entradas + ' de ' +
-            (typeof n === 'number' ? n : '?') + ' entradas, ' + falhas + ' falhas, ' + pedacos.size +
-            ' sem todos os pedaços'));
-          soltar();
-          return;
-        }
-        (criarSentinela ? criarBancoSentinela(ctx, idb) : Promise.resolve()).then(soltar, soltar);
+      function pendentes() {
+        var lista = [];
+        conhecidas.forEach(function (k) { if (!gravadas.has(k)) lista.push(k); });
+        return lista;
       }
+
+      function registrar(incompleta) {
+        var lista = pendentes();
+        registro = registro.then(function () { return gravarCasca(ctx, idb, lista, incompleta); });
+        return registro;
+      }
+
+      function concluir(n) {
+        banco.then(fechar);
+        var todas = n === recebidas.size; // nenhuma entrada sumiu no caminho
+        var faltam = pendentes().length;
+        if (!todas || falhas || pedacos.size || faltam) {
+          // Só contagens: nada de chave nem de valor.
+          ctx.falhou('idbRestaurar', new Error('restauração incompleta: ' + recebidas.size + ' de ' +
+            (typeof n === 'number' ? n : '?') + ' entradas, ' + falhas + ' falhas, ' + pedacos.size +
+            ' sem todos os pedaços, ' + faltam + ' pendentes'));
+        }
+        return registrar(!todas);
+      }
+
+      // O prazo venceu antes do idbFim: o banco sentinela nasce agora, com o que ainda não voltou pendente e a marca (o
+      // `n` não chegou). Com o idbFim já recebido, quem grava o estado é o `concluir`, logo depois das gravações.
+      estado.aoVencer.push(function () { if (!fim) registrar(true); });
 
       ctx.ouvirNativo(function (m) {
         if (fim || !m || typeof m !== 'object') return;
@@ -960,17 +1054,15 @@
         else if (m.t === 'idbPedaco') receberPedaco(m);
         else if (m.t === 'idbFim') {
           fim = true;
-          gravacoes.then(function () { concluir(m.n); }).then(null, function (e) { ctx.falhou('idbRestaurar', e); soltar(); });
+          gravacoes.then(function () { return concluir(m.n); })
+            .then(null, function (e) { ctx.falhou('idbRestaurar', e); })
+            .then(function () { resolver(); });
         }
       });
 
-      if (!ctx.enviar({ t: 'idbPedir' }, 'idbPedir')) { soltar(); return; }
-      timer = idb.agendar(function () {
-        timer = null;
-        if (acabou) return;
-        ctx.falhou('idbPedir', new Error('o nativo não terminou a restauração das fotos em 15 s: a página segue'));
-        soltar();
-      }, ESPERA_NATIVO_MS);
+      // Se o pedido nem sai (o canal caiu), nada foi restaurado e nada é gravado no banco sentinela: a carga seguinte
+      // confere de novo. Isso não vira o laço da revisão: o envio falha na hora, sem segurar a página.
+      if (!ctx.enviar({ t: 'idbPedir' }, 'idbPedir')) resolver();
     });
   }
 
@@ -1010,31 +1102,93 @@
     });
   }
 
-  function criarBancoSentinela(ctx, idb) {
+  // Abre o banco sentinela (versão 1, com as duas stores). O banco que nasce aqui já nasce com a marca 'incompleta', na
+  // mesma transação que o cria: se a gravação das pendentes não entrar depois, a reconciliação não apaga nada no nativo.
+  function abrirCasca(ctx, idb) {
     return new Promise(function (ok) {
-      try {
-        var r = idb.abrir.call(idb.fabrica, BANCO_SENTINELA);
-        r.onsuccess = function () { try { r.result.close(); } catch (_) { /* já fechado */ } ok(); };
-        r.onerror = function () { ctx.falhou('idbSentinela', r.error); ok(); };
-      } catch (e) {
-        ctx.falhou('idbSentinela', e);
-        ok();
-      }
+      var r;
+      try { r = idb.abrir.call(idb.fabrica, BANCO_SENTINELA, 1); } catch (e) { ctx.falhou('idbSentinela', e); ok(null); return; }
+      r.onupgradeneeded = function () {
+        var db = r.result;
+        if (!db.objectStoreNames.contains(STORE_PENDENTES)) db.createObjectStore(STORE_PENDENTES);
+        if (!db.objectStoreNames.contains(STORE_ESTADO)) {
+          idb.put.call(db.createObjectStore(STORE_ESTADO), 'incompleta', CHAVE_RESTAURACAO);
+        }
+      };
+      r.onsuccess = function () {
+        var db = r.result;
+        db.onversionchange = function () { db.close(); };
+        if (db.objectStoreNames.contains(STORE_PENDENTES) && db.objectStoreNames.contains(STORE_ESTADO)) { ok(db); return; }
+        db.close();
+        ctx.falhou('idbSentinela', new Error('o banco sentinela está sem as stores'));
+        ok(null);
+      };
+      r.onerror = function () { ctx.falhou('idbSentinela', r.error); ok(null); };
     });
   }
 
-  function apagarBancoSentinela(ctx, idb) {
-    return new Promise(function (ok) {
-      try {
-        var r = idb.apagarBanco.call(idb.fabrica, BANCO_SENTINELA);
-        r.onsuccess = function () { ok(); };
-        r.onerror = function () { ctx.falhou('idbSentinela', r.error); ok(); };
-        // Uma conexão aberta segura a exclusão até fechar; a página não espera por isso.
-        r.onblocked = function () { ok(); };
-      } catch (e) {
-        ctx.falhou('idbSentinela', e);
-        ok();
+  // { pendentes: Set, incompleta } do banco sentinela, ou null se não deu para ler (quem chama não apaga nada no nativo).
+  // Qualquer valor na marca conta como 'incompleta': na dúvida, o lado que não apaga.
+  function lerCasca(ctx, idb) {
+    return abrirCasca(ctx, idb).then(function (db) {
+      if (!db) return null;
+      return new Promise(function (ok) {
+        var pendentes = new Set();
+        var incompleta = true;
+        try {
+          var tx = db.transaction([STORE_PENDENTES, STORE_ESTADO], 'readonly');
+          var chaves = tx.objectStore(STORE_PENDENTES).getAllKeys();
+          chaves.onsuccess = function () { (chaves.result || []).forEach(function (k) { pendentes.add(k); }); };
+          var marca = tx.objectStore(STORE_ESTADO).get(CHAVE_RESTAURACAO);
+          marca.onsuccess = function () { incompleta = marca.result !== undefined; };
+          tx.oncomplete = function () { fechar(db); ok({ pendentes: pendentes, incompleta: incompleta }); };
+          tx.onabort = function () {
+            fechar(db);
+            ctx.falhou('idbSentinela', tx.error || new Error('leitura do banco sentinela abortada'));
+            ok(null);
+          };
+        } catch (e) {
+          fechar(db);
+          ctx.falhou('idbSentinela', e);
+          ok(null);
+        }
+      });
+    });
+  }
+
+  // Grava o estado de uma restauração no banco sentinela (e o cria, se faltar): as `pendentes` trocam as de antes, e a
+  // marca vai ou sai. Em duas transações: primeiro só a marca, depois as pendentes e a marca final juntas. Entre as duas,
+  // ou se a segunda não entrar (o disco cheio), o estado diz 'incompleta', e a reconciliação não apaga nada no nativo.
+  function gravarCasca(ctx, idb, pendentes, incompleta) {
+    return abrirCasca(ctx, idb).then(function (db) {
+      if (!db) return undefined;
+      function transacao(fn) {
+        return new Promise(function (ok) {
+          var tx = null;
+          try {
+            tx = db.transaction([STORE_PENDENTES, STORE_ESTADO], 'readwrite');
+            fn(tx.objectStore(STORE_PENDENTES), tx.objectStore(STORE_ESTADO));
+          } catch (e) {
+            try { if (tx) tx.abort(); } catch (_) { /* já terminou */ }
+            ctx.falhou('idbSentinela', e);
+            ok(false);
+            return;
+          }
+          tx.oncomplete = function () { ok(true); };
+          tx.onabort = function () { ctx.falhou('idbSentinela', tx.error || new Error('gravação abortada')); ok(false); };
+        });
       }
+      return transacao(function (lista, marca) { idb.put.call(marca, 'incompleta', CHAVE_RESTAURACAO); })
+        .then(function (marcou) {
+          if (!marcou) return undefined;
+          return transacao(function (lista, marca) {
+            lista.clear();
+            for (var i = 0; i < pendentes.length; i++) idb.put.call(lista, 1, pendentes[i]);
+            if (incompleta) idb.put.call(marca, 'incompleta', CHAVE_RESTAURACAO);
+            else idb.apagar.call(marca, CHAVE_RESTAURACAO);
+          });
+        })
+        .then(function () { fechar(db); });
     });
   }
 
@@ -1116,13 +1270,48 @@
     };
   }
 
-  // Liga a seção 5: o espelho (só com ele ligado), a conferência da partida e o open segurado até ela terminar.
+  // O TETO DA SEÇÃO: o `pronto` (e com ele o open da página) espera a conferência no máximo ESPERA_NATIVO_MS, seja o
+  // que for que não responda: o databases(), um open, o nativo. No prazo, `estado.vencido` liga e os `estado.aoVencer`
+  // rodam (a restauração em andamento grava o banco sentinela). Daí em diante a conferência não decide mais nada, e a
+  // restauração atrasada pula as chaves que a página gravou ou apagou (`estado.tocadas`, anotadas pelo espelho).
+  function comTeto(ctx, idb, estado, conferir) {
+    return new Promise(function (resolver) {
+      var solto = false;
+      var timer = null;
+      function soltar() {
+        if (solto) return;
+        solto = true;
+        if (timer !== null) { idb.cancelar(timer); timer = null; }
+        resolver();
+      }
+      timer = idb.agendar(function () {
+        timer = null;
+        if (solto) return;
+        estado.vencido = true;
+        ctx.falhou('idb', new Error('a conferência do IndexedDB não terminou em 15 s: a página segue'));
+        for (var i = 0; i < estado.aoVencer.length; i++) {
+          try { estado.aoVencer[i](); } catch (e) { ctx.falhou('idb', e); }
+        }
+        soltar();
+      }, ESPERA_NATIVO_MS);
+      var conferencia;
+      try { conferencia = conferir(); } catch (e) { ctx.falhou('idb', e); }
+      Promise.resolve(conferencia).then(soltar, function (e) { ctx.falhou('idb', e); soltar(); });
+    });
+  }
+
+  // Liga a seção 5: o espelho, a conferência da partida e o open segurado até ela terminar (ou até o teto). A carga
+  // parada vai recarregar, e a carga sem espelho não toca no IndexedDB (ver A CARGA SEM ESPELHO): nas duas, nada é
+  // embrulhado, e o open da página passa direto.
   function instalarIDB(ctx) {
+    if (ctx.cargaParada || ctx.espelhoDesligado) return;
     var idb = capturarIDB(ctx.win);
     if (!idb) return;
+    // vencido: o teto passou; aoVencer: o que roda nessa hora; tocadas: as chaves que a página mexeu depois dele.
+    var estado = { vencido: false, aoVencer: [], tocadas: new Set() };
     var envio = criarEnvioIDB(ctx);
-    if (!ctx.espelhoDesligado) instalarEspelhoIDB(ctx, idb, envio);
-    var pronto = conferirIDB(ctx, idb, envio);
+    instalarEspelhoIDB(ctx, idb, envio, estado);
+    var pronto = comTeto(ctx, idb, estado, function () { return conferirIDB(ctx, idb, envio, estado); });
     ctx.prontos.push(pronto);
     segurarAbertura(ctx, idb, pronto);
   }
@@ -1370,6 +1559,9 @@
       SENTINELA_LS: SENTINELA_LS,
       MARCA_PERDA: MARCA_PERDA,
       BANCO_SENTINELA: BANCO_SENTINELA,
+      STORE_PENDENTES: STORE_PENDENTES,
+      STORE_ESTADO: STORE_ESTADO,
+      CHAVE_RESTAURACAO: CHAVE_RESTAURACAO,
     };
   } else if (typeof window !== 'undefined') {
     instalar(window, window.gcCasca, window.__GC_RETRATO__ || {});

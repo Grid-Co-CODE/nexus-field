@@ -6,15 +6,17 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { IDBObjectStore } from 'fake-indexeddb';
 import {
-  criarJanela, criarAparelho, semear, bancos, lerFotos, bytesDe, ate, assentar, RETRATO_EM_USO, LS_EM_USO,
+  criarJanela, criarAparelho, semear, bancos, lerFotos, lerCasca, bytesDe, ate, assentar, RETRATO_EM_USO, LS_EM_USO,
   BANCO_FOTOS, STORE_FOTOS,
 } from './apoio.mjs';
 
 const require = createRequire(import.meta.url);
-const { instalar, fnv1a32, CHAVE_FILA, BANCO_SENTINELA } = require('../www/casca/inicio.js');
+const { instalar, fnv1a32, CHAVE_FILA, MARCA_PERDA, BANCO_SENTINELA } = require('../www/casca/inicio.js');
 
 const PEDACO = 524288;
+const TETO_MS = 15000;
 const MSG_TRAVA = 'conferência ignorada: já parou nesta sessão';
+const SESSAO_IDB = 'gc_casca_idb_reconciliado';
 
 // Janela falsa + script instalado. `antes` roda ANTES do script.
 function montar(opcoes = {}, antes = () => {}) {
@@ -110,16 +112,29 @@ test('put de texto espelha só depois do complete', async () => {
 
   const tx = db.transaction(STORE_FOTOS, 'readwrite');
   const store = tx.objectStore(STORE_FOTOS);
+  let completou = false;
+  const completa = new Promise((r) => tx.addEventListener('complete', () => { completou = true; r(); }));
   const rascunho = { _ts: 1, r: { data: '2026-10-17', itens: [1, 2] } };
   store.put('data:image/jpeg;base64,AAAA', 'f_1');
   store.put(rascunho, 'rdraft:u_2026-10-17');
   rascunho.r.data = 'mudou depois do put'; // o banco guardou a cópia do momento do put, e o espelho também
   const daPagina = () => {};
   tx.oncomplete = daPagina;
-  await assentar(0);
-  assert.deepEqual(j.enviados, [], 'nada antes do complete');
+  // A transação fica viva (um pedido puxa o outro) enquanto o laço de eventos anda 200 voltas: o put já gravou, e o
+  // espelho que mandasse antes do complete teria todo esse tempo para mandar.
+  // O finally solta a transação mesmo com a asserção falhando: senão o laço de pedidos segura o processo do teste.
+  let viva = true;
+  const manter = () => { if (viva) store.get('nada').onsuccess = manter; };
+  manter();
+  try {
+    await assentar();
+    assert.equal(completou, false, 'a transação ainda está viva');
+    assert.deepEqual(j.enviados, [], 'nada antes do complete');
+  } finally {
+    viva = false;
+  }
 
-  await new Promise((r) => tx.addEventListener('complete', r));
+  await completa;
   await ate(() => j.enviados.length === 2, 'os dois idbPut');
   assert.deepEqual(j.enviados, [
     { t: 'idbPut', k: 'f_1', tipo: 'texto', v: 'data:image/jpeg;base64,AAAA' },
@@ -350,27 +365,64 @@ test('restauração não ecoa', async () => {
   assert.deepEqual(k.enviados, []);
 });
 
-test('restauração incompleta não cria o banco sentinela, e a carga seguinte pede de novo', async () => {
+test('restauração incompleta cria o banco sentinela com as pendentes, e a carga seguinte não pede de novo nem as apaga no nativo', async () => {
+  // O que não volta: um vídeo sem o último pedaço, um JSON quebrado, uma gravação que o disco cheio recusa e uma chave
+  // que o nativo anunciou no retrato e não mandou.
   const aparelho = criarAparelho();
-  const j = montar({ idb: aparelho });
+  const retrato = { ...RETRATO_EM_USO, idbChaves: ['f_1', 'v_1', 'f_2', 'v_cheio', 'f_4'] };
+  const j = montar({ idb: aparelho, retrato }, () => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (valor, chave) {
+      if (chave === 'v_cheio' && this.name === STORE_FOTOS) throw new DOMException('disco cheio', 'QuotaExceededError');
+      return put.apply(this, arguments);
+    };
+  });
   const pagina = abrirComoAPagina(j.win);
   await ate(() => j.enviados.length > 0, 'idbPedir');
   j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
   j.responder({ t: 'idbPedaco', k: 'v_1', i: 0, n: 2, mime: 'video/mp4', b64: b64(bytesDeTeste(10)) }); // falta o i=1
   j.responder({ t: 'idbItem', k: 'f_2', tipo: 'json', v: '{quebrado' });
+  j.responder({ t: 'idbPedaco', k: 'v_cheio', i: 0, n: 1, mime: 'video/mp4', b64: b64(bytesDeTeste(10)) });
+  j.responder({ t: 'idbFim', n: 4 }); // as 4 chaves que ele mandou: nenhuma sumiu no caminho
+  await pagina.promessa;
+  await j.casca.pronto;
+  assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS, BANCO_SENTINELA], 'o banco sentinela nasce mesmo assim');
+  assert.deepEqual(await lerCasca(aparelho), { pendentes: ['f_2', 'f_4', 'v_1', 'v_cheio'], incompleta: false });
+  const aviso = j.enviados.find((m) => m.t === 'erro');
+  assert.ok(aviso, 'avisa');
+  assert.ok(!/f_1|f_2|f_4|v_1|v_cheio/.test(aviso.msg), 'sem nome de chave');
+  assert.deepEqual(await lerFotos(aparelho), { f_1: 'a' }, 'o que gravou fica');
+  assert.equal(j.timersAtivos(), 0, 'o teto de 15 s não fica pendurado');
+
+  // Partida nova (o idbChaves é o de agora): sem pedir tudo de novo, a reconciliação roda, e as pendentes não viram
+  // idbDel no nativo, que ainda as tem. A f_8, que o nativo tem e não é pendente, a WebView apagou: essa vai.
+  const k = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: [...retrato.idbChaves, 'f_8'] } });
+  await k.casca.pronto;
+  await assentar();
+  assert.deepEqual(k.enviados, [{ t: 'idbDel', k: 'f_8' }]);
+});
+
+test('restauração com o n que não bate marca o banco sentinela como incompleto, e a reconciliação não apaga nada no nativo', async () => {
+  // Uma entrada sumiu no caminho (o nativo diz 3, chegaram 2, uma delas sem chave): não há como saber qual chave falta.
+  const aparelho = criarAparelho();
+  const j = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1'] } });
+  const pagina = abrirComoAPagina(j.win);
+  await ate(() => j.enviados.length > 0, 'idbPedir');
+  j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
+  j.responder({ t: 'idbItem', tipo: 'texto', v: 'sem chave' });
   j.responder({ t: 'idbFim', n: 3 });
   await pagina.promessa;
   await j.casca.pronto;
-  assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS], 'sem o banco sentinela');
-  const aviso = j.enviados.find((m) => m.t === 'erro');
-  assert.ok(aviso, 'avisa');
-  assert.ok(!/f_1|f_2|v_1/.test(aviso.msg), 'sem nome de chave');
-  assert.equal((await lerFotos(aparelho)).f_1, 'a', 'o que gravou fica');
+  assert.deepEqual(await lerCasca(aparelho), { pendentes: [], incompleta: true }, 'grava o que deu e marca');
+  assert.equal((await lerFotos(aparelho)).f_1, 'a');
 
-  // Sem o banco sentinela a reconciliação não roda (ela apagaria no nativo o que não voltou): a carga seguinte restaura.
-  const k = recarregar(j, { retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1', 'f_2', 'v_1'] } });
-  await ate(() => k.enviados.length > 0, 'idbPedir de novo');
-  assert.deepEqual(k.enviados, [{ t: 'idbPedir' }]);
+  // Na partida seguinte a WebView tem a f_1 e o nativo diz ter a f_7 (a que não chegou, talvez): reenvia o que falta
+  // lá, mas não manda apagar nada.
+  const k = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_7'] } });
+  await k.casca.pronto;
+  await ate(() => k.enviados.length === 1, 'reenvio');
+  await assentar();
+  assert.deepEqual(k.enviados, [{ t: 'idbPut', k: 'f_1', tipo: 'texto', v: 'a' }]);
 });
 
 test('reconciliação reenvia chave que falta e apaga a que sobrou', async () => {
@@ -393,7 +445,9 @@ test('reconciliação reenvia chave que falta e apaga a que sobrou', async () =>
   assert.deepEqual(Object.keys(tudo).sort(), ['f_1', 'f_3', 'v_2'], 'a reconciliação não escreve na página');
   assert.deepEqual(await bytesDe(tudo.v_2), video);
 
-  // Uma vez por sessão: o idbChaves do retrato leve é da partida, e numa recarga ele já envelheceu.
+  // Uma vez por sessão: o idbChaves do retrato leve é da partida, e numa recarga ele já envelheceu. A marca entra
+  // depois do último reenvio (uma recarga no meio deles reconcilia de novo).
+  await ate(() => j.win.sessionStorage.getItem(SESSAO_IDB) !== null, 'marca da sessão');
   const k = recarregar(j);
   await k.casca.pronto;
   await assentar();
@@ -413,28 +467,40 @@ test('reconciliação reenvia chave que falta e apaga a que sobrou', async () =>
   await ate(() => s2.enviados.length === 3, 'sem sessionStorage 2');
 });
 
-test('o banco sentinela sem o banco das fotos, com chaves no nativo: restaura em vez de apagar no nativo', async () => {
-  // Nenhuma faxina da página apaga o banco das fotos inteiro: ele sumir é perda, e a reconciliação mandaria idbDel de
-  // todas as fotos que o nativo guarda.
-  const aparelho = await aparelhoEmUso();
-  const j = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1'] } });
-  const pagina = abrirComoAPagina(j.win);
-  await ate(() => j.enviados.length > 0, 'idbPedir');
-  assert.deepEqual(j.enviados, [{ t: 'idbPedir' }]);
-  j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
-  j.responder({ t: 'idbFim', n: 1 });
-  assert.equal(await idbGet(await pagina.promessa, 'f_1'), 'a');
-  assert.deepEqual(j.enviados, [{ t: 'idbPedir' }], 'nenhum idbDel');
+test('reconciliação com a store das fotos vazia e chaves no nativo: perda só do IndexedDB, restaura em vez de apagar no nativo', async () => {
+  // Nenhuma faxina da página esvazia o banco das fotos inteiro: a WebView sem nada com o nativo cheio é perda, e
+  // reconciliar mandaria idbDel de todas as fotos que o nativo guarda.
+  const casos = { 'sem o banco das fotos': await aparelhoEmUso(), 'com a store vazia': await aparelhoEmUso({}) };
+  for (const [nome, aparelho] of Object.entries(casos)) {
+    const j = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1'] } });
+    const pagina = abrirComoAPagina(j.win);
+    await ate(() => j.enviados.length > 0, 'idbPedir: ' + nome);
+    assert.deepEqual(j.enviados, [{ t: 'idbPedir' }], nome);
+    j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
+    j.responder({ t: 'idbFim', n: 1 });
+    assert.equal(await idbGet(await pagina.promessa, 'f_1'), 'a', nome);
+    await j.casca.pronto;
+    await assentar();
+    assert.deepEqual(j.enviados, [{ t: 'idbPedir' }], 'nenhum idbDel: ' + nome);
+    assert.deepEqual(await lerCasca(aparelho), { pendentes: [], incompleta: false }, nome);
+  }
+
+  // Com a store vazia e o nativo vazio também, não há o que pedir.
+  const vazio = await aparelhoEmUso({});
+  const j = montar({ idb: vazio });
+  await j.casca.pronto;
+  await assentar();
+  assert.deepEqual(j.enviados, []);
 });
 
-test('sem resposta do nativo, pronto resolve em 15 s e o open segue', async () => {
+test('sem resposta do nativo, pronto resolve em 15 s, o open segue e o banco sentinela nasce com as pendentes', async () => {
   const aparelho = criarAparelho();
-  const j = montar({ idb: aparelho });
+  const j = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1', 'f_2'] } });
   const pagina = abrirComoAPagina(j.win);
   let resolveu = false;
   j.casca.pronto.then(() => { resolveu = true; });
   await ate(() => j.enviados.length > 0, 'idbPedir');
-  j.avancar(14999);
+  j.avancar(TETO_MS - 1);
   await assentar();
   assert.equal(resolveu, false);
   assert.equal(pagina.abriu(), false);
@@ -444,14 +510,120 @@ test('sem resposta do nativo, pronto resolve em 15 s e o open segue', async () =
   const db = await pagina.promessa;
   const aviso = j.enviados.find((m) => m.t === 'erro');
   assert.ok(aviso && aviso.onde, 'avisa o nativo');
-  assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS], 'sem o banco sentinela: a restauração não terminou');
+  // Sem nova tentativa automática: o banco sentinela nasce agora, com o que não voltou e a marca (o n não chegou). Ele
+  // já nasce marcado, antes das pendentes entrarem: em nenhum momento ele diz "completo" sem elas.
+  await ate(async () => ((await lerCasca(aparelho)) || {}).pendentes?.length === 2, 'banco sentinela com as pendentes');
+  assert.deepEqual(await lerCasca(aparelho), { pendentes: ['f_1', 'f_2'], incompleta: true });
 
-  // O nativo lento termina depois: o item ainda entra e o banco sentinela é criado.
+  // O nativo lento termina depois: os itens ainda entram e o estado do banco sentinela é refeito.
   j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
-  j.responder({ t: 'idbFim', n: 1 });
-  await ate(async () => (await bancos(aparelho)).includes(BANCO_SENTINELA), 'banco sentinela');
+  j.responder({ t: 'idbItem', k: 'f_2', tipo: 'texto', v: 'b' });
+  j.responder({ t: 'idbFim', n: 2 });
+  await ate(async () => !(await lerCasca(aparelho)).incompleta, 'estado refeito');
+  assert.deepEqual(await lerCasca(aparelho), { pendentes: [], incompleta: false });
   assert.equal(await idbGet(db, 'f_1'), 'a');
   assert.ok(!j.enviados.some((m) => m.t === 'idbPut'), 'sem eco');
+  assert.equal(j.enviados.filter((m) => m.t === 'idbPedir').length, 1, 'um pedido só');
+});
+
+test('depois do prazo, a restauração atrasada pula o que a página gravou ou apagou', async () => {
+  const aparelho = criarAparelho();
+  const j = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1', 'f_2', 'f_3'] } });
+  const pagina = abrirComoAPagina(j.win);
+  await ate(() => j.enviados.length > 0, 'idbPedir');
+  j.avancar(TETO_MS);
+  const db = await pagina.promessa;
+
+  // A página já abriu o banco: grava uma foto e apaga outra (o espelho manda as duas ao nativo).
+  await idbPut(db, 'f_1', 'da página');
+  await idbPut(db, 'f_2', 'da página');
+  await idbDel(db, 'f_2');
+  await ate(() => j.enviados.some((m) => m.t === 'idbDel'), 'espelho da página');
+
+  // O que chega atrasado do nativo é a cópia de antes: não passa por cima do que a página fez.
+  j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'do nativo' });
+  j.responder({ t: 'idbItem', k: 'f_2', tipo: 'texto', v: 'do nativo' });
+  j.responder({ t: 'idbItem', k: 'f_3', tipo: 'texto', v: 'do nativo' });
+  j.responder({ t: 'idbFim', n: 3 });
+  await ate(async () => (await lerFotos(aparelho)).f_3 === 'do nativo', 'f_3 restaurada');
+  await assentar();
+  assert.deepEqual(await lerFotos(aparelho), { f_1: 'da página', f_3: 'do nativo' });
+  assert.deepEqual(doIdb(j.enviados).map((m) => m.t + ':' + (m.k || '')),
+    ['idbPedir:', 'idbPut:f_1', 'idbPut:f_2', 'idbDel:f_2'], 'sem eco do que voltou');
+});
+
+test('teto de 15 s: databases() que não responde não segura a página, e a resposta atrasada não decide nada', async () => {
+  const aparelho = criarAparelho();
+  let responder;
+  const j = montar({ idb: aparelho }, ({ win }) => {
+    win.indexedDB.databases = () => new Promise((r) => { responder = r; });
+  });
+  const pagina = abrirComoAPagina(j.win);
+  j.avancar(TETO_MS - 1);
+  await assentar();
+  assert.equal(pagina.abriu(), false);
+  j.avancar(1);
+  await pagina.promessa;
+  await j.casca.pronto;
+  assert.deepEqual(j.enviados.map((m) => m.t), ['erro']);
+
+  // Sem o banco sentinela: antes do prazo seria idbPedir. Agora a página já abriu o banco, e nada se decide às cegas.
+  responder([]);
+  await assentar();
+  assert.deepEqual(j.enviados.map((m) => m.t), ['erro']);
+  assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS]);
+});
+
+test('teto de 15 s: o banco sentinela que não abre não segura a página, e sem as pendentes nada é apagado no nativo', async () => {
+  const aparelho = await aparelhoEmUso({ f_1: 'a' });
+  const j = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_9'] } }, ({ win }) => {
+    const abrir = win.indexedDB.open;
+    win.indexedDB.open = function (nome) { return nome === BANCO_SENTINELA ? {} : abrir.apply(this, arguments); };
+  });
+  const pagina = abrirComoAPagina(j.win);
+  let resolveu = false;
+  j.casca.pronto.then(() => { resolveu = true; });
+  await assentar();
+  assert.equal(resolveu, false);
+  assert.equal(pagina.abriu(), false);
+  j.avancar(TETO_MS);
+  await ate(() => resolveu, 'pronto');
+  await pagina.promessa;
+  await assentar();
+  assert.deepEqual(j.enviados.map((m) => m.t), ['erro'], 'nem idbDel, nem reenvio');
+});
+
+test('reconciliação lê e manda uma chave por vez, sem juntar os valores na memória', async () => {
+  const proto = IDBObjectStore.prototype;
+  const get = proto.get;
+  const getAll = proto.getAll;
+  const leituras = [];
+  let todas = 0;
+  try {
+    const aparelho = await aparelhoEmUso({
+      v_1: new Blob([bytesDeTeste(PEDACO + 1)]), v_2: new Blob([bytesDeTeste(PEDACO + 2)]), v_3: new Blob([bytesDeTeste(PEDACO + 3)]),
+    });
+    let j;
+    j = montar({ idb: aparelho }, () => {
+      proto.get = function (k) {
+        if (this.name === STORE_FOTOS) leituras.push([k, j.enviados.length]);
+        return get.apply(this, arguments);
+      };
+      proto.getAll = function () {
+        if (this.name === STORE_FOTOS) todas++;
+        return getAll.apply(this, arguments);
+      };
+    });
+    await j.casca.pronto;
+    await ate(() => j.enviados.length === 6, 'os 3 vídeos em 2 pedaços');
+    // Cada valor só é lido depois de os pedaços do anterior saírem.
+    assert.deepEqual(leituras, [['v_1', 0], ['v_2', 2], ['v_3', 4]]);
+    assert.equal(todas, 0, 'nada de getAll na store das fotos');
+    await ate(() => j.win.sessionStorage.getItem(SESSAO_IDB) !== null, 'reconciliação marcada na sessão');
+  } finally {
+    proto.get = get;
+    proto.getAll = getAll;
+  }
 });
 
 test('instalação nova: sem espelho no nativo só cria o banco sentinela', async () => {
@@ -467,10 +639,11 @@ test('instalação nova: sem espelho no nativo só cria o banco sentinela', asyn
   assert.deepEqual(j.enviados[1], { t: 'idbPut', k: 'f_1', tipo: 'texto', v: 'x' });
 });
 
-test('espelho desligado: nada do IndexedDB vai ao nativo e a reconciliação não roda', async () => {
+test('espelho desligado não toca no IndexedDB, e a restauração da perda que vem depois devolve tudo', async () => {
   // A segunda perda da sessão (a trava não deixa parar de novo): a carga segue sem espelho nenhum.
   const proto = IDBObjectStore.prototype;
   const aparelho = await aparelhoEmUso({ f_1: 'a', f_2: 'b' });
+  await semear(aparelho, { casca: true, pendentes: ['f_7'] });
   const retrato = { ...RETRATO_EM_USO, idbChaves: ['f_1', 'f_2', 'f_9'] };
   const originais = {};
   const j = montar({ idb: aparelho, ls: {}, sessao: { gc_casca_parou: 'perda' }, retrato }, () => {
@@ -481,44 +654,108 @@ test('espelho desligado: nada do IndexedDB vai ao nativo e a reconciliação nã
   assert.equal(proto.put, originais.put, 'nada embrulhado nesta carga');
   assert.equal(proto.delete, originais.del);
   await j.casca.pronto;
+  assert.equal(j.timersAtivos(), 0, 'nada a esperar: nem o teto de 15 s');
 
   // A página roda com o localStorage vazio: a faxina de órfãos apaga as fotos, e ela grava outras.
   const db = await abrirComoAPagina(j.win).promessa;
   await idbDel(db, 'f_1');
   await idbPut(db, 'f_3', 'c');
   await assentar();
-  assert.deepEqual(j.enviados, [{ t: 'erro', onde: 'perda', msg: MSG_TRAVA }], 'nem reconciliação, nem put, nem delete');
+  assert.deepEqual(j.enviados, [{ t: 'erro', onde: 'perda', msg: MSG_TRAVA }],
+    'nem restauração, nem reconciliação, nem put, nem delete');
+  assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS, BANCO_SENTINELA], 'o banco sentinela fica');
+  assert.deepEqual(await lerCasca(aparelho), { pendentes: ['f_7'], incompleta: false }, 'e fica como estava');
 
-  // O que a página fez sem espelho não pode virar a verdade: a reconciliação mandaria apagar no nativo a f_1. O banco
-  // sentinela sai, e a próxima carga com espelho restaura do nativo.
-  assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS]);
-  const depois = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1', 'f_2'] } });
-  const pagina = abrirComoAPagina(depois.win);
-  await ate(() => depois.enviados.length > 0, 'idbPedir');
-  assert.deepEqual(depois.enviados, [{ t: 'idbPedir' }]);
-  depois.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
-  depois.responder({ t: 'idbItem', k: 'f_2', tipo: 'texto', v: 'b' });
-  depois.responder({ t: 'idbFim', n: 2 });
+  // A partida seguinte acha a marca da perda e para a carga, também sem tocar no IndexedDB.
+  const p = montar({ idb: aparelho, ls: copiar(j.win.localStorage), retrato });
+  assert.equal(p.paradas.length, 1);
+  await p.casca.pronto;
+  assert.deepEqual(p.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }]);
+
+  // O nativo recarrega com o retrato completo da perda: o localStorage e o IndexedDB voltam da mesma geração, e a foto
+  // que a página apagou sem espelho volta (o banco sentinela de pé não impede).
+  const r = recarregar(p, {
+    retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1', 'f_2'], modo: 'restaurar', motivo: 'perda', id: 'r1', ls: {}, fila: '[]' },
+  });
+  const pagina = abrirComoAPagina(r.win);
+  await ate(() => r.enviados.some((m) => m.t === 'idbPedir'), 'idbPedir');
+  r.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
+  r.responder({ t: 'idbItem', k: 'f_2', tipo: 'texto', v: 'b' });
+  r.responder({ t: 'idbFim', n: 2 });
   const db2 = await pagina.promessa;
   assert.equal(await idbGet(db2, 'f_1'), 'a', 'a foto que a página apagou sem espelho voltou');
   assert.equal(await idbGet(db2, 'f_3'), 'c', 'e a que ela gravou ficou');
-  assert.deepEqual(depois.enviados, [{ t: 'idbPedir' }]);
+  await r.casca.pronto;
+  assert.deepEqual(r.enviados.map((m) => m.t), ['restaurado', 'idbPedir'], 'sem eco e sem idbDel');
+  assert.deepEqual(await lerCasca(aparelho), { pendentes: [], incompleta: false }, 'o estado é o desta restauração');
 });
 
-test('espelho desligado e sem o banco sentinela: restaura (ler não escreve no nativo), mas não cria o banco sentinela', async () => {
+test('espelho desligado sem o banco sentinela: não restaura nem cria o banco sentinela', async () => {
   const aparelho = criarAparelho();
-  const j = montar({ idb: aparelho, ls: {}, sessao: { gc_casca_parou: 'perda' } });
+  const j = montar({ idb: aparelho, ls: {}, sessao: { gc_casca_parou: 'perda' }, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1'] } });
   const pagina = abrirComoAPagina(j.win);
-  await ate(() => j.enviados.length > 1, 'idbPedir');
-  assert.deepEqual(j.enviados, [{ t: 'erro', onde: 'perda', msg: MSG_TRAVA }, { t: 'idbPedir' }]);
-  j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
-  j.responder({ t: 'idbFim', n: 1 });
-  const db = await pagina.promessa;
-  assert.equal(await idbGet(db, 'f_1'), 'a');
+  await j.casca.pronto;
+  const db = await pagina.promessa; // abre sem esperar o nativo
   await idbPut(db, 'f_2', 'b');
   await assentar();
-  assert.equal(j.enviados.length, 2, 'sem eco e sem espelho');
+  assert.deepEqual(j.enviados, [{ t: 'erro', onde: 'perda', msg: MSG_TRAVA }], 'nem idbPedir, nem espelho');
   assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS]);
+});
+
+test('restauração da perda devolve também o IndexedDB inteiro, mesmo com o banco sentinela de pé', async () => {
+  for (const motivo of ['perda', undefined]) {
+    const rotulo = 'motivo ' + motivo;
+    const aparelho = await aparelhoEmUso({ f_1: 'velha', f_5: 'só na WebView' });
+    await semear(aparelho, { casca: true, pendentes: ['f_x'], incompleta: true });
+    const retrato = {
+      ...RETRATO_EM_USO, idbChaves: ['f_1', 'f_2'], modo: 'restaurar', id: 'r1', ls: { gc_fech_draft: 'x' }, fila: '[]',
+    };
+    if (motivo) retrato.motivo = motivo;
+    const j = montar({ idb: aparelho, ls: { [MARCA_PERDA]: '1' }, retrato });
+    const pagina = abrirComoAPagina(j.win);
+    await ate(() => j.enviados.length === 2, 'idbPedir: ' + rotulo);
+    assert.deepEqual(j.enviados.map((m) => m.t), ['restaurado', 'idbPedir'], rotulo);
+    await assentar();
+    assert.equal(pagina.abriu(), false, 'a página espera as fotos: ' + rotulo);
+    j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'nova' });
+    j.responder({ t: 'idbItem', k: 'f_2', tipo: 'texto', v: 'dois' });
+    j.responder({ t: 'idbFim', n: 2 });
+    const db = await pagina.promessa;
+    await j.casca.pronto;
+    assert.deepEqual(await lerFotos(aparelho), { f_1: 'nova', f_2: 'dois', f_5: 'só na WebView' }, 'nada é apagado: ' + rotulo);
+    assert.deepEqual(await lerCasca(aparelho), { pendentes: [], incompleta: false }, 'o estado de antes é trocado: ' + rotulo);
+    await assentar();
+    assert.deepEqual(j.enviados.map((m) => m.t), ['restaurado', 'idbPedir'], 'sem eco e sem idbDel: ' + rotulo);
+    db.close();
+  }
+
+  // A restauração só da fila não mexe no IndexedDB: com o banco sentinela de pé, é uma carga como as outras.
+  const aparelho = await aparelhoEmUso({ f_1: 'a' });
+  const j = montar({
+    idb: aparelho,
+    retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1'], modo: 'restaurar', motivo: 'fila', id: 'q1', ls: {}, fila: '[]' },
+  });
+  await j.casca.pronto;
+  await assentar();
+  assert.deepEqual(j.enviados.map((m) => m.t), ['restaurado']);
+});
+
+test('banco sentinela ausente numa carga normal: perda só do IndexedDB, restaura sem apagar o que a WebView tem', async () => {
+  const aparelho = criarAparelho();
+  await semear(aparelho, { fotos: { f_5: 'só na WebView' } }); // o banco das fotos ficou, o sentinela não
+  const j = montar({ idb: aparelho, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1'] } }); // localStorage com a sentinela
+  const pagina = abrirComoAPagina(j.win);
+  await ate(() => j.enviados.length > 0, 'idbPedir');
+  assert.deepEqual(j.enviados, [{ t: 'idbPedir' }]);
+  await assentar();
+  assert.equal(pagina.abriu(), false);
+  j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
+  j.responder({ t: 'idbFim', n: 1 });
+  await pagina.promessa;
+  await j.casca.pronto;
+  assert.deepEqual(await lerFotos(aparelho), { f_1: 'a', f_5: 'só na WebView' });
+  assert.deepEqual(await lerCasca(aparelho), { pendentes: [], incompleta: false });
+  assert.deepEqual(j.enviados, [{ t: 'idbPedir' }]);
 });
 
 test('carga parada não confere o IndexedDB e o pronto resolve na hora', async () => {
@@ -538,8 +775,8 @@ test('carga parada não confere o IndexedDB e o pronto resolve na hora', async (
     assert.deepEqual(await bancos(aparelho), [], 'nada criado: ' + nome);
   }
 
-  // Se o stop lançou, a página roda até o nativo recarregar, sem espelho: é uma carga sem espelho como as outras, e o
-  // banco sentinela sai (a faxina de órfãos dela não pode virar idbDel na próxima reconciliação).
+  // Se o stop lançou, a página roda até o nativo recarregar, sem espelho: é uma carga sem espelho como as outras, e não
+  // toca no IndexedDB (a marca da perda faz a carga seguinte restaurar tudo, e a reconciliação não roda com ela).
   const aparelho = await aparelhoEmUso({ f_1: 'a' });
   const j = montar({ idb: aparelho, ls: {}, retrato: { ...RETRATO_EM_USO, idbChaves: ['f_1'] } }, ({ win }) => {
     win.stop = () => { throw new Error('stop quebrado'); };
@@ -550,7 +787,7 @@ test('carga parada não confere o IndexedDB e o pronto resolve na hora', async (
   await idbDel(db, 'f_1');
   await assentar();
   assert.equal(j.enviados.length, 2, 'nada do IndexedDB vai ao nativo');
-  assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS]);
+  assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS, BANCO_SENTINELA], 'o banco sentinela fica');
 });
 
 test('sem indexedDB.databases(): segue sem restaurar, avisa sem chave e não lança', async () => {
