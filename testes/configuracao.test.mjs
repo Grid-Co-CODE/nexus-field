@@ -39,6 +39,16 @@ test('manifesto: permissões, backup desligado e FileProvider', () => {
   assert.match(manifesto, /android.media.action.VIDEO_CAPTURE/);
 });
 
+test('manifesto: a câmera e o GPS não são exigidos do aparelho', () => {
+  // A permissão CAMERA, sozinha, faz a loja e o lint (PermissionImpliesUnsupportedChromeOsHardware) tomarem a câmera
+  // por obrigatória, e o aparelho sem ela nem veria o app. As duas são pedidas em tempo de execução.
+  for (const recurso of ['android.hardware.camera', 'android.hardware.location.gps']) {
+    const etiqueta = manifesto.match(new RegExp(`<uses-feature[^>]*android:name="${recurso.replace(/\./g, '\\.')}"[^>]*>`));
+    assert.ok(etiqueta, `falta o <uses-feature> de ${recurso}`);
+    assert.match(etiqueta[0], /android:required="false"/, recurso);
+  }
+});
+
 test('regras de dados excluem tudo da nuvem e da transferência', () => {
   assert.match(regras, /<cloud-backup>[\s\S]*<exclude domain="root"/);
   assert.match(regras, /<device-transfer>[\s\S]*<exclude domain="root"/);

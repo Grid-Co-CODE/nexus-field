@@ -41,6 +41,8 @@ public class MensageiroTest {
     // Nome de chave com e-mail, como as do App (gc_ronda_<email>...): nunca pode aparecer no log.
     private static final String EMAIL = "tecnico.ficticio@exemplo.com.br";
     private static final String CHAVE_COM_EMAIL = "gc_ronda_" + EMAIL + "_u1";
+    // Um primeiro nome (fictício), só letras: o que a limpeza por aspas deixava passar.
+    private static final String NOME = "Fulano";
 
     @Rule public TemporaryFolder pasta = new TemporaryFolder();
 
@@ -55,7 +57,7 @@ public class MensageiroTest {
         fake = new ArmazemFalso();
         acoes = new AcoesFalsas();
         agora = 1_000_000L;
-        m = new Mensageiro(fake, acoes, () -> agora);
+        m = new Mensageiro(fake, acoes, new Mensageiro.Disjuntor(), () -> agora);
     }
 
     // --- o que o brief pede ------------------------------------------------------------------------------------------
@@ -97,6 +99,7 @@ public class MensageiroTest {
         assertEquals("rascunho", r.getJSONObject("ls").getString("gc_fech_draft"));
         assertEquals("[1,2]", r.getString("fila"));
         assertEquals(2, r.getJSONArray("filaHashes").length());
+        assertFalse(r.has("semParar"));
     }
 
     @Test
@@ -234,6 +237,7 @@ public class MensageiroTest {
         assertFalse(terceiro.has("id"));
         assertFalse(terceiro.has("ls"));
         assertEquals(0, terceiro.getJSONArray("filaHashes").length());
+        assertTrue("sem conferência, a página não para a carga", terceiro.getBoolean("semParar"));
         assertTrue(terceiro.getBoolean("temEspelho"));
         assertEquals(1, terceiro.getJSONArray("idbChaves").length());
 
@@ -249,12 +253,55 @@ public class MensageiroTest {
     }
 
     @Test
-    public void motivoInvalidoNaoMontaRetratoEAvisaSemConteudo() {
+    public void disjuntorEDoProcessoOMensageiroDaTelaRecriadaContinuaAContagem() throws JSONException {
+        // O renderer morre na recarga com o retrato completo: a tela é recriada, com plugin, Mensageiro e sessionStorage
+        // novos, no MESMO processo. Se a contagem fosse do Mensageiro, cada recriação ganharia outro completo, e nada
+        // pararia o laço.
+        Mensageiro.Disjuntor doProcesso = new Mensageiro.Disjuntor();
+        Mensageiro antes = new Mensageiro(fake, acoes, doProcesso, () -> agora);
+        assertTrue(antes.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+        agora += 5_000L;
+        Mensageiro recriado = new Mensageiro(fake, acoes, doProcesso, () -> agora);
+        assertTrue(recriado.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+        agora += 5_000L;
+        Mensageiro recriadoDeNovo = new Mensageiro(fake, acoes, doProcesso, () -> agora);
+        assertTrue(recriadoDeNovo.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+
+        assertEquals(3, acoes.retratos.size());
+        assertEquals("restaurar", acoes.retratos.get(0).getString("modo"));
+        assertEquals("restaurar", acoes.retratos.get(1).getString("modo"));
+        JSONObject terceiro = acoes.retratos.get(2);
+        assertFalse("o terceiro em 60 s, já na terceira tela, sai sem o completo", terceiro.has("modo"));
+        assertEquals(0, terceiro.getJSONArray("filaHashes").length());
+        assertTrue("sem conferência, a página não para a carga", terceiro.getBoolean("semParar"));
+        assertTrue(acoes.erros.toString(), acoes.erros.get(0).startsWith("disjuntor:"));
+
+        // Outro processo (o app aberto de novo) começa do zero.
+        Mensageiro outroProcesso = new Mensageiro(fake, acoes, new Mensageiro.Disjuntor(), () -> agora);
+        assertTrue(outroProcesso.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+        assertEquals("restaurar", acoes.retratos.get(3).getString("modo"));
+    }
+
+    @Test
+    public void motivoInvalidoRecarregaSemConferirAFilaEAvisaSemOValor() throws JSONException {
+        // A página que mandou o pedido já chamou win.stop(): sem a recarga, fica em branco até matar o app. O motivo
+        // torto não monta o completo (o Retrato.completo lança), mas a recarga sai com o leve sem conferência.
+        fake.hashes = Arrays.asList("aaaaaaaa");
+        fake.sentinela = true;
         assertFalse(m.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"" + EMAIL + "\"}"));
         assertFalse(m.tratar("{\"t\":\"precisoRetrato\"}"));
         assertFalse(m.tratar("{\"t\":\"precisoRetrato\",\"motivo\":null}"));
-        assertTrue(acoes.retratos.isEmpty());
+
+        assertEquals(3, acoes.retratos.size());
+        for (JSONObject r : acoes.retratos) {
+            assertFalse(r.has("modo"));
+            assertFalse(r.has("ls"));
+            assertEquals(0, r.getJSONArray("filaHashes").length());
+            assertTrue("sem conferência, a página não para a carga", r.getBoolean("semParar"));
+            assertTrue(r.getBoolean("temEspelho"));
+        }
         assertEquals(3, acoes.erros.size());
+        for (String e : acoes.erros) assertTrue(e, e.startsWith("precisoRetrato:"));
         semDadosDoTecnico();
     }
 
@@ -266,6 +313,7 @@ public class MensageiroTest {
         JSONObject r = acoes.retratos.get(0);
         assertFalse(r.has("modo"));
         assertEquals(0, r.getJSONArray("filaHashes").length());
+        assertTrue("sem conferência, a página não para a carga", r.getBoolean("semParar"));
         // Sem ler o espelho, o retrato não pode dizer que não há espelho: seria tomado por instalação nova.
         assertTrue(r.getBoolean("temEspelho"));
         assertEquals(1, acoes.erros.size());
@@ -284,6 +332,7 @@ public class MensageiroTest {
         JSONObject leve = acoes.leves.get(0);
         assertFalse(leve.has("modo"));
         assertEquals("cccccccc", leve.getJSONArray("filaHashes").getString(0));
+        assertFalse("o leve fresco deixa a página parar de novo", leve.has("semParar"));
         assertEquals(2, leve.getJSONArray("idbChaves").length());
         assertTrue(acoes.retratos.isEmpty()); // não recarrega
 
@@ -310,6 +359,7 @@ public class MensageiroTest {
         assertFalse(leve.has("ls"));
         assertFalse(leve.has("fila"));
         assertEquals(0, leve.getJSONArray("filaHashes").length());
+        assertTrue("sem conferência, a página não para a carga", leve.getBoolean("semParar"));
         // Sem ler o espelho, o retrato não pode dizer que não há espelho: seria tomado por instalação nova.
         assertTrue(leve.getBoolean("temEspelho"));
         assertTrue(acoes.retratos.isEmpty()); // não recarrega
@@ -333,11 +383,31 @@ public class MensageiroTest {
         assertFalse(m.tratar("{\"t\":\"ls\",\"k\":\"" + CHAVE_COM_EMAIL + "\"}"));
         assertFalse(m.tratar("{\"t\":\"ls\",\"k\":\"" + CHAVE_COM_EMAIL + "\",\"v\":"));
         assertFalse(m.tratar("{\"t\":\"fora\",\"url\":\"javascript:" + EMAIL + "\"}"));
+        // O erro do JSON.parse cita o texto entre aspas: um primeiro nome, só letras, num rascunho que não é JSON.
+        assertTrue(m.tratar("{\"t\":\"erro\",\"onde\":\"canal\",\"msg\":\"Unexpected token 'F', \\\"" + NOME
+            + "\\\" is not valid JSON\"}"));
+        // O `onde` só vai ao log se for um dos rótulos do inicio.js; um nome no lugar dele vira 'outro'.
+        assertTrue(m.tratar("{\"t\":\"erro\",\"onde\":\"" + NOME + "\",\"msg\":\"x\"}"));
 
-        assertEquals(7, acoes.erros.size());
+        assertEquals(9, acoes.erros.size());
         assertTrue(acoes.erros.get(0), acoes.erros.get(0).startsWith("lote:"));
-        assertTrue(acoes.erros.get(1), acoes.erros.get(1).startsWith("?:"));
+        assertTrue(acoes.erros.get(1), acoes.erros.get(1).startsWith("outro:"));
+        assertTrue(acoes.erros.get(7), acoes.erros.get(7).startsWith("canal:"));
+        assertTrue(acoes.erros.get(8), acoes.erros.get(8).startsWith("outro:"));
+        // Do erro da página, o log leva só o rótulo e a contagem: nunca o texto, nem o 'setItem' do Chromium.
+        assertFalse(acoes.erros.get(0), acoes.erros.get(0).contains("setItem"));
+        assertTrue(acoes.erros.get(7), acoes.erros.get(7).contains("4"));
         semDadosDoTecnico();
+    }
+
+    @Test
+    public void erroDaPaginaComRotuloDoScriptVaiAoLogComORotulo() {
+        for (String onde : new String[] {"idbRestaurar", "espelho-ls", "document.write", "location.href", "perda"}) {
+            assertTrue(onde, m.tratar("{\"t\":\"erro\",\"onde\":\"" + onde + "\",\"msg\":\"qualquer\"}"));
+        }
+        assertEquals(Arrays.asList("idbRestaurar: erro da página (1 nesta partida)",
+            "espelho-ls: erro da página (2 nesta partida)", "document.write: erro da página (3 nesta partida)",
+            "location.href: erro da página (4 nesta partida)", "perda: erro da página (5 nesta partida)"), acoes.erros);
     }
 
     // --- a resposta do idbPedir -----------------------------------------------------------------------------------------
@@ -446,7 +516,7 @@ public class MensageiroTest {
         }
         for (String linha : tudo) {
             for (String proibido : new String[] {EMAIL, "@exemplo", "tecnico.ficticio", "gc_ronda_", "gc_campo_queue",
-                    "fracttal", "state=y"}) {
+                    "fracttal", "state=y", NOME}) {
                 if (linha.contains(proibido)) fail("o log levou \"" + proibido + "\": " + linha);
             }
         }

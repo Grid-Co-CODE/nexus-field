@@ -386,13 +386,18 @@
   // Para esta carga e pede ao nativo o retrato completo; o nativo recarrega a página com ele (modo 'restaurar').
   // O espelho é desligado antes do stop: se o stop falhar, a página roda, mas sem espelho até a próxima carga.
   // Uma vez por sessão (SESSAO_PAROU): se o nativo não atendesse o segundo pedido, a página ficaria em branco até matar
-  // o app. Na segunda, a carga segue, sem stop e sem pedido, e o nativo é avisado (sem chave nem valor). O espelho:
+  // o app. Na segunda, a carga segue, sem stop e sem pedido, e o nativo é avisado (sem chave nem valor).
+  // O mesmo vale, sem contar a sessão, quando o retrato traz `semParar: true` (o retrato sem conferência do nativo: o
+  // disjuntor desarmou, o pedido veio torto ou o espelho não pôde ser lido). Caso que o criou: com a marca da perda e o
+  // sessionStorage que não guarda a trava (a WebView recriada começa sem ele), toda carga parava e pedia, e o retrato
+  // sem as versões da fila não evitava a parada da perda, que vem antes da conferência da fila. O espelho:
   //   'fila'   fica ligado, e a fila da WebView vai ao nativo (ela vence, porque é o que a página vai usar). Sem fila
   //            na WebView, só o aviso: nunca se manda apagar a fila do nativo;
   //   'perda'  fica desligado na carga inteira: a cópia boa está no nativo, e o que a página gravar agora não pode ir
   //            por cima dela. A sentinela não volta e a marca da perda fica: a partida seguinte pede o retrato.
   function pararCarga(ctx, ls, motivo) {
-    if (lerSessao(ls, SESSAO_PAROU) !== null) {
+    var semParar = ctx.retrato.semParar === true;
+    if (semParar || lerSessao(ls, SESSAO_PAROU) !== null) {
       if (motivo === 'perda') {
         // A marca da perda já desligaria o espelho (o `instalar` a confere), mas ela pode não ter cabido.
         ctx.espelhoDesligado = true;
@@ -400,7 +405,8 @@
         var atual = ls.getItem.call(ls.real, CHAVE_FILA);
         if (atual !== null) espelharFila(ctx, ls, atual, 'fila');
       }
-      ctx.falhou(motivo, new Error('conferência ignorada: já parou nesta sessão'));
+      ctx.falhou(motivo, new Error(semParar ? 'conferência ignorada: o nativo pediu para não parar'
+        : 'conferência ignorada: já parou nesta sessão'));
       return;
     }
     gravarSessao(ls, SESSAO_PAROU, motivo);

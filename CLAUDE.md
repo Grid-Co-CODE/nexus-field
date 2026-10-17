@@ -14,8 +14,11 @@ contrato.
 npm install
 npm test                                   # testes de Node (configuração, manifesto e regras de dados)
 source ferramentas/ambiente.sh             # JAVA_HOME, ANDROID_HOME, PATH e android/local.properties (JDK 21, SDK API 36)
-npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug)
+npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug lint)
 ```
+
+O `lint` sai sem erro (os avisos que restam são do template e das versões). O `ambiente.sh` escreve o `sdk.dir` com o
+`:` escapado (`C\:/Users/...`): sem o escape o lint falha com PropertyEscape, mesmo o Gradle lendo o caminho certo.
 
 O APK de depuração sai em `android/app/build/outputs/apk/debug/app-debug.apk`. Não há emulador nesta máquina, e
 nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por link ou arquivo, pelo próprio dono.
@@ -91,15 +94,33 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
     o ouvinte (renderer que morre, histórico depois do login) entra por um `post` na thread de UI.
   - Tudo que mexe no espelho roda numa thread só (`GcCasca-espelho`), na ordem em que a página mandou; o que mexe na
     WebView volta para a de UI. O `EspelhoSqlite` é um por processo: a tela recriada (renderer que morreu) reaproveita.
-  - Todo `precisoRetrato` recarrega a página (ela parou e espera) com um retrato completo de id novo; o disjuntor deixa 2
-    completos em 60 s e, daí em diante, recarrega com o leve SEM `filaHashes`. No `restaurado`, volta ao leve fresco;
-    se o espelho falhar ao ler, volta ao leve SEM `filaHashes` (`semConferencia`), nunca fica no completo: ele seria
-    reaplicado na carga sem o id no sessionStorage ("limpar só o login") e gravaria o `ls` e a fila velhos.
-  - Nada do técnico vai ao log (os nomes das chaves têm e-mail): o `Mensageiro` avisa só com rótulo e contagem, e limpa o
-    texto de erro da página (`semDados`: o `QuotaExceededError` do Chromium cita a chave entre aspas). O `MensageiroTest`
-    confere pelo `ShadowLog`.
+  - Todo `precisoRetrato` recarrega a página (ela parou e espera): com motivo `perda` ou `fila`, um retrato completo de
+    id novo; com motivo torto, o sem conferência (o `tratar` devolve false, mas recarrega). O disjuntor deixa 2
+    completos em 60 s POR PROCESSO (`Mensageiro.Disjuntor`, estático no plugin, como o espelho): o renderer que morre na
+    recarga com o completo recria a tela, com Mensageiro e sessionStorage novos, e a contagem tem de atravessar a
+    recriação. Daí em diante recarrega com o retrato sem conferência (`semConferencia`: o leve com `filaHashes` vazio e
+    `semParar: true`). No `restaurado`, volta ao leve fresco; se o espelho falhar ao ler, vai o sem conferência, nunca
+    fica no completo: ele seria reaplicado na carga sem o id no sessionStorage ("limpar só o login") e gravaria o `ls` e
+    a fila velhos.
+  - Com `semParar` o `inicio.js` nunca chama `win.stop()`: a perda (a marca, ou o localStorage vazio com espelho) segue
+    com o espelho desligado, como na trava da sessão, e avisa `{t:'erro', onde:'perda'}`; a fila atrasada segue. Sem
+    ele, com a marca da perda e o sessionStorage que não guarda a trava, o leve sem `filaHashes` não evitava a parada da
+    perda (que vem antes da conferência da fila) e toda recarga pedia de novo.
+  - Nada do técnico vai ao log (os nomes das chaves têm e-mail): o `Mensageiro` avisa só com rótulo e contagem. Do
+    `{t:'erro'}` da página vai só o `onde`, se estiver na lista fechada `Mensageiro.ONDES_DA_PAGINA` (senão `outro`), e
+    a contagem; o texto nunca (o `QuotaExceededError` do Chromium cita a chave entre aspas, o `JSON.parse` cita o
+    texto, e uma limpeza por aspas deixava passar um primeiro nome). Rótulo novo no script entra na lista no mesmo
+    trabalho: o `testes/canal.test.mjs` compara os dois. O `MensageiroTest` confere o log pelo `ShadowLog`.
   - O `android.util.Base64` pula em silêncio o que não é do alfabeto: o pedaço é conferido antes (`base64Valido`).
-  - O `CascaPlugin` não tem teste de JVM (WebView de verdade): é conferido pela montagem e pela prova no aparelho.
+  - **WebView antiga** (sem `DOCUMENT_START_SCRIPT` ou sem `WEB_MESSAGE_LISTENER`): o App não abre, porque sem o script
+    de início a página rodaria sem espelho e a janela do Fracttal apagaria a tela. O `MainActivity` confere antes do
+    `super.onCreate` e troca o config por um sem `server.url` (`configSemOApp`: o Bridge carrega `https://localhost`, o
+    `index.html` do www, e o App nem é pedido ao servidor); o plugin desliga o JavaScript (o `initWebView` do Bridge o
+    liga ANTES dos plugins, e o `loadWebView` não mexe mais nele) e mostra o aviso, que não fecha. Sem a primeira
+    abertura (permissões) nesse caso.
+  - Do `CascaPlugin` e do `MainActivity` só as regras puras têm teste de JVM (`navegacaoParaOLog`, o endereço no log de
+    depuração; `avisoDepoisDoPedido`; `configSemOApp`). O resto (WebView de verdade, diálogos) é conferido pela
+    montagem e pela prova no aparelho.
   - O AGP 8 não gera o `BuildConfig` sem `buildFeatures.buildConfig` (o user agent e o `DEBUG` vêm dele), e o
     `androidx.webkit` entra no app de novo porque o `capacitor-android` o tem só como `implementation`.
 - A splash, a atualização da casca e o resto do nativo vêm nas tarefas seguintes do plano.

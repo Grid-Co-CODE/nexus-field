@@ -75,6 +75,9 @@
     <!-- Para abrir o instalador do sistema na atualização da casca. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Sem o required="false", a permissão CAMERA faz a câmera parecer obrigatória (lint
+         PermissionImpliesUnsupportedChromeOsHardware). As duas são pedidas em tempo de execução. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <!-- Android 11+: sem isto o app não enxerga o app de câmera para a foto e o vídeo do <input capture>. -->

@@ -20,12 +20,21 @@ const MARCA_PERDA = 'gc_casca_perda_pendente';
 // O aviso da segunda parada recusada na mesma sessão.
 const MSG_TRAVA = 'conferência ignorada: já parou nesta sessão';
 
+// O aviso da carga que o retrato manda não parar (semParar).
+const MSG_SEM_PARAR = 'conferência ignorada: o nativo pediu para não parar';
+
 // Janela falsa + script instalado. `antes` roda ANTES do script (para espiar o setItem original, por exemplo).
 function montar(opcoes = {}, antes = () => {}) {
   const j = criarJanela(opcoes);
   antes(j);
   const casca = instalar(j.win, j.canal, j.retrato);
   return { ...j, casca, ls: j.win.localStorage };
+}
+
+// O retrato sem conferência (Mensageiro.semConferencia): o que o nativo manda quando o disjuntor desarma, quando o
+// motivo do pedido veio torto ou quando o espelho não pôde ser lido. Sem as versões da fila e com `semParar`.
+function semConferencia({ temEspelho = true, idbChaves = [] } = {}) {
+  return { temEspelho, filaHashes: [], idbChaves, semParar: true };
 }
 
 // O retrato leve que o nativo põe em toda partida.
@@ -809,4 +818,70 @@ test('perda com a marca que não cabe: avisa sem chave, para, e a 2ª carga da s
   c2.ls.setItem(CHAVE_FILA, '[]');
   c2.avancar(5000);
   assert.equal(c2.enviados.length, 2, 'espelho desligado mesmo sem a marca');
+});
+
+// O sessionStorage que recusa toda gravação: a trava da sessão (SESSAO_PAROU) não fica, como na WebView recriada
+// depois do renderer que morreu ou no armazenamento que não aceita mais nada.
+function semTrava({ win }) {
+  win.sessionStorage = new win.Storage(0);
+}
+
+test('semParar: a perda segue sem stop e sem espelho, e avisa sem chave', () => {
+  const casos = {
+    'a marca, com o que a página gravou': { [MARCA_PERDA]: '1', [CHAVE_FILA]: '[]', gc_vivo: '1' },
+    'a marca, com a sentinela': { [MARCA_PERDA]: '1', [SENTINELA_LS]: '1', [CHAVE_FILA]: V3 },
+    'o localStorage vazio (a perda vista agora)': VAZIO,
+  };
+  for (const [nome, ls] of Object.entries(casos)) {
+    const originais = {};
+    const j = montar({ ls, retrato: semConferencia() }, guardarOriginais(originais));
+    assert.equal(j.paradas.length, 0, 'nunca chama win.stop(): ' + nome);
+    assert.deepEqual(j.enviados, [{ t: 'erro', onde: 'perda', msg: MSG_SEM_PARAR }], nome);
+    assert.ok(!/gc_/.test(j.enviados[0].msg), 'o aviso não leva nome de chave: ' + nome);
+    assert.equal(j.win.Storage.prototype.setItem, originais.setItem, 'espelho desligado: ' + nome);
+    assert.equal(j.win.Storage.prototype.removeItem, originais.removeItem);
+    assert.equal(j.ls.getItem(MARCA_PERDA), '1', 'a marca fica para a partida seguinte: ' + nome);
+    assert.equal(j.win.sessionStorage.getItem('gc_casca_parou'), null, 'não parou, então não trava: ' + nome);
+    paginaMexe(j);
+    assert.equal(j.enviados.length, 1, 'nada da página chega ao nativo: ' + nome);
+  }
+});
+
+test('semParar: com a trava que não grava, a recarga do disjuntor acaba com o laço da perda', () => {
+  // Carga 1 (o leve): a perda grava a marca, para e pede o retrato.
+  const c1 = montar({ ls: VAZIO, retrato: leve({ filaHashes: HASHES }) }, semTrava);
+  assert.equal(c1.paradas.length, 1);
+  assert.deepEqual(c1.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }]);
+  // Sem a trava, a recarga com o leve para e pede de novo: é o laço que o disjuntor do nativo corta.
+  const c2 = recarregar(c1, {}, semTrava);
+  assert.equal(c2.paradas.length, 1, 'sem a trava, o leve para de novo');
+  assert.deepEqual(c2.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }]);
+  // O disjuntor desarma e a recarga vem sem conferência: a carga segue, sem stop e sem pedir de novo.
+  const c3 = recarregar(c2, { retrato: semConferencia() }, semTrava);
+  assert.equal(c3.paradas.length, 0);
+  assert.deepEqual(c3.enviados, [{ t: 'erro', onde: 'perda', msg: MSG_SEM_PARAR }]);
+  paginaMexe(c3);
+  assert.equal(c3.enviados.length, 1, 'nada da página chega ao nativo');
+  // E a carga seguinte da mesma partida (o mesmo script registrado) também segue.
+  const c4 = recarregar(c3, {}, semTrava);
+  assert.equal(c4.paradas.length, 0);
+  assert.ok(!c4.enviados.some((m) => m.t === 'precisoRetrato'), 'não pede de novo');
+});
+
+test('semParar: a fila atrasada não para a carga e a da WebView vai ao nativo', () => {
+  // O nativo nunca manda versões com o semParar (o retrato sem conferência as esvazia), mas, se mandasse, nada para.
+  for (const retrato of [semConferencia(), { ...semConferencia(), filaHashes: HASHES }]) {
+    const rotulo = JSON.stringify(retrato);
+    const j = montar({ ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: V2 }, retrato }, semTrava);
+    assert.equal(j.paradas.length, 0, rotulo);
+    assert.ok(!j.enviados.some((m) => m.t === 'precisoRetrato'), rotulo);
+    assert.deepEqual(j.enviados.filter((m) => m.t === 'ls'), [{ t: 'ls', k: CHAVE_FILA, v: V2 }], rotulo);
+    assert.equal(j.ls.getItem(CHAVE_FILA), V2, 'o script não mexe na fila: ' + rotulo);
+  }
+  // A carga sem nada a conferir não muda: o espelho liga como sempre.
+  const normal = montar({ retrato: semConferencia() });
+  assert.equal(normal.paradas.length, 0);
+  assert.deepEqual(normal.enviados, []);
+  normal.ls.setItem(CHAVE_FILA, V1);
+  assert.deepEqual(normal.enviados, [{ t: 'ls', k: CHAVE_FILA, v: V1 }]);
 });

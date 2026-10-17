@@ -10,13 +10,13 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.LongSupplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -36,15 +36,17 @@ import org.json.JSONObject;
  * <ul>
  *   <li><b>Nada do técnico vai ao log.</b> Os nomes das chaves têm e-mail (gc_ronda_&lt;email&gt;...), e o
  *       {@code naoCouberam} do restaurado é uma lista deles. Todo aviso sai por {@link Acoes#erro} com um rótulo nosso e
- *       contagens; o texto de erro que vem da página passa por {@link #semDados}, porque o QuotaExceededError do
- *       Chromium cita a chave entre aspas ("Setting the value of '...' exceeded the quota").</li>
+ *       contagens. Do erro que vem da página, só o {@code onde} (da lista {@link #ONDES_DA_PAGINA}) e a contagem; o
+ *       texto nunca, porque o QuotaExceededError do Chromium cita a chave entre aspas ("Setting the value of '...'
+ *       exceeded the quota") e o do JSON.parse, o próprio texto.</li>
  *   <li><b>Nunca lança.</b> As escritas do armazém lançam RuntimeException (disco cheio, pedaço com índice impossível):
  *       o canal engole, conta e devolve false. Uma exceção aqui derrubaria o app inteiro, e a página não tem o que fazer
  *       com ela.</li>
  *   <li><b>Todo precisoRetrato é atendido</b> com um retrato completo novo (id novo), porque a página parou a carga
  *       (win.stop) e espera a recarga: sem ela, fica em branco até matar o app. O disjuntor segura o laço: no máximo
- *       {@value #COMPLETOS_POR_JANELA} completos em 60 s; daí em diante, até a janela andar, a recarga vai com o leve
- *       sem as versões da fila, que é o que desliga a conferência que pediu o retrato.</li>
+ *       {@value #COMPLETOS_POR_JANELA} completos em 60 s, contados por processo ({@link Disjuntor}); daí em diante, até a
+ *       janela andar, a recarga vai com o retrato sem conferência ({@link #semConferencia}), com que a página não para
+ *       a carga.</li>
  * </ul>
  *
  * Não é seguro entre threads: o plugin chama {@link #tratar} e {@link #enviarIdb} sempre da mesma thread (a do
@@ -58,18 +60,18 @@ public final class Mensageiro {
     static final long JANELA_DO_DISJUNTOR_MS = 60_000L;
     static final int COMPLETOS_POR_JANELA = 2;
 
-    // O `onde` do erro da página é um rótulo nosso ('lote', 'espelho-ls', 'idbRestaurar'...). Fora deste formato não é
-    // rótulo, e não vai ao log.
-    private static final Pattern ROTULO = Pattern.compile("[A-Za-z0-9_-]{1,40}");
-    private static final Pattern ENDERECO = Pattern.compile("[A-Za-z][A-Za-z0-9+.-]*://[^\\s'\"<>]+");
-    private static final Pattern EMAIL = Pattern.compile("[^\\s'\"<>@]+@[^\\s'\"<>@]+");
-    // Entre aspas, até a aspa seguinte ou o fim (o texto pode ter sido cortado no meio de uma).
-    private static final Pattern ENTRE_ASPAS = Pattern.compile("'[^']*(?:'|$)|\"[^\"]*(?:\"|$)");
-    // Só letras entre aspas é nome de método ou de tipo do Chromium ('setItem', 'IDBObjectStore'): fica, porque ajuda
-    // a entender o erro, e nenhuma chave do App é só letras.
-    private static final Pattern SO_LETRAS = Pattern.compile("['\"][A-Za-z]{1,40}['\"]");
-    private static final Pattern CHAVE_DO_APP = Pattern.compile("(?:gc_|msal\\.)[^\\s'\",;)]*");
-    private static final int LIMITE_DO_AVISO = 300;
+    /**
+     * Os rótulos ({@code onde}) que o www/casca/inicio.js manda no {@code {t:'erro'}}. Lista fechada: o campo vem da
+     * página e pode trazer qualquer coisa, então o que não estiver aqui vai ao log como 'outro'. O
+     * testes/canal.test.mjs confere que ela é a mesma do script (rótulo novo lá entra aqui no mesmo trabalho).
+     */
+    static final Set<String> ONDES_DA_PAGINA = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+        "canal", "espelho-ls", "lote", "setItem", "removeItem", "descarregar",
+        "sentinela", "marca", "perda", "fila", "stop", "precisoRetrato", "restaurado",
+        "idb", "idbOpen", "idbPut", "idbDel", "idbPedaco", "idbEnvio", "idbPedir", "idbReconciliar", "idbRestaurar",
+        "idbSentinela",
+        "janela", "open", "fora", "camada", "close", "location", "location.assign", "location.replace",
+        "location.href", "document.open", "document.write", "document.writeln", "document.close")));
 
     /** O que o canal pede ao plugin. Todas chegam na thread do espelho; quem mexe na WebView passa para a de UI. */
     public interface Acoes {
@@ -97,28 +99,62 @@ public final class Mensageiro {
         boolean enviar(String mensagem);
     }
 
+    /**
+     * A contagem do disjuntor, UMA por processo (o plugin a guarda num campo estático, como o espelho). Caso que a
+     * criou: o renderer que morre na recarga com o retrato completo faz a tela ser recriada, com plugin, Mensageiro e
+     * sessionStorage novos (a trava da página some junto); com a contagem no Mensageiro, cada recriação ganharia outro
+     * completo e nada pararia o laço. Sincronizada: na recriação, a thread do espelho da tela velha ainda esvazia a fila
+     * dela enquanto a da nova começa.
+     */
+    static final class Disjuntor {
+        private final Deque<Long> completos = new ArrayDeque<>();
+        private final Deque<Long> pedidos = new ArrayDeque<>();
+
+        /** Anota um pedido em {@code agora} e diz se um retrato completo pode sair (e, se pode, já o conta). */
+        synchronized boolean liberaCompleto(long agora) {
+            esquecerAntesDe(completos, agora);
+            esquecerAntesDe(pedidos, agora);
+            pedidos.addLast(agora);
+            if (completos.size() >= COMPLETOS_POR_JANELA) return false;
+            completos.addLast(agora);
+            return true;
+        }
+
+        /** Os pedidos da janela, para o aviso. */
+        synchronized int pedidosNaJanela() {
+            return pedidos.size();
+        }
+
+        private static void esquecerAntesDe(Deque<Long> momentos, long agora) {
+            while (!momentos.isEmpty() && agora - momentos.peekFirst() >= JANELA_DO_DISJUNTOR_MS) momentos.pollFirst();
+        }
+    }
+
     private final ArmazemEspelho armazem;
     private final Acoes acoes;
+    private final Disjuntor disjuntor;
     private final LongSupplier relogio;
-    private final Deque<Long> completosNaJanela = new ArrayDeque<>();
-    private final Deque<Long> pedidosNaJanela = new ArrayDeque<>();
     private int falhas = 0;
+    private int errosDaPagina = 0;
 
-    public Mensageiro(ArmazemEspelho armazem, Acoes acoes) {
+    /** @param disjuntor o do processo: a tela recriada passa o mesmo (ver {@link Disjuntor}) */
+    public Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor) {
         // O relógio que não anda para trás com a troca de hora do aparelho.
-        this(armazem, acoes, SystemClock::elapsedRealtime);
+        this(armazem, acoes, disjuntor, SystemClock::elapsedRealtime);
     }
 
     /** Para o teste: o relógio do disjuntor, em milissegundos. */
-    Mensageiro(ArmazemEspelho armazem, Acoes acoes, LongSupplier relogio) {
+    Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, LongSupplier relogio) {
         this.armazem = armazem;
         this.acoes = acoes;
+        this.disjuntor = disjuntor;
         this.relogio = relogio;
     }
 
     /**
      * Trata uma mensagem da página. Devolve true quando ela foi entregue ao armazém ou ao plugin, e false quando foi
      * recusada (não é JSON, tipo desconhecido, campo que falta ou torto) ou quando a escrita falhou. Nunca lança.
+     * O precisoRetrato com motivo torto é recusado (false) e recarrega do mesmo jeito: a página parou e espera.
      */
     public boolean tratar(String json) {
         JSONObject m;
@@ -186,10 +222,13 @@ public final class Mensageiro {
                     return true;
                 }
                 case "erro": {
+                    // Só o rótulo e a contagem. O texto do erro nunca vai ao log: o QuotaExceededError do Chromium cita
+                    // a chave entre aspas, e o do JSON.parse, o próprio texto (um nome, num rascunho que não é JSON).
+                    // Nenhuma limpeza alcança tudo isso.
+                    errosDaPagina++;
                     String onde = texto(m, "onde");
-                    String msg = texto(m, "msg");
-                    avisar(onde != null && ROTULO.matcher(onde).matches() ? onde : "?",
-                        msg == null ? "(sem texto)" : semDados(msg));
+                    avisar(onde != null && ONDES_DA_PAGINA.contains(onde) ? onde : "outro",
+                        "erro da página (" + errosDaPagina + " nesta partida)");
                     return true;
                 }
                 default:
@@ -225,22 +264,18 @@ public final class Mensageiro {
         return true;
     }
 
-    // Todo pedido válido recarrega a página (ela parou e espera). O completo sai enquanto o disjuntor deixa; se ele
-    // falhar ao ler o espelho, a recarga vai do mesmo jeito, sem a conferência da fila.
+    // Todo pedido recarrega a página (ela parou e espera). O completo sai enquanto o disjuntor deixa; se ele falhar ao
+    // ler o espelho, a recarga vai do mesmo jeito, sem a conferência da fila.
     private boolean atenderRetrato(String motivo) {
         if (!"perda".equals(motivo) && !"fila".equals(motivo)) {
-            // O Retrato.completo lança com outro motivo; e o valor recebido não vai ao log.
-            avisar("precisoRetrato", "motivo de retrato desconhecido");
+            // O pedido é recusado (o Retrato.completo lança com outro motivo, e o valor recebido não vai ao log), mas a
+            // página que o mandou já chamou win.stop(): sem a recarga, ficaria em branco até matar o app.
+            avisar("precisoRetrato", "motivo de retrato desconhecido; recarrega sem conferir a fila");
+            acoes.precisoRetrato(semConferencia(armazem));
             return false;
         }
-        long agora = relogio.getAsLong();
-        esquecerAntesDe(completosNaJanela, agora);
-        esquecerAntesDe(pedidosNaJanela, agora);
-        pedidosNaJanela.addLast(agora);
-
         JSONObject retrato;
-        if (completosNaJanela.size() < COMPLETOS_POR_JANELA) {
-            completosNaJanela.addLast(agora);
+        if (disjuntor.liberaCompleto(relogio.getAsLong())) {
             try {
                 retrato = Retrato.completo(armazem, motivo);
             } catch (RuntimeException e) {
@@ -250,9 +285,10 @@ public final class Mensageiro {
                 retrato = semConferencia(armazem);
             }
         } else {
-            // Caso que o disjuntor segura: o sessionStorage que não guarda a trava da página (ou o "limpar só o login",
-            // que a apaga) faz cada carga parar e pedir de novo.
-            avisar("disjuntor", pedidosNaJanela.size() + " pedidos de retrato em 60 s; recarrega sem conferir a fila");
+            // Caso que o disjuntor segura: o sessionStorage que não guarda a trava da página (o "limpar só o login", que
+            // a apaga, ou a tela recriada depois do renderer que morreu, que começa sem ela) faz cada carga parar e pedir
+            // de novo. O sem conferência leva o semParar, e a carga seguinte não para.
+            avisar("disjuntor", disjuntor.pedidosNaJanela() + " pedidos de retrato em 60 s; recarrega sem conferir a fila");
             retrato = semConferencia(armazem);
         }
         acoes.precisoRetrato(retrato);
@@ -284,14 +320,13 @@ public final class Mensageiro {
         return true;
     }
 
-    private static void esquecerAntesDe(Deque<Long> momentos, long agora) {
-        while (!momentos.isEmpty() && agora - momentos.peekFirst() >= JANELA_DO_DISJUNTOR_MS) momentos.pollFirst();
-    }
-
     /**
-     * O leve sem as versões da fila: a página não confere a fila nesta carga e espelha a dela. Se nem o leve puder ser
-     * lido, um retrato que diz que HÁ espelho: dizer o contrário faria uma perda ser tomada por instalação nova, e o
-     * que a página gravasse depois iria por cima da cópia boa do nativo.
+     * O leve sem as versões da fila e com {@code semParar: true}: a página não confere a fila nesta carga (espelha a
+     * dela) e não chama win.stop() por motivo nenhum. Sem o semParar, a perda (a marca no localStorage, ou ele vazio)
+     * ainda parava a carga e pedia de novo: com o sessionStorage que não guarda a trava, toda recarga pedia, e o
+     * disjuntor só trocava um laço por outro. Com ele, a perda segue com o espelho desligado, como na trava da sessão.
+     * Se nem o leve puder ser lido, um retrato que diz que HÁ espelho: dizer o contrário faria uma perda ser tomada por
+     * instalação nova, e o que a página gravasse depois iria por cima da cópia boa do nativo.
      */
     static JSONObject semConferencia(ArmazemEspelho armazem) {
         try {
@@ -304,6 +339,7 @@ public final class Mensageiro {
                 retrato.put("idbChaves", new JSONArray());
             }
             retrato.put("filaHashes", new JSONArray());
+            retrato.put("semParar", true);
             return retrato;
         } catch (JSONException e) {
             throw new IllegalStateException("não foi possível montar o retrato sem conferência", e); // não ocorre
@@ -404,27 +440,6 @@ public final class Mensageiro {
     }
 
     // --- apoio ------------------------------------------------------------------------------------------------------
-
-    /**
-     * O texto de erro da página sem o que é do técnico: endereço, e-mail, o que vem entre aspas (menos nome de método
-     * do Chromium, só letras) e nome de chave do App. Cortado em {@value #LIMITE_DO_AVISO} caracteres DEPOIS de limpo,
-     * para o corte não deixar meia chave sem a aspa que a fecha.
-     */
-    static String semDados(String texto) {
-        if (texto == null) return "";
-        String s = texto.length() > 4 * LIMITE_DO_AVISO ? texto.substring(0, 4 * LIMITE_DO_AVISO) : texto;
-        s = ENDERECO.matcher(s).replaceAll("<endereço>");
-        s = EMAIL.matcher(s).replaceAll("<e-mail>");
-        Matcher aspas = ENTRE_ASPAS.matcher(s);
-        StringBuffer limpo = new StringBuffer();
-        while (aspas.find()) {
-            String trecho = aspas.group();
-            aspas.appendReplacement(limpo, SO_LETRAS.matcher(trecho).matches() ? Matcher.quoteReplacement(trecho) : "'…'");
-        }
-        aspas.appendTail(limpo);
-        s = CHAVE_DO_APP.matcher(limpo.toString()).replaceAll("<chave>");
-        return s.length() > LIMITE_DO_AVISO ? s.substring(0, LIMITE_DO_AVISO) : s;
-    }
 
     // O base64 do btoa: múltiplo de 4, só o alfabeto padrão e o '=' só nas duas últimas posições. Conferido à mão, sem
     // regex: um pedaço tem ~700 mil caracteres, e a repetição de grupo do java.util.regex estoura a pilha nesse tamanho.

@@ -19,9 +19,12 @@ if [ ! -d "$ANDROID_HOME/platforms" ]; then
   return 1 2>/dev/null || exit 1
 fi
 
-# O sdk.dir é um arquivo .properties, onde a barra invertida é escape: por isso o caminho com barras normais.
+# O sdk.dir é um arquivo .properties, onde a barra invertida e o ':' são escape: o caminho vai com barras normais e o
+# ':' da letra do disco como '\:' (C\:/Users/...). Sem isso o `./gradlew lint` falha com PropertyEscape, mesmo o
+# Gradle lendo o caminho certo. Barra invertida que sobrar (ANDROID_HOME fora da forma mista) vira '\\'.
 if [ -d "$_gc_raiz/android" ]; then
-  printf 'sdk.dir=%s\n' "$ANDROID_HOME" > "$_gc_raiz/android/local.properties"
+  printf 'sdk.dir=%s\n' "$(printf '%s' "$ANDROID_HOME" | sed -e 's/\\/\\\\/g' -e 's/:/\\:/g')" \
+    > "$_gc_raiz/android/local.properties"
 fi
 
 # Pasta do repositório Maven local do Robolectric, SEM espaço no caminho. O padrão (~/.m2) tem o nome do usuário, e com

@@ -37,6 +37,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 import org.json.JSONObject;
 
@@ -66,13 +67,17 @@ public class CascaPlugin extends Plugin {
     // Quanto a thread do espelho espera a de UI mandar cada pedaço do idbPedir. Passou disso, a de UI está travada, e
     // o envio para (a página tem o teto dela de 15 s).
     private static final long ESPERA_POR_MENSAGEM_S = 10;
+    // O pedaço do caminho que vai ao log como está (ver navegacaoParaOLog).
+    private static final Pattern PEDACO_COMUM = Pattern.compile("[A-Za-z0-9._~-]{1,64}");
 
     // Um espelho por processo: a recriação da tela (renderer que morreu) faz um plugin novo, e dois EspelhoSqlite no
     // mesmo banco perderiam o blob que chegava pela metade (a remessa em andamento é da instância).
     private static ArmazemEspelho espelhoDoProcesso;
+    // E um disjuntor por processo: o renderer que morre na recarga com o retrato completo recria a tela (plugin e
+    // Mensageiro novos), e a contagem dos completos tem de atravessar a recriação, senão o laço não para.
+    private static final Mensageiro.Disjuntor DISJUNTOR_DO_PROCESSO = new Mensageiro.Disjuntor();
 
     private String origem;
-    private boolean webViewAntiga = false;
     // Ligado quando a tela sai (onDestroy) ou o renderer morre: nada mais toca nesta WebView.
     private volatile boolean encerrado = false;
     private Handler ui;
@@ -91,10 +96,12 @@ public class CascaPlugin extends Plugin {
         origem = bridge.getServerUrl();
 
         // 2. Sem o script de início antes da página não há espelho, e sem o canal por regra de origem a ponte cairia no
-        // addJavascriptInterface, exposto a todo frame. A WebView antiga para aqui, com o aviso.
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
-                || !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            webViewAntiga = true;
+        // addJavascriptInterface, exposto a todo frame. A WebView antiga para aqui, com o aviso, e a página do App não
+        // roda: o MainActivity já tirou o server.url (o Bridge carrega a página local, e o App nem é pedido), e o
+        // JavaScript sai antes do primeiro loadUrl (o initWebView do Bridge o liga ANTES dos plugins, e o loadWebView,
+        // depois deles, não mexe nele). Se a troca do endereço faltar, nenhuma página roda script mesmo assim.
+        if (!webViewTemOQueACascaPrecisa()) {
+            webView.getSettings().setJavaScriptEnabled(false);
             avisarWebViewAntiga();
             return;
         }
@@ -122,9 +129,18 @@ public class CascaPlugin extends Plugin {
         });
     }
 
-    /** O MainActivity pergunta antes de pedir as permissões: com a WebView antiga, só o aviso dela aparece. */
-    boolean webViewAntiga() {
-        return webViewAntiga;
+    /**
+     * A WebView tem o script de início antes da página e o canal por regra de origem? Sem os dois a casca não funciona.
+     * O MainActivity pergunta antes de o Bridge nascer (para não abrir o App), e o load() de novo. A WebView que nem
+     * carrega (o provedor desligado ou ausente lança aqui) conta como antiga; aí o BridgeActivity mostra a tela dele.
+     */
+    static boolean webViewTemOQueACascaPrecisa() {
+        try {
+            return WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+                && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER);
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     // 5. O canal gcCasca, só para a origem do App, e 6. o script de início com o retrato leve.
@@ -142,7 +158,7 @@ public class CascaPlugin extends Plugin {
             return;
         }
         threadDoEspelho = Executors.newSingleThreadExecutor(tarefa -> new Thread(tarefa, "GcCasca-espelho"));
-        mensageiro = new Mensageiro(armazem, new AcoesDaCasca());
+        mensageiro = new Mensageiro(armazem, new AcoesDaCasca(), DISJUNTOR_DO_PROCESSO);
 
         try {
             WebViewCompat.addWebMessageListener(webView, CANAL, Collections.singleton(origem), this::aoReceber);
@@ -295,18 +311,38 @@ public class CascaPlugin extends Plugin {
 
     /**
      * Em debug, registra as navegações que passam pelo Capacitor (a lista do allowNavigation sai da prova no aparelho),
-     * sem os parâmetros: o retorno do login traz código e estado. Devolve null: a regra do Capacitor continua valendo.
+     * sem os parâmetros (ver {@link #navegacaoParaOLog}). Devolve null: a regra do Capacitor continua valendo.
      */
     @Override
     public Boolean shouldOverrideLoad(Uri url) {
-        if (BuildConfig.DEBUG && url != null) {
-            boolean comParametros = url.getQuery() != null || url.getFragment() != null;
-            String caminho = url.getPath() == null ? "" : url.getPath();
-            // Só o caminho passa pela limpeza (um e-mail num caminho): o endereço inteiro viraria "<endereço>".
-            Log.d(TAG, "navegação: " + url.getScheme() + "://" + url.getHost() + Mensageiro.semDados(caminho)
-                + (comParametros ? " (com parâmetros)" : ""));
-        }
+        if (BuildConfig.DEBUG) Log.d(TAG, "navegação: " + navegacaoParaOLog(url));
         return null;
+    }
+
+    /**
+     * O endereço como vai ao log: esquema, host e caminho, e " (com parâmetros)" no lugar da query e do fragmento (o
+     * retorno do login traz código e estado; o do Fracttal, o token). No caminho, o pedaço com '@' vira "&lt;e-mail&gt;",
+     * o que começa por gc_ ou msal. vira "&lt;chave&gt;", e o que tem caractere fora de [A-Za-z0-9._~-] vira "…". O
+     * usuário de "usuario@host" não entra (o getHost() não o traz), e do endereço opaco (mailto:, data:, javascript:)
+     * vai só o esquema.
+     */
+    static String navegacaoParaOLog(Uri url) {
+        if (url == null) return "(sem endereço)";
+        String esquema = url.getScheme() == null ? "?" : url.getScheme();
+        if (url.isOpaque()) return esquema + ":…";
+        StringBuilder s = new StringBuilder(esquema).append("://").append(url.getHost() == null ? "" : url.getHost());
+        if (url.getPort() != -1) s.append(':').append(url.getPort());
+        for (String pedaco : url.getPathSegments()) s.append('/').append(pedacoParaOLog(pedaco));
+        String caminho = url.getPath();
+        if (caminho != null && caminho.length() > 1 && caminho.endsWith("/")) s.append('/');
+        if (url.getQuery() != null || url.getFragment() != null) s.append(" (com parâmetros)");
+        return s.toString();
+    }
+
+    private static String pedacoParaOLog(String pedaco) {
+        if (pedaco.indexOf('@') >= 0) return "<e-mail>";
+        if (pedaco.startsWith("gc_") || pedaco.startsWith("msal.")) return "<chave>";
+        return PEDACO_COMUM.matcher(pedaco).matches() ? pedaco : "…";
     }
 
     @Override
