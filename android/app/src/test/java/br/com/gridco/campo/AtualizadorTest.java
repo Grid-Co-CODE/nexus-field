@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.junit.After;
 import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
@@ -82,8 +83,24 @@ public class AtualizadorTest {
         rede.apk = bytes("abc");
     }
 
+    // Executor direto (o fluxo roda inteiro dentro do verificar()), mas que guarda o que uma tarefa deixaria escapar: no
+    // aparelho, exceção que sai da tarefa derruba o app pela thread do pool.
+    private final List<Throwable> escapou = new ArrayList<>();
+    private final Executor direto = tarefa -> {
+        try {
+            tarefa.run();
+        } catch (Throwable t) {
+            escapou.add(t);
+        }
+    };
+
     private Atualizador novo() {
-        return new Atualizador(prefs, pasta, versaoAtual, agora::get, rede, telas, Runnable::run, dono);
+        return new Atualizador(prefs, pasta, versaoAtual, agora::get, rede, telas, direto, dono);
+    }
+
+    @After
+    public void nadaEscapouDeUmaTarefa() {
+        assertEquals("exceção que escapou de uma tarefa: " + escapou, 0, escapou.size());
     }
 
     // ---------------------------------------------------------------- VersaoRemota
@@ -532,6 +549,17 @@ public class AtualizadorTest {
     }
 
     @Test
+    public void erroInesperadoNoDownloadSoltaOFluxoESemInstalar() {
+        rede.erroInesperadoAoBaixar = new SecurityException("sem permissão");
+        telas.resposta = Resposta.ACEITAR;
+        novo().verificar();
+        assertEquals(1, rede.downloads);
+        assertEquals(0, telas.instalados.size());
+        assertEquals(0, telas.avisosDeSha);
+        assertNull(dono.get());
+    }
+
+    @Test
     public void executorQueRecusaNaoPrendeOFluxo() {
         Executor recusa = tarefa -> { throw new RejectedExecutionException("encerrado"); };
         new Atualizador(prefs, pasta, versaoAtual, agora::get, rede, telas, recusa, dono).verificar();
@@ -708,6 +736,7 @@ public class AtualizadorTest {
         IOException falhaAoLer;
         IOException falhaAoBaixar;
         RuntimeException erroInesperado;
+        RuntimeException erroInesperadoAoBaixar;
         String[] sobras = new String[0];
         int leituras;
         int downloads;
@@ -725,6 +754,7 @@ public class AtualizadorTest {
         public void baixar(String url, File destino) throws IOException {
             downloads++;
             ultimaUrl = url;
+            if (erroInesperadoAoBaixar != null) throw erroInesperadoAoBaixar;
             // Sem a pasta criada por quem baixa isto falha, como o FileOutputStream de verdade.
             Files.write(destino.toPath(), falhaAoBaixar == null ? apk : bytes("so o comeco"));
             for (String sobra : sobras) Files.write(new File(destino.getParentFile(), sobra).toPath(), bytes("lixo"));

@@ -338,7 +338,8 @@ public final class Atualizador {
             }
             abrirInstalador(apk);
         } catch (RuntimeException e) {
-            apk.delete();
+            // O que ficou no cache não vai ao instalador sem o SHA-256 conferido, e a próxima checagem apaga: não se
+            // apaga aqui porque o erro pode ter vindo depois de o instalador já ter sido pedido.
             Log.w(TAG, "atualização: falhou (" + e.getClass().getSimpleName() + ")");
         } finally {
             liberar();
@@ -402,7 +403,7 @@ public final class Atualizador {
                 conexao.setReadTimeout(leituraMs);
                 conexao.setInstanceFollowRedirects(true);
                 int codigo = conexao.getResponseCode();
-                // A mensagem vai só até o log da exceção na pilha; o Atualizador registra apenas a classe dela.
+                // A mensagem leva só o código; o Atualizador registra apenas a classe da exceção, nunca o texto.
                 if (codigo != HttpURLConnection.HTTP_OK) throw new IOException("resposta " + codigo);
             } catch (IOException | RuntimeException e) {
                 conexao.disconnect();
