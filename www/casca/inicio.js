@@ -24,6 +24,7 @@
 
   var CHAVE_FILA = 'gc_campo_queue';
   var SENTINELA_LS = 'gc_casca_sentinela';
+  var MARCA_PERDA = 'gc_casca_perda_pendente';
   var BANCO_SENTINELA = 'gc_casca';
 
   // Espera do lote: o trabalho e o cache são agrupados por chave neste tempo (a spec pede 300 a 500 ms). A fila não
@@ -38,7 +39,8 @@
   //   exatas:   a chave inteira; prefixos: a chave começa com isso;
   //   excecoes: chaves que casam com um prefixo do trabalho mas NÃO são trabalho (o gc_ronda_ctx é contexto
   //             baixado da rede, enquanto gc_ronda_<e-mail>_<dia>_<usina> é a ronda que o técnico preencheu).
-  // Fora das duas listas: msal.*, tokens, gc_erros_js, gc_vivo, gc_tela, preferências e contadores. A fila
+  // Fora das duas listas: msal.*, tokens, gc_erros_js, gc_vivo, gc_tela, preferências e contadores, e as chaves da
+  // própria casca (gc_casca_*: a sentinela e a marca da perda), que nunca vão ao nativo nem voltam dele. A fila
   // (CHAVE_FILA) é a classe 'fila' e fica de fora de propósito: tem tratamento próprio (vai ao nativo na hora).
   var CLASSES = {
     trabalho: {
@@ -111,10 +113,12 @@
       retrato: retrato,
       descarregadores: [],
       prontos: [],
-      // Ligada pela seção 4 quando esta carga foi parada para pedir o retrato completo (perda ou fila atrasada). Daí
-      // até a próxima carga nenhum espelho liga: a página que ainda rodar está vazia ou atrasada, e espelhá-la
-      // gravaria esse estado por cima do que o nativo guardou. Toda seção que espelha confere esta marca.
-      cargaParada: false,
+      // Ligado pela seção 4 quando esta carga não pode espelhar: foi parada para pedir o retrato completo (perda ou
+      // fila atrasada), ou é uma perda que a trava da sessão não deixou parar. Daí até a próxima carga nenhum espelho
+      // liga: a página que ainda rodar está vazia ou atrasada, e espelhá-la gravaria esse estado por cima do que o
+      // nativo guardou. O `instalar` também o liga quando a marca da perda está no localStorage. Toda seção que
+      // espelha confere este campo.
+      espelhoDesligado: false,
 
       // Manda uma mensagem ao nativo e diz se ela saiu. Nunca lança: se o canal falhar, avisa por `falhou` e devolve
       // false (a seção 4 só lembra a fila como espelhada se a mensagem saiu).
@@ -271,6 +275,17 @@
   // importa, só a presença.
   var VALOR_SENTINELA = '1';
 
+  // A MARCA DA PERDA. A regra do "localStorage vazio" só enxerga a primeira carga depois da perda: se a página rodar
+  // antes de a restauração chegar, ela grava, e a carga seguinte acha chaves sem sentinela, que é a cara da faxina do
+  // `lsS`. Caso que a criou: a perda que a trava da sessão (SESSAO_PAROU, abaixo) não deixou parar de novo; a página
+  // gravou '[]' na fila e o gc_vivo, e a carga seguinte, tomada por faxina, ligaria o espelho e mandaria o '[]' por
+  // cima da fila que o nativo guardou. Por isso, ao ver a perda, o script grava MARCA_PERDA (pelo original, antes do
+  // stop) e, enquanto ela estiver no localStorage, toda carga é perda, tenha a WebView chaves ou sentinela, e roda
+  // sem espelho. Só a restauração de uma perda a apaga; a da fila não mexe nela. A página nunca a grava nem a apaga
+  // de propósito (o classificar a deixa fora do espelho e da restauração); o despejo do `lsS` vai da maior chave para a
+  // menor e só chegaria a ela, que é pequena, depois de derrubar todas as maiores que ele não protege (os caches).
+  var VALOR_MARCA = '1';
+
   // A MEMÓRIA DA SESSÃO. O nativo registra o retrato leve uma vez por partida, e ele vale para toda carga dela: as
   // versões da fila que ele traz envelhecem. Caso: o técnico abre o app com pendência (versões ['[x]', '[]']), a página
   // envia e grava '[]' (espelhada, o nativo a põe na frente); uma recarga na mesma partida (loginRedirect do MSAL,
@@ -338,21 +353,43 @@
   }
 
   // Para esta carga e pede ao nativo o retrato completo; o nativo recarrega a página com ele (modo 'restaurar').
-  // A marca vem antes do stop: se o stop falhar, a página roda, mas o espelho continua desligado até a próxima carga.
-  // Uma vez por sessão (SESSAO_PAROU). Na segunda, a carga segue com o espelho ligado: a fila da WebView vai ao nativo
-  // (ela vence, porque é o que a página vai usar) e ele é avisado, sem chave nem valor. Sem fila na WebView, só o
-  // aviso: nunca se manda apagar a fila do nativo.
+  // O espelho é desligado antes do stop: se o stop falhar, a página roda, mas sem espelho até a próxima carga.
+  // Uma vez por sessão (SESSAO_PAROU): se o nativo não atendesse o segundo pedido, a página ficaria em branco até matar
+  // o app. Na segunda, a carga segue, sem stop e sem pedido, e o nativo é avisado (sem chave nem valor). O espelho:
+  //   'fila'   fica ligado, e a fila da WebView vai ao nativo (ela vence, porque é o que a página vai usar). Sem fila
+  //            na WebView, só o aviso: nunca se manda apagar a fila do nativo;
+  //   'perda'  fica desligado na carga inteira: a cópia boa está no nativo, e o que a página gravar agora não pode ir
+  //            por cima dela. A sentinela não volta e a marca da perda fica: a partida seguinte pede o retrato.
   function pararCarga(ctx, ls, motivo) {
     if (lerSessao(ls, SESSAO_PAROU) !== null) {
-      var atual = ls.getItem.call(ls.real, CHAVE_FILA);
-      if (atual !== null) espelharFila(ctx, ls, atual, 'fila');
+      if (motivo === 'perda') {
+        // A marca da perda já desligaria o espelho (o `instalar` a confere), mas ela pode não ter cabido.
+        ctx.espelhoDesligado = true;
+      } else {
+        var atual = ls.getItem.call(ls.real, CHAVE_FILA);
+        if (atual !== null) espelharFila(ctx, ls, atual, 'fila');
+      }
       ctx.falhou(motivo, new Error('conferência ignorada: já parou nesta sessão'));
       return;
     }
     gravarSessao(ls, SESSAO_PAROU, motivo);
-    ctx.cargaParada = true;
+    ctx.espelhoDesligado = true;
     try { ctx.win.stop(); } catch (e) { ctx.falhou('stop', e); }
     ctx.enviar({ t: 'precisoRetrato', motivo: motivo }, 'precisoRetrato');
+  }
+
+  // A perda: grava a marca (antes do stop; ver A MARCA DA PERDA) e para a carga, ou, com a trava, segue sem espelho.
+  // Se a marca não couber (o localStorage recusa até uma chave pequena), avisa sem chave e segue do mesmo jeito: sem
+  // ela, vale só a regra do localStorage vazio.
+  function declararPerda(ctx, ls) {
+    if (!gravarOriginal(ls, MARCA_PERDA, VALOR_MARCA)) {
+      ctx.falhou('marca', new Error('a marca da perda não coube no localStorage'));
+    }
+    pararCarga(ctx, ls, 'perda');
+  }
+
+  function temMarcaDePerda(ls) {
+    return ls.getItem.call(ls.real, MARCA_PERDA) !== null;
   }
 
   // O id do retrato completo, quando é texto não vazio (o nativo gera um a cada retrato); senão null, e o retrato é
@@ -373,14 +410,15 @@
   // Decide, antes da página, o que esta carga faz com o localStorage:
   //   modo 'restaurar' com id novo nesta sessão        → devolve o que o retrato traz (restaurarLS);
   //   o mesmo retrato completo de novo (mesmo id)       → segue como um leve (ele traz os mesmos campos);
+  //   marca da perda no localStorage                   → perda, tenha a WebView chaves ou sentinela;
   //   sem sentinela, sem espelho                       → instalação nova: grava a sentinela, avisa ('sentinela') e
   //                                                       confere a fila (a que já estiver na WebView é espelhada);
-  //   sem sentinela, com espelho, WebView vazia        → perda: para e pede o retrato;
+  //   sem sentinela, com espelho, WebView vazia        → perda: grava a marca, para e pede o retrato;
   //   sem sentinela, com espelho, WebView com chaves   → a faxina da página levou a sentinela: regrava e confere
   //                                                       a fila;
   //   com sentinela, sem espelho                       → reenvia 'sentinela' e confere a fila;
   //   com sentinela, com espelho                       → confere a fila.
-  // Fora da restauração, esta seção nunca escreve na página além da sentinela.
+  // Fora da restauração, esta seção nunca escreve na página além da sentinela e da marca da perda.
   function conferirSentinelaEFila(ctx, ls) {
     var retrato = ctx.retrato;
     if (retrato.modo === 'restaurar') {
@@ -391,6 +429,12 @@
       }
     }
 
+    // A perda que ainda não foi restaurada vence o resto, inclusive a regra da faxina abaixo (ver A MARCA DA PERDA).
+    if (temMarcaDePerda(ls)) {
+      declararPerda(ctx, ls);
+      return;
+    }
+
     // Só `true` vale: um retrato torto não pode parar a carga do técnico.
     var temEspelho = retrato.temEspelho === true;
     if (ls.getItem.call(ls.real, SENTINELA_LS) === null) {
@@ -398,8 +442,9 @@
         if (gravarSentinela(ctx, ls)) ctx.enviar({ t: 'sentinela' }, 'sentinela');
       } else if (ls.real.length === 0) {
         // Lido agora, antes de qualquer script da página: nesta hora só a perda de verdade deixa o localStorage vazio.
-        // Se a sessão já parou uma vez, a carga segue sem a sentinela: a partida seguinte ainda vê a perda.
-        pararCarga(ctx, ls, 'perda');
+        // A marca gravada aqui faz as cargas seguintes também verem a perda, mesmo depois de a página gravar alguma
+        // coisa (na carga que a trava da sessão não deixou parar), até a restauração chegar.
+        declararPerda(ctx, ls);
         return;
       } else {
         // Não é perda: o despejo por tamanho do `lsS` levou a sentinela com o aparelho cheio (ver QUANDO É PERDA). O
@@ -446,9 +491,10 @@
 
   // Devolve ao localStorage o que o retrato completo traz, pelos métodos originais (sem eco ao nativo, que já tem
   // tudo isso). Ordem: a fila, depois o trabalho, depois o cache, chave por chave; a que não couber vai para a lista
-  // `naoCouberam` e a próxima ainda é tentada (uma pequena pode caber depois de uma grande). Por último a sentinela.
+  // `naoCouberam` e a próxima ainda é tentada (uma pequena pode caber depois de uma grande). Depois sai a marca da
+  // perda (só no retrato da perda) e, por último, entra a sentinela.
   // A fila que voltou e o id do retrato ficam na memória da sessão (SESSAO_FILA e SESSAO_RETRATO).
-  // Com motivo 'fila' o nativo manda `ls` vazio, e só a fila é regravada.
+  // O `motivo` do retrato é o do pedido que ele atende. Com 'fila' o nativo manda `ls` vazio, e só a fila é regravada.
   // Do `ls` do retrato só entra o que o classificar diz que é trabalho ou cache: msal.*, a sentinela, a própria fila
   // (que vem no campo `fila`) e as preferências ficam de fora, mesmo que o nativo as mande por engano.
   function restaurarLS(ctx, ls) {
@@ -474,6 +520,14 @@
         if (gravarOriginal(ls, chave, valor)) chaves++;
         else naoCouberam.push(chave);
       }
+    }
+
+    // A perda está respondida: a marca sai pelo original (sem eco), depois do que voltou (se a carga morrer no meio, a
+    // seguinte ainda vê a perda e pede de novo) e antes da sentinela, que ganha o espaço dela. O retrato da fila não
+    // mexe na marca: uma perda pendente continua pendente. Sem `motivo` conta como perda, porque uma marca que nunca
+    // saísse deixaria toda carga sem espelho, partida após partida.
+    if (retrato.motivo !== 'fila') {
+      try { ls.removeItem.call(ls.real, MARCA_PERDA); } catch (e) { ctx.falhou('marca', e); }
     }
 
     // Por último a sentinela. Se não couber, o que voltou fica (inclusive o cache, que o técnico usa sem sinal): a
@@ -504,9 +558,13 @@
       var ls = capturarLS(win);
       if (!ls) return;
       // A 4 antes da 3: a sentinela e a restauração gravam pelos originais e decidem se esta carga para; só depois,
-      // e só se ela seguir, o espelho liga. Se a 4 falhar por um erro nosso, a página abre com o espelho ligado.
+      // e só se ela puder espelhar, o espelho liga. Com a marca da perda ainda no localStorage, a carga não espelha,
+      // venha a marca de onde vier (a perda que parou, a que a trava não deixou parar, a restauração só da fila): a
+      // cópia boa está no nativo. Isso vai em `espelhoDesligado`, que é o que as outras seções conferem. Se a 4 falhar
+      // por um erro nosso sem marca, a página abre com o espelho ligado.
       tentar(ctx, 'sentinela', function () { conferirSentinelaEFila(ctx, ls); });
-      if (!ctx.cargaParada) instalarEspelhoLS(ctx, ls);
+      if (temMarcaDePerda(ls)) ctx.espelhoDesligado = true;
+      if (!ctx.espelhoDesligado) instalarEspelhoLS(ctx, ls);
     });
 
     return {
@@ -531,6 +589,7 @@
       CLASSES: CLASSES,
       CHAVE_FILA: CHAVE_FILA,
       SENTINELA_LS: SENTINELA_LS,
+      MARCA_PERDA: MARCA_PERDA,
       BANCO_SENTINELA: BANCO_SENTINELA,
     };
   } else if (typeof window !== 'undefined') {

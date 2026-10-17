@@ -8,10 +8,17 @@ import { createRequire } from 'node:module';
 import { criarJanela } from './apoio.mjs';
 
 const require = createRequire(import.meta.url);
-const { instalar, fnv1a32, CHAVE_FILA, SENTINELA_LS } = require('../www/casca/inicio.js');
+const inicio = require('../www/casca/inicio.js');
+const { instalar, classificar, fnv1a32, CHAVE_FILA, SENTINELA_LS } = inicio;
 
 // A WebView sem nada no localStorage: instalação nova, ou o despejo do Chromium levou tudo (a sentinela junto).
 const VAZIO = {};
+
+// A marca da perda pendente, com o nome por extenso: o nativo e o teste de contrato leem o mesmo nome.
+const MARCA_PERDA = 'gc_casca_perda_pendente';
+
+// O aviso da segunda parada recusada na mesma sessão.
+const MSG_TRAVA = 'conferência ignorada: já parou nesta sessão';
 
 // Janela falsa + script instalado. `antes` roda ANTES do script (para espiar o setItem original, por exemplo).
 function montar(opcoes = {}, antes = () => {}) {
@@ -27,11 +34,38 @@ function leve({ temEspelho = true, filaHashes = [], idbChaves = [] } = {}) {
 }
 
 // O retrato completo, depois de um precisoRetrato. Com motivo 'fila' o nativo manda `ls` vazio. O `id` é o que o nativo
-// gera para cada retrato completo (sem `id`, o retrato de antes da regra: aplicado toda vez).
-function completo({ ls = {}, fila = null, filaHashes = [], id } = {}) {
+// gera para cada retrato completo (sem `id`, o retrato de antes da regra: aplicado toda vez); o `motivo` é o do pedido
+// que ele atende (sem `motivo`, conta como perda).
+function completo({ ls = {}, fila = null, filaHashes = [], id, motivo } = {}) {
   const r = { ...leve({ filaHashes }), modo: 'restaurar', ls, fila };
   if (id !== undefined) r.id = id;
+  if (motivo !== undefined) r.motivo = motivo;
   return r;
+}
+
+// Espia, por baixo do script, as gravações e as remoções que chegam ao localStorage real, na ordem ('set:k', 'del:k').
+function espiarOperacoes(ordem) {
+  return ({ win }) => {
+    const proto = win.Storage.prototype;
+    const { setItem, removeItem } = proto;
+    const lsReal = win.localStorage;
+    proto.setItem = function (k) {
+      if (this === lsReal) ordem.push('set:' + k);
+      return setItem.apply(this, arguments);
+    };
+    proto.removeItem = function (k) {
+      if (this === lsReal) ordem.push('del:' + k);
+      return removeItem.apply(this, arguments);
+    };
+  };
+}
+
+// Guarda os métodos do Storage como estavam antes do script, para provar que nada foi embrulhado nesta carga.
+function guardarOriginais(guardados) {
+  return ({ win }) => {
+    guardados.setItem = win.Storage.prototype.setItem;
+    guardados.removeItem = win.Storage.prototype.removeItem;
+  };
 }
 
 // Espia, por baixo do script, cada gravação que chega ao localStorage real (a ordem da restauração). O sessionStorage
@@ -133,11 +167,19 @@ test('instalação nova grava a sentinela e não para a carga', () => {
 test('perda: para a carga, pede o retrato e não espelha nada', () => {
   const j = criarJanela({ ls: VAZIO, retrato: leve({ filaHashes: HASHES }) });
   const { setItem, removeItem } = j.win.Storage.prototype;
+  // a marca da perda tem de estar no localStorage quando o stop é chamado
+  const marcaNoStop = [];
+  const stop = j.win.stop;
+  j.win.stop = function () {
+    marcaNoStop.push(j.win.localStorage.getItem(MARCA_PERDA));
+    return stop.apply(this, arguments);
+  };
   const casca = instalar(j.win, j.canal, j.retrato);
   const ls = j.win.localStorage;
 
   assert.equal(j.paradas.length, 1, 'win.stop() chamado uma vez');
-  assert.deepEqual(j.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }]);
+  assert.deepEqual(marcaNoStop, ['1'], 'a marca da perda é gravada antes do stop');
+  assert.deepEqual(j.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }], 'a marca não é espelhada');
   assert.equal(ls.getItem(SENTINELA_LS), null, 'a sentinela só volta com a restauração');
   assert.equal(j.win.Storage.prototype.setItem, setItem, 'nada embrulhado nesta carga');
   assert.equal(j.win.Storage.prototype.removeItem, removeItem);
@@ -311,7 +353,7 @@ test('restaurar com a fila que não cabe: fila false, e a fila entra no naoCoube
 test('restaurar com motivo fila (ls vazio) só regrava a fila e não toca no resto', () => {
   const j = montar({
     ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: V2, gc_fech_draft: 'rascunho da página', gc_subs_1: 'cache da página' },
-    retrato: completo({ ls: {}, fila: V3, filaHashes: HASHES }),
+    retrato: completo({ ls: {}, fila: V3, filaHashes: HASHES, motivo: 'fila' }),
   });
   assert.equal(j.paradas.length, 0);
   assert.equal(j.ls.getItem(CHAVE_FILA), V3);
@@ -528,16 +570,18 @@ test('não para a carga duas vezes na mesma sessão', () => {
   assert.equal(n2.paradas.length, 0);
   assert.deepEqual(n2.enviados, [{ t: 'erro', onde: 'fila', msg: MSG }]);
 
-  // Perda: a 2ª carga da sessão com a WebView ainda vazia segue, sem regravar a sentinela (a partida seguinte ainda
-  // vê a perda), e com o espelho ligado (o que o técnico fizer agora vai ao nativo).
+  // Perda: a 2ª carga da sessão segue sem parar, mas sem espelho (a cópia boa está no nativo, e o que a página gravar
+  // agora não pode ir por cima dela) e sem regravar a sentinela. A marca da perda fica, e é ela que faz a partida
+  // seguinte ver a perda de novo, mesmo com o que a página gravou nesta carga (o teste da segunda perda, abaixo).
   const p = montar({ ls: VAZIO, retrato: leve({ filaHashes: HASHES }) });
   assert.equal(p.paradas.length, 1);
   const p2 = recarregar(p);
   assert.equal(p2.paradas.length, 0);
   assert.deepEqual(p2.enviados, [{ t: 'erro', onde: 'perda', msg: MSG }]);
   assert.equal(p2.ls.getItem(SENTINELA_LS), null);
+  assert.equal(p2.ls.getItem(MARCA_PERDA), '1');
   p2.ls.setItem(CHAVE_FILA, V4);
-  assert.deepEqual(p2.enviados[1], { t: 'ls', k: CHAVE_FILA, v: V4 });
+  assert.deepEqual(p2.enviados, [{ t: 'erro', onde: 'perda', msg: MSG }], 'espelho desligado');
 });
 
 test('o mesmo retrato completo não é aplicado duas vezes', () => {
@@ -610,4 +654,159 @@ test('sem sessionStorage, segue como antes', () => {
     assert.deepEqual(d.enviados, [{ t: 'restaurado', chaves: 0, naoCouberam: [], fila: true }], nome);
     assert.equal(d.ls.getItem(CHAVE_FILA), V3, nome);
   }
+});
+
+test('segunda perda na mesma sessão segue sem espelho e não sobrescreve o nativo', () => {
+  // O nativo tem a cópia boa (as versões da fila); a WebView perdeu tudo.
+  const retrato = leve({ filaHashes: HASHES });
+
+  // Partida 1, carga 1: para, pede o retrato e deixa a marca da perda.
+  const c1 = montar({ ls: VAZIO, retrato });
+  assert.equal(c1.paradas.length, 1);
+  assert.deepEqual(c1.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }]);
+  assert.equal(c1.ls.getItem(MARCA_PERDA), '1');
+
+  // Carga 2 da mesma sessão, sem o retrato completo (o disjuntor do nativo, ou uma recarga antes de ele chegar): a
+  // trava não deixa parar de novo, e a carga segue SEM espelho.
+  const originais = {};
+  const c2 = recarregar(c1, {}, guardarOriginais(originais));
+  assert.equal(c2.paradas.length, 0, 'a trava não deixa parar duas vezes');
+  assert.deepEqual(c2.enviados, [{ t: 'erro', onde: 'perda', msg: MSG_TRAVA }]);
+  assert.equal(c2.win.Storage.prototype.setItem, originais.setItem, 'nada embrulhado nesta carga');
+  assert.equal(c2.win.Storage.prototype.removeItem, originais.removeItem);
+  assert.equal(c2.ls.getItem(SENTINELA_LS), null, 'a sentinela só volta com a restauração');
+  assert.equal(c2.ls.getItem(MARCA_PERDA), '1', 'a marca fica');
+
+  // A página roda e grava o vazio dela depois da instalação: nada disso chega ao nativo.
+  c2.ls.setItem(CHAVE_FILA, '[]');
+  c2.ls.setItem('gc_vivo', '1');
+  paginaMexe(c2);
+  assert.deepEqual(c2.enviados.filter((m) => m.t === 'ls' || m.t === 'lsDel'), [], 'nenhum ls nem lsDel');
+  assert.equal(c2.enviados.length, 1);
+
+  // Carga 3 da mesma sessão: a WebView agora tem chaves e não tem sentinela. Sem a marca seria a faxina da página
+  // (espelho ligado, e a fila '[]', fora das versões, iria por cima da fila do nativo). Com ela, é a perda de novo.
+  const c3 = recarregar(c2);
+  assert.equal(c3.paradas.length, 0);
+  assert.deepEqual(c3.enviados, [{ t: 'erro', onde: 'perda', msg: MSG_TRAVA }]);
+  assert.equal(c3.ls.getItem(SENTINELA_LS), null);
+  paginaMexe(c3);
+  assert.equal(c3.enviados.length, 1, 'nem a fila da WebView vai ao nativo');
+
+  // Partida 2 (sessionStorage zerado): a marca pede o retrato de novo.
+  const p2 = montar({ ls: lsDe(c3), retrato });
+  assert.equal(p2.paradas.length, 1);
+  assert.deepEqual(p2.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }]);
+  paginaMexe(p2);
+  assert.equal(p2.enviados.length, 1);
+});
+
+test('partida seguinte com a marca pede o retrato de novo, mesmo com chaves na WebView', () => {
+  const casos = {
+    // o que a página gravou na carga que a trava não deixou parar
+    'chaves da página, sem sentinela': { [MARCA_PERDA]: '1', [CHAVE_FILA]: '[]', gc_vivo: '1', 'msal.conta': 'm' },
+    // a restauração só da fila não apaga a marca; a fila em dia (V3 = a versão mais nova) não muda nada
+    'com a sentinela e a fila em dia': { [MARCA_PERDA]: '1', [SENTINELA_LS]: '1', [CHAVE_FILA]: V3 },
+    'só a marca': { [MARCA_PERDA]: '1' },
+  };
+  // A marca vale sozinha: até o nativo sem o espelho marcado recebe o pedido (e devolve o que tiver).
+  const retratos = [leve({ filaHashes: HASHES }), leve(), leve({ temEspelho: false })];
+  for (const [nome, ls] of Object.entries(casos)) {
+    for (const retrato of retratos) {
+      const rotulo = nome + ' ' + JSON.stringify(retrato);
+      const originais = {};
+      const j = montar({ ls, retrato }, guardarOriginais(originais));
+      assert.equal(j.paradas.length, 1, rotulo);
+      assert.deepEqual(j.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }], rotulo);
+      assert.equal(j.win.Storage.prototype.setItem, originais.setItem, 'espelho desligado: ' + rotulo);
+      assert.equal(j.ls.getItem(MARCA_PERDA), '1', rotulo);
+      assert.equal(j.ls.getItem(CHAVE_FILA), ls[CHAVE_FILA] ?? null, 'o script não mexe na fila: ' + rotulo);
+      paginaMexe(j);
+      assert.equal(j.enviados.length, 1, 'nada da página chega ao nativo: ' + rotulo);
+    }
+  }
+});
+
+test('restauração de perda apaga a marca e grava a sentinela', () => {
+  assert.equal(inicio.MARCA_PERDA, MARCA_PERDA);
+  assert.equal(classificar(MARCA_PERDA), null, 'a marca nunca vai ao nativo nem volta dele');
+
+  const c1 = montar({ ls: VAZIO, retrato: leve({ filaHashes: HASHES }) });
+  assert.equal(c1.ls.getItem(MARCA_PERDA), '1');
+
+  // O nativo atende o pedido: recarrega a mesma sessão com o retrato completo da perda.
+  const ordem = [];
+  const retrato = completo({ ls: { gc_fech_draft: 'fech' }, fila: V3, filaHashes: HASHES, motivo: 'perda', id: 'r1' });
+  const r = recarregar(c1, { retrato }, espiarOperacoes(ordem));
+  assert.equal(r.paradas.length, 0);
+  assert.deepEqual(ordem, ['set:' + CHAVE_FILA, 'set:gc_fech_draft', 'del:' + MARCA_PERDA, 'set:' + SENTINELA_LS],
+    'a marca sai pelo original, depois do que voltou e antes da sentinela');
+  assert.equal(r.ls.getItem(MARCA_PERDA), null);
+  assert.equal(r.ls.getItem(SENTINELA_LS), '1');
+  assert.deepEqual(r.enviados, [{ t: 'restaurado', chaves: 1, naoCouberam: [], fila: true }], 'sem lsDel da marca');
+  r.ls.setItem(CHAVE_FILA, V4);
+  assert.deepEqual(r.enviados[1], { t: 'ls', k: CHAVE_FILA, v: V4 }, 'espelho ligado depois da restauração');
+
+  // A carga seguinte da sessão (o nativo voltou ao leve) e a partida seguinte seguem normais.
+  const fresco = leve({ filaHashes: [fnv1a32(V4), ...HASHES] });
+  const k = recarregar(r, { retrato: fresco });
+  assert.equal(k.paradas.length, 0);
+  assert.deepEqual(k.enviados, []);
+  const p2 = montar({ ls: lsDe(r), retrato: fresco });
+  assert.equal(p2.paradas.length, 0);
+  assert.deepEqual(p2.enviados, []);
+
+  // A marca sai antes da sentinela e lhe dá o espaço: fila 14+20=34 e marca 23+1=24 → 58; a sentinela (19) daria 77
+  // com a marca, acima da cota 60, e 53 sem ela.
+  const apertado = montar({
+    ls: { [MARCA_PERDA]: '1' },
+    cota: 60,
+    retrato: completo({ fila: 'q'.repeat(20), motivo: 'perda' }),
+  });
+  assert.equal(apertado.ls.getItem(MARCA_PERDA), null);
+  assert.equal(apertado.ls.getItem(SENTINELA_LS), '1');
+  assert.deepEqual(apertado.enviados, [{ t: 'restaurado', chaves: 0, naoCouberam: [], fila: true }]);
+
+  // Sem `motivo` no retrato conta como perda: uma marca que nunca saísse deixaria toda carga sem espelho.
+  const semMotivo = montar({ ls: { [MARCA_PERDA]: '1' }, retrato: completo({ fila: V1 }) });
+  assert.equal(semMotivo.ls.getItem(MARCA_PERDA), null);
+  assert.equal(semMotivo.ls.getItem(SENTINELA_LS), '1');
+});
+
+test('restauração de fila não mexe na marca', () => {
+  // Uma ordem rara (o retrato de um pedido da fila chega com a perda já marcada): a perda continua pendente.
+  const ordem = [];
+  const j = montar({
+    ls: { [MARCA_PERDA]: '1', [SENTINELA_LS]: '1', [CHAVE_FILA]: V2 },
+    retrato: completo({ ls: {}, fila: V3, filaHashes: HASHES, motivo: 'fila', id: 'f1' }),
+  }, espiarOperacoes(ordem));
+  assert.equal(j.paradas.length, 0);
+  assert.equal(j.ls.getItem(CHAVE_FILA), V3, 'a fila voltou');
+  assert.equal(j.ls.getItem(MARCA_PERDA), '1', 'a marca fica');
+  assert.ok(!ordem.includes('del:' + MARCA_PERDA), 'nem tentou apagar a marca');
+  assert.deepEqual(j.enviados, [{ t: 'restaurado', chaves: 0, naoCouberam: [], fila: true }]);
+  // Com a perda pendente, esta carga também roda sem espelho.
+  paginaMexe(j);
+  assert.equal(j.enviados.length, 1, 'nada da página chega ao nativo');
+
+  // A partida seguinte ainda vê a perda (com a sentinela e a fila em dia).
+  const p2 = montar({ ls: lsDe(j), retrato: leve({ filaHashes: [fnv1a32(V3), ...HASHES] }) });
+  assert.equal(p2.paradas.length, 1);
+  assert.deepEqual(p2.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }]);
+});
+
+test('perda com a marca que não cabe: avisa sem chave, para, e a 2ª carga da sessão segue sem espelho', () => {
+  // cota 20: a marca (23+1=24) não cabe; a fila '[]' (14+2=16) da página cabe.
+  const c1 = montar({ ls: VAZIO, cota: 20, retrato: leve() });
+  assert.equal(c1.paradas.length, 1);
+  assert.deepEqual(c1.enviados.map((m) => m.t + ':' + (m.onde || m.motivo)), ['erro:marca', 'precisoRetrato:perda']);
+  assert.ok(!/gc_/.test(c1.enviados[0].msg), 'o aviso não leva nome de chave');
+  assert.equal(c1.ls.getItem(MARCA_PERDA), null);
+
+  const c2 = recarregar(c1, { cota: 20 });
+  assert.equal(c2.paradas.length, 0);
+  assert.deepEqual(c2.enviados.map((m) => m.t + ':' + m.onde), ['erro:marca', 'erro:perda']);
+  c2.ls.setItem(CHAVE_FILA, '[]');
+  c2.avancar(5000);
+  assert.equal(c2.enviados.length, 2, 'espelho desligado mesmo sem a marca');
 });
