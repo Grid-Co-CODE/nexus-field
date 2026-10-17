@@ -45,7 +45,7 @@ import org.json.JSONObject;
  * O plugin da casca (spec, seção 6.2): liga o www/casca/inicio.js ao espelho nativo. Injeta o script de início antes
  * de qualquer script da página, abre o canal gcCasca só para a origem do App, liga os cookies de terceiros e o user
  * agent, recria a tela quando o renderer morre, limpa o histórico depois do login e abre os endereços de fora numa
- * Custom Tab.
+ * Custom Tab. Também dispara a checagem de atualização da casca ({@link Atualizador}) ao abrir e a cada volta ao app.
  *
  * Ordem no Capacitor 8.5.3 (conferida no código dele): o construtor do Bridge roda initWebView, registerAllPlugins (o
  * PluginHandle chama o load() de cada plugin) e só então loadWebView, que faz o primeiro webView.loadUrl(appUrl). Por
@@ -84,6 +84,7 @@ public class CascaPlugin extends Plugin {
     private ExecutorService threadDoEspelho;
     private Mensageiro mensageiro;
     private String inicioJs;
+    private Atualizador atualizador;              // null com a WebView antiga (o load() nem chega a criar)
     private ScriptHandler script;                 // só na thread de UI
     private JavaScriptReplyProxy ponteDaMensagem; // só na thread do espelho, durante a mensagem que a trouxe
 
@@ -127,6 +128,13 @@ public class CascaPlugin extends Plugin {
         ui.post(() -> {
             if (!encerrado) bridge.addWebViewListener(new OuvinteDaWebView());
         });
+
+        // 8. A atualização da casca (spec, seção 7): lê o versao.json da última Release, no máximo a cada 6 h, e oferece
+        // a versão nova. Independe da página e do espelho; fica depois do aviso da WebView antiga (que retorna acima),
+        // porque com ela o App nem abre. O resume seguinte (o Android chama o handleOnResume logo depois do onCreate)
+        // cai no "um fluxo por vez" ou nas 6 h, e não repete.
+        atualizador = new Atualizador(getActivity());
+        atualizador.verificar();
     }
 
     /**
@@ -345,9 +353,18 @@ public class CascaPlugin extends Plugin {
         return PEDACO_COMUM.matcher(pedaco).matches() ? pedaco : "…";
     }
 
+    // A volta ao app (a câmera, os ajustes, a Custom Tab do Fracttal): a checagem das 6 h e, depois de o técnico liberar
+    // "Instalar apps desconhecidos", a retomada da instalação.
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        if (atualizador != null) atualizador.verificar();
+    }
+
     @Override
     protected void handleOnDestroy() {
         encerrado = true;
+        if (atualizador != null) atualizador.encerrar(); // fecha o diálogo aberto; o download em curso termina sozinho
         // O que já está na fila ainda é gravado (é o que a página mandou); nada novo entra.
         if (threadDoEspelho != null) threadDoEspelho.shutdown();
         super.handleOnDestroy();

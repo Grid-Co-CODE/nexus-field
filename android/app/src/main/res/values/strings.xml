@@ -31,4 +31,22 @@
     <string name="casca_webview_titulo">Atualize o Android System WebView</string>
     <string name="casca_webview_texto">O App de Campo precisa de uma versão mais nova do componente que mostra as telas. Atualize o Android System WebView na Play Store e abra o App de novo.</string>
     <string name="casca_webview_abrir_loja">Abrir a Play Store</string>
+
+    <!--
+      A atualização da casca (spec, seção 7). Mesma regra: texto aprovado na prévia, não mude sem nova prévia.
+      O texto da versão leva o versionName e uma linha "- item" por novidade do versao.json; o "_simples" é o caso de
+      uma Release sem nenhuma novidade (não aparece "Novidades:" com a lista vazia).
+    -->
+    <string name="casca_atualizacao_titulo">Nova versão do App de Campo</string>
+    <string name="casca_atualizacao_texto">Versão %1$s. Novidades:\n%2$s</string>
+    <string name="casca_atualizacao_texto_simples">Versão %1$s.</string>
+    <string name="casca_atualizacao_atualizar">Atualizar agora</string>
+    <string name="casca_atualizacao_depois">Depois</string>
+
+    <!-- O Android pede a permissão "Instalar apps desconhecidos" para este app antes de abrir o instalador. -->
+    <string name="casca_instalar_titulo">Permitir a atualização</string>
+    <string name="casca_instalar_texto">Para instalar a versão nova, libere Instalar apps desconhecidos para o App de Campo e volte para cá.</string>
+
+    <!-- O arquivo baixado não bateu com o SHA-256 do versao.json (toast). -->
+    <string name="casca_atualizacao_sha_toast">Não consegui conferir o arquivo da atualização. Tento de novo mais tarde.</string>
 </resources>

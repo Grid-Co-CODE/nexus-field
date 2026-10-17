@@ -123,4 +123,29 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
     montagem e pela prova no aparelho.
   - O AGP 8 não gera o `BuildConfig` sem `buildFeatures.buildConfig` (o user agent e o `DEBUG` vêm dele), e o
     `androidx.webkit` entra no app de novo porque o `capacitor-android` o tem só como `implementation`.
-- A splash, a atualização da casca e o resto do nativo vêm nas tarefas seguintes do plano.
+- **A atualização da casca** (`Atualizador`, `VersaoRemota`; o `CascaPlugin` a chama no `load()` e no `handleOnResume()`):
+  - Lê o `versao.json` de `releases/latest/download/` (não conta no limite da API do GitHub), com as chaves `versionCode`
+    (inteiro), `versionName`, `apk`, `sha256` (64 dígitos hex) e `novidades` (lista de textos). O `ferramentas/versao-json.mjs`
+    da Release tem de gerar exatamente isso. Falta de campo, tipo errado, SHA que não seja hex de 64 ou `apk` fora de
+    `https://github.com/Grid-Co-CODE/app-campo-android/releases/download/<pedaços simples>` (sem `..`, `?`, `%`) é recusado:
+    o SHA que o próprio JSON traz não protegeria de um link para outro lugar.
+  - A hora da checagem vai ao SharedPreferences ANTES da rede: falhar também conta as 6 h, senão o campo sem sinal esperaria
+    15 s a cada volta ao app. Rede, JSON torto e download cortado são silêncio (só o log, sem endereço nem nome de arquivo);
+    só o SHA errado avisa, num toast. Sem nova tentativa em laço.
+  - Um fluxo por vez em todo o processo (`DONO_DO_PROCESSO`; a tela recriada do renderer que morreu é outra instância, e dois
+    downloads para `cache/atualizacao/app-campo.apk` o corromperiam). O `load()` e o resume que vem logo depois caem aí.
+  - **A permissão de instalar:** o Android pode matar o processo quando o técnico a libera nos ajustes, e o resume seguinte
+    seria de um processo novo. Por isso o "falta só instalar" (versionCode e SHA do APK que ficou no cache) vai ao
+    SharedPreferences quando ele toca em "Abrir ajustes" (e só aí: o diálogo fechado não deixa pendência), e a retomada
+    confere o arquivo de novo. É UMA tentativa: voltar sem liberar, ou a câmera trazendo outro resume, não repete o diálogo
+    nem reabre o instalador.
+  - O `cache/atualizacao/` é limpo a cada checagem de 6 h (sobra da versão instalada, diálogo fechado) e, antes do
+    instalador, fica só o APK novo. O `confere` lê em pedaços de 64 KB.
+  - Os textos estão no `strings.xml` (`casca_atualizacao_*`, `casca_instalar_*`), aprovados na prévia. O
+    `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) não estava no brief original.
+  - Não há aviso durante o download (o brief não prevê texto para isso).
+  - Do `Atualizador` testa-se em JVM o fluxo inteiro com rede, telas e relógio falsos (`AtualizadorTest`); os diálogos de
+    verdade e o instalador do sistema só se veem no aparelho. **Os dois testes que passam pelo `FileProvider` são pulados no
+    Windows** (ele compara caminhos com `/`; medido em 17/10/2026) e rodam no Linux do CI; a configuração do provider
+    (autoridade, uma pasta só, não exportado) é conferida em Node, no `testes/configuracao.test.mjs`.
+- A splash e o resto do nativo vêm nas tarefas seguintes do plano.

@@ -39,6 +39,28 @@ test('manifesto: permissões, backup desligado e FileProvider', () => {
   assert.match(manifesto, /android.media.action.VIDEO_CAPTURE/);
 });
 
+test('FileProvider do instalador: autoridade, só cache/atualizacao/ e não exportado', () => {
+  // O JUnit do Windows não consegue provar isto (o FileProvider espera "/" nos caminhos), então a configuração é
+  // conferida aqui: o Atualizador abre o instalador com content://<autoridade>/atualizacao/app-campo.apk.
+  const atualizador = ler('android/app/src/main/java/br/com/gridco/campo/Atualizador.java');
+  const autoridade = atualizador.match(/AUTORIDADE_DOS_ARQUIVOS = "([^"]+)"/)?.[1];
+  const pasta = atualizador.match(/PASTA_NO_CACHE = "([^"]+)"/)?.[1];
+  assert.equal(autoridade, 'br.com.gridco.campo.arquivos');
+  assert.equal(pasta, 'atualizacao');
+
+  const provider = manifesto.match(/<provider[^>]*android:name="\.ArquivosProvider"[^>]*>/)?.[0];
+  assert.ok(provider, 'falta o <provider> .ArquivosProvider');
+  assert.match(provider, new RegExp(`android:authorities="${autoridade.replace(/\./g, '\\.')}"`));
+  assert.match(provider, /android:exported="false"/);
+  assert.match(provider, /android:grantUriPermissions="true"/);
+
+  const caminhos = ler('android/app/src/main/res/xml/caminhos_arquivos.xml').replace(/<!--[\s\S]*?-->/g, '');
+  const entradas = [...caminhos.matchAll(/<([a-z-]+-path)\s([^>]*)\/>/g)];
+  assert.equal(entradas.length, 1, 'o provider do instalador expõe uma pasta só');
+  assert.equal(entradas[0][1], 'cache-path');
+  assert.match(entradas[0][2], new RegExp(`path="${pasta}/"`));
+});
+
 test('manifesto: a câmera e o GPS não são exigidos do aparelho', () => {
   // A permissão CAMERA, sozinha, faz a loja e o lint (PermissionImpliesUnsupportedChromeOsHardware) tomarem a câmera
   // por obrigatória, e o aparelho sem ela nem veria o app. As duas são pedidas em tempo de execução.
