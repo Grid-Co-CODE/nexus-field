@@ -367,6 +367,23 @@ test('se o localStorage nega acesso (SecurityError), a instalação não lança 
   assert.doesNotThrow(() => casca.descarregar());
 });
 
+// A Task 3 prova que a perda de carga chama win.stop(); para isso a janela falsa precisa espiar o stop() desde já. E a
+// parte 1 (só o espelho) nunca para a carga da página: parar a carga é decisão da restauração, não do espelho.
+test('a janela falsa espia win.stop() e o espelho nunca para a carga', () => {
+  const j = montar();
+  assert.equal(typeof j.win.stop, 'function');
+  assert.deepEqual(j.paradas, []);
+  j.ls.setItem('gc_campo_queue', 'x');
+  j.ls.setItem('gc_fech_draft', 'y');
+  j.ls.removeItem('gc_fech_draft');
+  j.casca.descarregar();
+  j.win.dispatchEvent({ type: 'pagehide' });
+  assert.equal(j.paradas.length, 0, 'o espelho não chama stop()');
+  j.win.stop();
+  j.win.stop();
+  assert.equal(j.paradas.length, 2, 'cada chamada fica registrada');
+});
+
 test('fnv1a32 é estável', () => {
   assert.equal(fnv1a32(''), '811c9dc5');
   assert.equal(fnv1a32('a'), 'e40c292c');

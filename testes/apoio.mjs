@@ -4,8 +4,9 @@
 // Por que falsa e não jsdom: o jsdom não deixa configurar a cota do localStorage, e a cota estourada
 // (QuotaExceededError) é a regra mais delicada do espelho. Aqui a cota é um número.
 //
-// As Tasks 3 e 4 estendem `criarJanela` (stop espionado, indexedDB, document.open/write/close): acrescentam campos
-// em `win` ou `document` dentro da função e, se preciso, devolvem helpers a mais. Nada aqui assume a lista fechada.
+// `win.stop()` já é espionado desde a Task 2 (a Task 3 prova que a perda para a carga com ele). As Tasks 3 e 4 estendem
+// `criarJanela` só com indexedDB e document.open/write/close: acrescentam campos em `win` ou `document` dentro da função
+// e, se preciso, devolvem helpers a mais. Nada aqui assume a lista fechada.
 
 // Tem a cara de um EventTarget mínimo: o script só usa addEventListener, e o teste dispara com dispatchEvent({type}).
 export function alvoDeEventos(alvo = {}) {
@@ -80,10 +81,12 @@ export function criarRelogio() {
 
 // `retrato` é o que o nativo devolveria na partida (window.__GC_RETRATO__); `cota` é o limite do localStorage em
 // caracteres. Devolve a janela, o canal falso e tudo que o canal recebeu, já em objeto (o script manda JSON em texto).
+// `paradas` guarda uma entrada por chamada de `win.stop()` (o teste confere `paradas.length`); `stop()` não faz mais nada.
 export function criarJanela({ retrato = {}, cota = Infinity } = {}) {
   const Storage = criarClasseStorage();
   const relogio = criarRelogio();
   const enviados = [];
+  const paradas = [];
 
   const canal = {
     postMessage(texto) {
@@ -101,8 +104,9 @@ export function criarJanela({ retrato = {}, cota = Infinity } = {}) {
     document,
     setTimeout: relogio.setTimeout,
     clearTimeout: relogio.clearTimeout,
+    stop() { paradas.push(true); },
     __GC_RETRATO__: retrato,
   });
 
-  return { win, canal, enviados, retrato, avancar: relogio.avancar, timersAtivos: relogio.ativos };
+  return { win, canal, enviados, paradas, retrato, avancar: relogio.avancar, timersAtivos: relogio.ativos };
 }
