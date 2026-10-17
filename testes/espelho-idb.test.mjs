@@ -11,7 +11,7 @@ import {
 } from './apoio.mjs';
 
 const require = createRequire(import.meta.url);
-const { instalar, fnv1a32, CHAVE_FILA, MARCA_PERDA, BANCO_SENTINELA } = require('../www/casca/inicio.js');
+const { instalar, fnv1a32, CHAVE_FILA, MARCA_PERDA, BANCO_SENTINELA, STORE_ESTADO } = require('../www/casca/inicio.js');
 
 const PEDACO = 524288;
 const TETO_MS = 15000;
@@ -423,6 +423,125 @@ test('restauração com o n que não bate marca o banco sentinela como incomplet
   await ate(() => k.enviados.length === 1, 'reenvio');
   await assentar();
   assert.deepEqual(k.enviados, [{ t: 'idbPut', k: 'f_1', tipo: 'texto', v: 'a' }]);
+});
+
+// Espia a marca 'incompleta' do banco sentinela (instalado no `antes`, por baixo do script): `marcada()` diz se a
+// transação que a gravou já terminou. Na criação do banco ela vem na transação do upgrade, que também termina.
+function espiarMarca() {
+  let marcada = false;
+  const put = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function (valor) {
+    const r = put.apply(this, arguments);
+    if (this.name === STORE_ESTADO && valor === 'incompleta') {
+      this.transaction.addEventListener('complete', () => { marcada = true; });
+    }
+    return r;
+  };
+  return () => marcada;
+}
+
+test('restauração interrompida antes do idbFim não deixa a partida seguinte mandar idbDel', async () => {
+  // A 1ª carga pede ao nativo, grava uma parte e morre antes do idbFim e do teto (o técnico fechou o app na espera, o
+  // renderer morreu num vídeo grande), ou nem consegue pedir (o canal caiu). A 2ª partida, leve, reconcilia: o nativo
+  // ainda diz ter a f_2 (e a f_1, no pedido que nem saiu), que a WebView não tem porque não voltou. Com o banco
+  // sentinela no estado velho, completo, a reconciliação mandaria idbDel delas, e o nativo perderia a única cópia.
+  const retratoLeve = { ...RETRATO_EM_USO, idbChaves: ['f_1', 'f_2'] };
+  const retratoDaPerda = { ...retratoLeve, modo: 'restaurar', motivo: 'perda', id: 'r1', ls: {}, fila: '[]' };
+  const daPerda = { ls: { [MARCA_PERDA]: '1' }, retrato: retratoDaPerda };
+  const reenvioF5 = [{ t: 'idbPut', k: 'f_5', tipo: 'texto', v: 'só na WebView' }];
+  const casos = {
+    'restauração da perda com o banco sentinela de pé': {
+      semente: { casca: true, fotos: { f_5: 'só na WebView' } }, opcoes: daPerda, segunda: reenvioF5,
+    },
+    'store das fotos vazia com o banco sentinela de pé': {
+      semente: { casca: true, fotos: {} }, opcoes: { retrato: retratoLeve }, segunda: [],
+    },
+    'sem o banco sentinela (ele nasce já marcado)': {
+      semente: { fotos: { f_5: 'só na WebView' } }, opcoes: { retrato: retratoLeve }, segunda: reenvioF5,
+    },
+    'o idbPedir que nem sai': {
+      semente: { casca: true, fotos: { f_5: 'só na WebView' } }, opcoes: daPerda, segunda: reenvioF5, canalCai: true,
+    },
+  };
+  for (const [nome, caso] of Object.entries(casos)) {
+    const aparelho = criarAparelho();
+    await semear(aparelho, caso.semente);
+    const noPedido = []; // a marca já estava gravada quando o idbPedir saiu?
+    const j = montar({ idb: aparelho, ...caso.opcoes }, ({ canal }) => {
+      const marcada = espiarMarca();
+      const post = canal.postMessage;
+      canal.postMessage = function (texto) {
+        if (JSON.parse(texto).t === 'idbPedir') {
+          noPedido.push(marcada());
+          if (caso.canalCai) throw new Error('canal caiu');
+        }
+        return post.call(this, texto);
+      };
+    });
+    if (caso.canalCai) {
+      await j.casca.pronto;
+      assert.ok(j.enviados.some((m) => m.t === 'erro' && m.onde === 'idbPedir'), 'o pedido não saiu: ' + nome);
+    } else {
+      await ate(() => j.enviados.some((m) => m.t === 'idbPedir'), 'idbPedir: ' + nome);
+      j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
+      await ate(async () => ((await lerFotos(aparelho)) || {}).f_1 === 'a', 'f_1 gravada: ' + nome);
+    }
+    assert.deepEqual(noPedido, [true], 'a marca entra antes do idbPedir: ' + nome);
+    assert.deepEqual(await lerCasca(aparelho), { pendentes: [], incompleta: true }, nome);
+    // A carga morre aqui: nem idbFim, nem o teto (o relógio dela não anda mais).
+
+    const k = montar({ idb: aparelho, retrato: retratoLeve });
+    await ate(() => k.win.sessionStorage.getItem(SESSAO_IDB) !== null ||
+      k.enviados.some((m) => m.t === 'idbDel' || m.t === 'idbPedir'), 'reconciliação: ' + nome);
+    await assentar();
+    assert.deepEqual(k.enviados, caso.segunda, 'nenhum idbDel nem novo pedido: ' + nome);
+    await k.casca.pronto;
+  }
+});
+
+test('tudo falhou na restauração: a carga seguinte não pede de novo', async () => {
+  // O disco cheio recusa todas as gravações: o banco sentinela nasce com todas as chaves pendentes e a store das fotos
+  // fica vazia. Tomar isso por perda pediria tudo de novo a cada carga, seguraria a página até 15 s e traria o que o
+  // disco não aceita: o laço que as pendentes existem para evitar.
+  const aparelho = criarAparelho();
+  const retrato = { ...RETRATO_EM_USO, idbChaves: ['f_1', 'v_1'] };
+  const j = montar({ idb: aparelho, retrato }, () => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function () {
+      if (this.name === STORE_FOTOS) throw new DOMException('disco cheio', 'QuotaExceededError');
+      return put.apply(this, arguments);
+    };
+  });
+  await ate(() => j.enviados.some((m) => m.t === 'idbPedir'), 'idbPedir');
+  j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
+  j.responder({ t: 'idbPedaco', k: 'v_1', i: 0, n: 1, mime: 'video/mp4', b64: b64(bytesDeTeste(10)) });
+  j.responder({ t: 'idbFim', n: 2 });
+  await j.casca.pronto;
+  assert.deepEqual(await lerCasca(aparelho), { pendentes: ['f_1', 'v_1'], incompleta: false });
+  assert.deepEqual(await lerFotos(aparelho), {}, 'nada entrou');
+
+  // A partida seguinte: nem idbPedir, nem idbDel; um aviso sem nome de chave, e a página abre sem esperar.
+  const k = montar({ idb: aparelho, retrato });
+  const pagina = abrirComoAPagina(k.win);
+  await ate(() => k.enviados.length > 0, 'a decisão');
+  await assentar();
+  assert.deepEqual(k.enviados.map((m) => m.t + ':' + (m.onde || '')), ['erro:idb']);
+  assert.ok(!/f_1|v_1/.test(k.enviados[0].msg), 'sem nome de chave');
+  await k.casca.pronto;
+  await pagina.promessa;
+  assert.equal(k.timersAtivos(), 0, 'o teto de 15 s não fica pendurado');
+
+  // Uma recarga da mesma sessão não avisa de novo.
+  const r = recarregar(k);
+  await r.casca.pronto;
+  await assentar();
+  assert.deepEqual(r.enviados, []);
+
+  // Uma chave do nativo que não é pendente (gravada nele depois) muda o caso: perda só do IndexedDB, restaura.
+  const p = montar({ idb: aparelho, retrato: { ...retrato, idbChaves: ['f_1', 'v_1', 'f_9'] } });
+  await ate(() => p.enviados.some((m) => m.t === 'idbPedir'), 'idbPedir com a f_9');
+  p.responder({ t: 'idbFim', n: 0 });
+  await p.casca.pronto;
 });
 
 test('reconciliação reenvia chave que falta e apaga a que sobrou', async () => {

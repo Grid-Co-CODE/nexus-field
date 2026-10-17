@@ -600,7 +600,7 @@
 
   // O que o banco sentinela guarda (versão 1): na store `pendentes`, as chaves que a última restauração não trouxe de
   // volta (chave -> 1); na store `estado`, a marca CHAVE_RESTAURACAO -> 'incompleta' quando o `n` do nativo não bateu
-  // (ou não chegou), ou enquanto as pendentes ainda não foram gravadas.
+  // (ou não chegou), ou desde o começo de uma restauração (ela entra antes do idbPedir) até as pendentes dela entrarem.
   var STORE_PENDENTES = 'pendentes';
   var STORE_ESTADO = 'estado';
   var CHAVE_RESTAURACAO = 'restauracao';
@@ -609,13 +609,14 @@
   // nativo (na instalação nova ou numa restauração). Numa carga normal (sem a marca da perda), a falta dele é o
   // IndexedDB que se perdeu sozinho (o despejo do Chromium pode levar uma loja e deixar a outra): restaura do nativo.
   // Com ele de pé, a carga reconcilia, uma vez por sessão.
-  // Ele nasce mesmo de uma restauração incompleta, e guarda na store STORE_PENDENTES as chaves que não voltaram. Caso
-  // da revisão: com o banco sentinela só depois da restauração completa, bastava uma entrada recusada (o disco cheio) e
-  // TODA carga pedia tudo de novo, segurava a página 15 s e regravava por cima dela. Agora não há nova tentativa
-  // automática: a reconciliação nunca manda apagar no nativo uma chave pendente (ele ainda a tem e a WebView não), e
-  // com a marca 'incompleta' (o `n` do nativo não bateu ou não chegou: pode faltar uma chave que nem se sabe qual) não
-  // manda apagar nada. Custo aceito: uma chave velha pode ficar no nativo e voltar numa restauração futura; a faxina de
-  // órfãos da página a limpa.
+  // Ele nasce (ou é marcado 'incompleta') no começo de toda restauração, antes do idbPedir, e no fim guarda na store
+  // STORE_PENDENTES as chaves que não voltaram. Caso da revisão: com o banco sentinela só depois da restauração
+  // completa, bastava uma entrada recusada (o disco cheio) e TODA carga pedia tudo de novo, segurava a página 15 s e
+  // regravava por cima dela. Agora não há nova tentativa automática: a reconciliação nunca manda apagar no nativo uma
+  // chave pendente (ele ainda a tem e a WebView não), não pede de novo quando todas as chaves do nativo são pendentes,
+  // e com a marca 'incompleta' (o `n` do nativo não bateu ou não chegou, ou a restauração morreu no meio: pode faltar
+  // uma chave que nem se sabe qual) não manda apagar nada. Custo aceito: uma chave velha pode ficar no nativo e voltar
+  // numa restauração futura; a faxina de órfãos da página a limpa.
   //
   // A CARGA SEM ESPELHO (a perda que a trava não deixou parar, o stop que lançou, a marca da perda) não toca no
   // IndexedDB: nem restaura, nem reconcilia, nem cria ou apaga o banco sentinela. A faxina de órfãos da página que roda
@@ -838,7 +839,11 @@
 
   // A RECONCILIAÇÃO, com o banco sentinela de pé e o espelho ligado (então sem a marca da perda): a WebView é a verdade.
   //   a store das fotos vazia e idbChaves não vazio → perda só do IndexedDB: restaura (nenhuma faxina da página esvazia
-  //                                                   o banco inteiro, e reconciliar mandaria apagar tudo no nativo);
+  //                                                   o banco inteiro, e reconciliar mandaria apagar tudo no nativo),
+  //                                                   a menos que toda chave de idbChaves já seja pendente: a última
+  //                                                   restauração não gravou nenhuma (o disco cheio recusou todas), e
+  //                                                   pedir de novo seria o laço que as pendentes evitam; segue sem
+  //                                                   restaurar nem apagar, com um aviso sem chave;
   //   chave de idbChaves que falta na WebView        → idbDel (o espelho perdeu a exclusão), se ela não for pendente
   //                                                   e o banco sentinela não estiver marcado 'incompleta';
   //   chave da WebView que falta em idbChaves        → reenvia (o espelho perdeu a gravação: canal fora, app morto no
@@ -855,9 +860,18 @@
         if (locais === null || estado.vencido) { fechar(db); return undefined; }
         if (!locais.length) {
           fechar(db);
-          if (doNativo.length) return restaurarIDB(ctx, idb, estado, doNativo);
-          gravarSessaoCtx(ctx, SESSAO_IDB, '1');
-          return undefined;
+          if (!doNativo.length) { gravarSessaoCtx(ctx, SESSAO_IDB, '1'); return undefined; }
+          return lerCasca(ctx, idb).then(function (casca) {
+            if (estado.vencido) return undefined;
+            if (casca && doNativo.every(function (k) { return casca.pendentes.has(k); })) {
+              // Só a contagem: nada de chave.
+              ctx.falhou('idb', new Error('a store das fotos está vazia e as ' + doNativo.length + ' entradas do ' +
+                'nativo são pendentes da última restauração: sem novo pedido nesta carga'));
+              gravarSessaoCtx(ctx, SESSAO_IDB, '1');
+              return undefined;
+            }
+            return restaurarIDB(ctx, idb, estado, doNativo);
+          });
         }
         return lerCasca(ctx, idb).then(function (casca) {
           if (estado.vencido) { fechar(db); return undefined; }
@@ -946,6 +960,12 @@
   // A RESTAURAÇÃO: pede ao nativo o que ele guarda (idbPedir) e grava cada item no banco real pelo put original, sem
   // espelhar. Respostas: {t:'idbItem', k, tipo, v} e {t:'idbPedaco', k, i, n, mime, b64} (pedaços de um Blob, na
   // ordem ou não), e no fim {t:'idbFim', n}, com `n` = quantas entradas (chaves) o nativo mandou.
+  // Antes do idbPedir, a marca 'incompleta' entra no banco sentinela (que nasce, se faltar). Caso da revisão: a
+  // restauração que roda por cima de um banco sentinela no estado velho, completo (a da perda, ou a da store vazia),
+  // e que morre antes do idbFim e do teto (o técnico fecha o app na espera, o renderer morre num vídeo grande),
+  // deixava esse estado; a reconciliação da partida seguinte mandava idbDel de toda chave que ainda não tinha voltado, e
+  // o nativo perdia a única cópia. Custo aceito: a restauração que morre no meio não é tentada de novo sozinha (a store
+  // com alguma coisa vai à reconciliação, que com a marca só reenvia); o que não voltou fica guardado no nativo.
   // No idbFim grava o estado no banco sentinela (e o cria, se faltar), completa ou não: as PENDENTES são as chaves que o
   // nativo anunciou (`anunciadas`, o idbChaves do retrato) ou mandou e que não foram gravadas; a marca 'incompleta' vai
   // quando o `n` não bate com as chaves que chegaram. Nada de nova tentativa automática (ver O BANCO SENTINELA).
@@ -963,7 +983,8 @@
       var pedacos = new Map(); // chave -> { n, mime, partes, chegaram }
       var banco = abrirParaRestaurar(ctx, idb);
       var gravacoes = Promise.resolve();
-      var registro = Promise.resolve(); // as gravações do estado, uma depois da outra: a última vence
+      // As gravações do estado, uma depois da outra (a última vence), e a primeira é a marca, antes do idbPedir.
+      var registro = marcarIncompleta(ctx, idb);
 
       function gravar(k, valor) {
         gravacoes = gravacoes.then(function () {
@@ -1060,9 +1081,13 @@
         }
       });
 
-      // Se o pedido nem sai (o canal caiu), nada foi restaurado e nada é gravado no banco sentinela: a carga seguinte
-      // confere de novo. Isso não vira o laço da revisão: o envio falha na hora, sem segurar a página.
-      if (!ctx.enviar({ t: 'idbPedir' }, 'idbPedir')) resolver();
+      // O pedido só sai com a marca gravada (ou com a gravação dela falhada e avisada: sem restaurar, a reconciliação
+      // seguinte apagaria no nativo o que a WebView perdeu, que é pior). Se ele nem sai (o canal caiu), nada foi
+      // restaurado, e a marca fica: a carga seguinte não apaga nada no nativo. Isso não vira o laço da revisão: o envio
+      // falha na hora, sem segurar a página.
+      registro.then(function () {
+        if (!ctx.enviar({ t: 'idbPedir' }, 'idbPedir')) resolver();
+      });
     });
   }
 
@@ -1156,32 +1181,45 @@
     });
   }
 
+  // Uma transação de escrita nas duas stores do banco sentinela. Resolve true se ela terminou (complete), false se não
+  // (o erro já foi avisado). Nunca rejeita.
+  function transacaoCasca(ctx, db, fn) {
+    return new Promise(function (ok) {
+      var tx = null;
+      try {
+        tx = db.transaction([STORE_PENDENTES, STORE_ESTADO], 'readwrite');
+        fn(tx.objectStore(STORE_PENDENTES), tx.objectStore(STORE_ESTADO));
+      } catch (e) {
+        try { if (tx) tx.abort(); } catch (_) { /* já terminou */ }
+        ctx.falhou('idbSentinela', e);
+        ok(false);
+        return;
+      }
+      tx.oncomplete = function () { ok(true); };
+      tx.onabort = function () { ctx.falhou('idbSentinela', tx.error || new Error('gravação abortada')); ok(false); };
+    });
+  }
+
+  // Só a marca 'incompleta', no banco sentinela (que nasce com ela, se faltar); as pendentes ficam como estão. É o
+  // primeiro passo de toda restauração, antes do idbPedir (ver A RESTAURAÇÃO). Resolve true se gravou; nunca rejeita.
+  function marcarIncompleta(ctx, idb) {
+    return abrirCasca(ctx, idb).then(function (db) {
+      if (!db) return false;
+      return transacaoCasca(ctx, db, function (lista, marca) { idb.put.call(marca, 'incompleta', CHAVE_RESTAURACAO); })
+        .then(function (marcou) { fechar(db); return marcou; });
+    });
+  }
+
   // Grava o estado de uma restauração no banco sentinela (e o cria, se faltar): as `pendentes` trocam as de antes, e a
   // marca vai ou sai. Em duas transações: primeiro só a marca, depois as pendentes e a marca final juntas. Entre as duas,
   // ou se a segunda não entrar (o disco cheio), o estado diz 'incompleta', e a reconciliação não apaga nada no nativo.
   function gravarCasca(ctx, idb, pendentes, incompleta) {
     return abrirCasca(ctx, idb).then(function (db) {
       if (!db) return undefined;
-      function transacao(fn) {
-        return new Promise(function (ok) {
-          var tx = null;
-          try {
-            tx = db.transaction([STORE_PENDENTES, STORE_ESTADO], 'readwrite');
-            fn(tx.objectStore(STORE_PENDENTES), tx.objectStore(STORE_ESTADO));
-          } catch (e) {
-            try { if (tx) tx.abort(); } catch (_) { /* já terminou */ }
-            ctx.falhou('idbSentinela', e);
-            ok(false);
-            return;
-          }
-          tx.oncomplete = function () { ok(true); };
-          tx.onabort = function () { ctx.falhou('idbSentinela', tx.error || new Error('gravação abortada')); ok(false); };
-        });
-      }
-      return transacao(function (lista, marca) { idb.put.call(marca, 'incompleta', CHAVE_RESTAURACAO); })
+      return transacaoCasca(ctx, db, function (lista, marca) { idb.put.call(marca, 'incompleta', CHAVE_RESTAURACAO); })
         .then(function (marcou) {
           if (!marcou) return undefined;
-          return transacao(function (lista, marca) {
+          return transacaoCasca(ctx, db, function (lista, marca) {
             lista.clear();
             for (var i = 0; i < pendentes.length; i++) idb.put.call(lista, 1, pendentes[i]);
             if (incompleta) idb.put.call(marca, 'incompleta', CHAVE_RESTAURACAO);
