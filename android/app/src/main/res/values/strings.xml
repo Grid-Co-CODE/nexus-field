@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <!-- Nome completo, que aparece em Configurações > Apps. -->
+    <string name="app_name">App de Campo Grid Co.</string>
+    <!-- Rótulo do ícone na tela inicial: o launcher usa o da activity. -->
+    <string name="title_activity_main">Campo GridCo</string>
+    <string name="package_name">br.com.gridco.campo</string>
+    <string name="custom_url_scheme">br.com.gridco.campo</string>
+</resources>

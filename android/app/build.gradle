@@ -1,0 +1,99 @@
+apply plugin: 'com.android.application'
+
+// Versão e assinatura vêm do ambiente: o CI preenche, e na máquina do desenvolvedor valem os padrões.
+// versionCode = número da execução do GitHub Actions (sempre cresce, o Android exige); versionName = semver da casca.
+def casca_versionCode = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+def casca_versionName = System.getenv('VERSAO_CASCA') ?: '0.0.0-dev'
+// A assinatura só existe com as quatro variáveis juntas. Sem elas o release sai SEM assinar (o build de depuração e os
+// testes não precisam de chave), em vez de quebrar. As senhas nunca são impressas.
+def casca_keystore = System.getenv('CASCA_KEYSTORE')
+def casca_assinatura = casca_keystore && System.getenv('CASCA_KEYSTORE_SENHA') &&
+        System.getenv('CASCA_CHAVE_ALIAS') && System.getenv('CASCA_CHAVE_SENHA')
+
+android {
+    namespace = "br.com.gridco.campo"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "br.com.gridco.campo"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode casca_versionCode
+        versionName casca_versionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (casca_assinatura) {
+                storeFile file(casca_keystore)
+                storePassword System.getenv('CASCA_KEYSTORE_SENHA')
+                keyAlias System.getenv('CASCA_CHAVE_ALIAS')
+                keyPassword System.getenv('CASCA_CHAVE_SENHA')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (casca_assinatura) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+    testOptions {
+        unitTests {
+            // O Robolectric precisa dos recursos e do manifesto do app para montar a Activity nos testes.
+            includeAndroidResources = true
+            all {
+                // O Robolectric do Android 16 (SDK 36) cria a memória compartilhada do app por dentro do JDK
+                // (jdk.internal.access.SharedSecrets). O JDK 21 fecha esse pacote, e sem a abertura todo teste do
+                // Robolectric morre em beforeTest com "Failed to interact with raw FileDescriptor internals".
+                // Visto em 17/10/2026 na primeira rodada, com JDK 21.
+                jvmArgs '--add-exports=java.base/jdk.internal.access=ALL-UNNAMED'
+                // O Robolectric guarda o jar do Android em ~/.m2. Com espaço no nome do usuário do Windows ele monta o
+                // caminho com "%20" e não acha o arquivo que acabou de baixar ("Unable to load Robolectric native
+                // runtime library"). O ferramentas/ambiente.sh aponta CASCA_M2_LOCAL para uma pasta sem espaço.
+                def m2Local = System.getenv('CASCA_M2_LOCAL')
+                if (m2Local) {
+                    systemProperty 'maven.repo.local', m2Local
+                }
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    implementation "androidx.browser:browser:1.10.0"
+    testImplementation "junit:junit:$junitVersion"
+    testImplementation "org.robolectric:robolectric:4.17"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

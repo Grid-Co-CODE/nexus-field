@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sem internet</title>
+  <style>
+    /* Fundo igual ao do App de Campo e ao do ícone (#191528): a tela de erro não pode parecer outro app. Cor só
+       aqui, em variável; nenhuma regra abaixo escreve cor por extenso. */
+    :root {
+      --fundo:#191528;
+      --texto:#f2f0fa;
+      --texto-suave:#b9b4cf;
+      --destaque:#a3d900;
+      --sobre-destaque:#191528;
+    }
+    * { box-sizing:border-box; }
+    html, body { margin:0; min-height:100%; background:var(--fundo); color:var(--texto);
+      font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { min-height:100vh; display:flex; flex-direction:column; justify-content:center; gap:16px;
+      padding:32px 24px; max-width:480px; margin:0 auto; }
+    h1 { margin:0; font-size:28px; font-weight:700; }
+    p { margin:0; font-size:17px; line-height:1.5; }
+    p.suave { color:var(--texto-suave); }
+    button { margin-top:8px; min-height:52px; padding:0 24px; border:0; border-radius:12px;
+      background:var(--destaque); color:var(--sobre-destaque); font:inherit; font-size:18px; font-weight:700; }
+    button:active { opacity:.85; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Sem internet</h1>
+    <p>Abra o App de Campo uma vez com internet para ele ficar guardado neste aparelho.</p>
+    <p class="suave">Seus registros estão guardados neste aparelho. O App volta quando houver internet.</p>
+    <button type="button" id="tentar">Tentar de novo</button>
+  </main>
+  <script>
+    document.getElementById('tentar').addEventListener('click', function () {
+      location.href = 'https://gridco-campo-mw.azurewebsites.net/api/app';
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "app-campo-android",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Casca Android (Capacitor) do App de Campo da Grid Co.",
+  "scripts": {
+    "test": "node --test \"testes/*.test.mjs\"",
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/core": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3",
+    "fake-indexeddb": "6.2.6",
+    "jsdom": "30.1.3"
+  }
+}

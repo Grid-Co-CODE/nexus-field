@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- O fundo do ícone do App de Campo, o mesmo da página de erro. -->
+    <color name="ic_launcher_background">#191528</color>
+</resources>

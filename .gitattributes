@@ -1,0 +1,10 @@
+# Fim de linha LF em tudo (o repositório usa core.autocrlf=false); só o .bat do Windows fica com CRLF.
+* text=auto eol=lf
+*.bat text eol=crlf
+
+# Binários: o Git não pode mexer nem em fim de linha nem em diff.
+*.jar binary
+*.png binary
+*.jks binary
+*.webp binary
+*.keystore binary
