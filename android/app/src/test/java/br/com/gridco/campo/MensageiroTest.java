@@ -293,6 +293,33 @@ public class MensageiroTest {
         semDadosDoTecnico();
     }
 
+    @Test
+    public void restauradoQueFalhaAoLerAindaTrocaOScriptPeloLeveSemHashes() throws JSONException {
+        // O completo saiu e a página o aplicou; o espelho falha agora. Se o script não for trocado, o completo (com o
+        // `ls` e a fila do pedido) fica de pé pela partida, e a carga que vier depois de um "limpar só o login"
+        // (sessionStorage limpo, sem o id do retrato aplicado) grava o `ls` velho e a fila velha por cima dos novos.
+        fake.lancarAoLer = new IllegalStateException("leitura do espelho incompleta");
+
+        assertTrue(m.tratar("{\"t\":\"restaurado\",\"chaves\":3,\"naoCouberam\":[\"" + CHAVE_COM_EMAIL
+            + "\"],\"fila\":true}"));
+
+        assertEquals(1, acoes.leves.size());
+        JSONObject leve = acoes.leves.get(0);
+        assertFalse(leve.has("modo"));
+        assertFalse(leve.has("id"));
+        assertFalse(leve.has("ls"));
+        assertFalse(leve.has("fila"));
+        assertEquals(0, leve.getJSONArray("filaHashes").length());
+        // Sem ler o espelho, o retrato não pode dizer que não há espelho: seria tomado por instalação nova.
+        assertTrue(leve.getBoolean("temEspelho"));
+        assertTrue(acoes.retratos.isEmpty()); // não recarrega
+
+        // O aviso da falha leva só a contagem.
+        assertTrue(acoes.erros.toString(), acoes.erros.stream().anyMatch(e -> e.startsWith("restaurado:")
+            && e.contains("falha(s) nesta partida")));
+        semDadosDoTecnico();
+    }
+
     // --- o log -----------------------------------------------------------------------------------------------------
 
     @Test

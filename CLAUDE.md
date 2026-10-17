@@ -92,7 +92,9 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
   - Tudo que mexe no espelho roda numa thread só (`GcCasca-espelho`), na ordem em que a página mandou; o que mexe na
     WebView volta para a de UI. O `EspelhoSqlite` é um por processo: a tela recriada (renderer que morreu) reaproveita.
   - Todo `precisoRetrato` recarrega a página (ela parou e espera) com um retrato completo de id novo; o disjuntor deixa 2
-    completos em 60 s e, daí em diante, recarrega com o leve SEM `filaHashes`. No `restaurado`, volta ao leve fresco.
+    completos em 60 s e, daí em diante, recarrega com o leve SEM `filaHashes`. No `restaurado`, volta ao leve fresco;
+    se o espelho falhar ao ler, volta ao leve SEM `filaHashes` (`semConferencia`), nunca fica no completo: ele seria
+    reaplicado na carga sem o id no sessionStorage ("limpar só o login") e gravaria o `ls` e a fila velhos.
   - Nada do técnico vai ao log (os nomes das chaves têm e-mail): o `Mensageiro` avisa só com rótulo e contagem, e limpa o
     texto de erro da página (`semDados`: o `QuotaExceededError` do Chromium cita a chave entre aspas). O `MensageiroTest`
     confere pelo `ShadowLog`.

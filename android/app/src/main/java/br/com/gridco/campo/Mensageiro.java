@@ -261,6 +261,9 @@ public final class Mensageiro {
 
     // A página devolveu o retrato completo: o script volta ao leve, com as versões da fila e as chaves do IndexedDB
     // de agora (as do começo da partida já estão velhas). Do que não coube, só a contagem (R15: são nomes de chave).
+    // A troca sai mesmo que o espelho falhe ao ler: o completo de pé pela partida volta a ser aplicado na carga em que
+    // o sessionStorage não tiver o id dele (o "limpar só o login" o apaga), e grava o `ls` e a fila do momento do pedido
+    // por cima do trabalho novo. No lugar, o leve sem as versões da fila, como no precisoRetrato.
     private boolean restaurado(JSONObject m) {
         JSONArray naoCouberam = m.optJSONArray("naoCouberam");
         int quantas = naoCouberam == null ? 0 : naoCouberam.length();
@@ -268,7 +271,16 @@ public final class Mensageiro {
             avisar("restaurado", m.optInt("chaves", 0) + " chave(s) voltaram; " + quantas
                 + " não couberam no localStorage");
         }
-        acoes.restaurado(Retrato.leve(armazem));
+        JSONObject leve;
+        try {
+            leve = Retrato.leve(armazem);
+        } catch (RuntimeException e) {
+            falhas++;
+            avisar("restaurado", "o retrato leve falhou; o script fica sem conferir a fila (" + falhas
+                + " falha(s) nesta partida)");
+            leve = semConferencia(armazem);
+        }
+        acoes.restaurado(leve);
         return true;
     }
 
