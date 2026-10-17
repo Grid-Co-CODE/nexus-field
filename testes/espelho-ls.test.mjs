@@ -28,7 +28,9 @@ test('no navegador (sem module) o arquivo roda como script clássico e instala s
   assert.doesNotMatch(CODIGO, /^\s*(import|export)\s/m, 'ES module não roda como script injetado');
   const j = criarJanela();
   j.win.gcCasca = j.canal;
-  j.win.__GC_RETRATO__ = {};
+  // O aparelho em uso: com o retrato lido de window.__GC_RETRATO__, não há `sentinela` a reenviar (se o arranque não o
+  // lesse, o `{}` de reserva reenviaria).
+  j.win.__GC_RETRATO__ = { temEspelho: true, filaHashes: [], idbChaves: [] };
   runInNewContext(CODIGO, { window: j.win });
   j.win.localStorage.setItem('gc_campo_queue', 'x');
   j.win.localStorage.setItem('msal.k', 'y');
@@ -159,8 +161,13 @@ test('a exceção do setItem original sobe intacta, a mesma, e nada é espelhado
 test('o espelho chama o original primeiro e só depois manda ao nativo', () => {
   const ordem = [];
   const { ls, avancar } = montar({}, ({ win, canal }) => {
+    // Só o localStorage: no sessionStorage (mesmo prototype) o script guarda a memória da sessão da Task 3.
     const original = win.Storage.prototype.setItem;
-    win.Storage.prototype.setItem = function (k, v) { ordem.push(`original:${k}`); return original.call(this, k, v); };
+    const lsReal = win.localStorage;
+    win.Storage.prototype.setItem = function (k, v) {
+      if (this === lsReal) ordem.push(`original:${k}`);
+      return original.call(this, k, v);
+    };
     const postar = canal.postMessage;
     canal.postMessage = (texto) => { ordem.push(`canal:${JSON.parse(texto).k}`); return postar(texto); };
   });

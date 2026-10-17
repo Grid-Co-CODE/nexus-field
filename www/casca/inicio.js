@@ -116,13 +116,16 @@
       // gravaria esse estado por cima do que o nativo guardou. Toda seção que espelha confere esta marca.
       cargaParada: false,
 
-      // Manda uma mensagem ao nativo. Nunca lança: se o canal falhar, avisa por `falhou` e segue.
+      // Manda uma mensagem ao nativo e diz se ela saiu. Nunca lança: se o canal falhar, avisa por `falhou` e devolve
+      // false (a seção 4 só lembra a fila como espelhada se a mensagem saiu).
       // O canal é lido a cada chamada (não guardado), porque é o objeto que o nativo injetou e pode ser trocado.
       enviar: function (mensagem, onde) {
         try {
           canal.postMessage(JSON.stringify(mensagem));
+          return true;
         } catch (e) {
           ctx.falhou(onde, e);
+          return false;
         }
       },
 
@@ -195,8 +198,8 @@
       var classe = classificar(chave);
       if (!classe) return;
       if (classe === 'fila') {
-        // A fila é o que o técnico não pode perder: vai agora, sem lote.
-        ctx.enviar({ t: 'ls', k: chave, v: valor }, 'setItem');
+        // A fila é o que o técnico não pode perder: vai agora, sem lote (e fica lembrada na sessão, ver a seção 4).
+        espelharFila(ctx, ls, valor, 'setItem');
         return;
       }
       pendentes.set(chave, { classe: classe, v: valor });
@@ -254,13 +257,37 @@
   // 4. Sentinela do localStorage, versões da fila e restauração (spec 6.4, "Quando restaurar" e "A fila tem versões")
   // ---------------------------------------------------------------------------------------------------------------
 
+  // QUANDO É PERDA: sentinela ausente E localStorage da WebView vazio, lido no começo do documento, antes de qualquer
+  // script da página. É uma decisão que desvia da spec (6.4 dizia "a falta de qualquer das duas sentinelas dispara a
+  // restauração"), tomada porque a página também apaga a sentinela: o despejo por tamanho do `lsS` do campo.html
+  // (quando a fila não cabe, derruba da maior chave para a menor tudo que o `_lsProtegida` não protege, e a sentinela
+  // não está protegida) a leva com o aparelho cheio, e o site não muda. Tomar isso por perda pararia a carga justo sem
+  // espaço, a restauração não teria onde pôr a sentinela e a carga seguinte pararia de novo: página em branco. A perda
+  // de verdade (corrupção, troca de WebView, dados apagados) leva o localStorage da origem inteiro; o despejo da página
+  // deixa no mínimo o que ela protege (msal e as chaves de trabalho). Custo aceito: um localStorage apagado só em
+  // parte, com o processo vivo, não é visto como perda, e só a fila volta (pelas versões).
+  //
   // A sentinela é uma chave da casca que a página nunca grava (o classificar a deixa fora do espelho). O valor não
-  // importa, só a presença. Sozinha, a falta dela NÃO prova perda: a página pode apagá-la. O despejo por tamanho do
-  // `lsS` do campo.html (quando a fila não cabe, derruba da maior chave para a menor tudo que o `_lsProtegida` não
-  // protege, e a sentinela não está protegida) a leva junto com o aparelho cheio, e o site não muda. A perda de verdade
-  // (corrupção, troca de WebView, dados apagados) leva o localStorage da origem inteiro; o despejo da página deixa no
-  // mínimo o que ela protege (msal e as chaves de trabalho). Por isso a perda é "sem sentinela E sem chave nenhuma".
+  // importa, só a presença.
   var VALOR_SENTINELA = '1';
+
+  // A MEMÓRIA DA SESSÃO. O nativo registra o retrato leve uma vez por partida, e ele vale para toda carga dela: as
+  // versões da fila que ele traz envelhecem. Caso: o técnico abre o app com pendência (versões ['[x]', '[]']), a página
+  // envia e grava '[]' (espelhada, o nativo a põe na frente); uma recarga na mesma partida (loginRedirect do MSAL,
+  // atualização do service worker, 'Tentar de novo') acharia '[]' igual a uma versão antiga e pararia a carga à toa.
+  // O sessionStorage da origem dura o mesmo que a partida (a WebView o mantém entre as cargas e o esquece ao fechar),
+  // e guarda três chaves, sempre pelo setItem original (o espelho só olha o localStorage):
+  //   SESSAO_FILA     fnv1a32 da última fila que o script espelhou ou restaurou nesta sessão: o nativo a tem como a
+  //                   mais nova, então a WebView com ela está em dia, diga o retrato o que disser;
+  //   SESSAO_PAROU    esta sessão já parou uma carga. O script nunca para duas: se o nativo não atendesse o segundo
+  //                   pedido, a página ficaria em branco até matar o app;
+  //   SESSAO_RETRATO  o id do último retrato completo aplicado: o mesmo retrato, de novo, regravaria sem espelhar por
+  //                   cima do que a página fez depois dele.
+  // Sem sessionStorage (falta, lança, ou a página o limpou no "limpar só o login"), vale a regra de antes: só as
+  // versões do retrato.
+  var SESSAO_FILA = 'gc_casca_fila_sessao';
+  var SESSAO_PAROU = 'gc_casca_parou';
+  var SESSAO_RETRATO = 'gc_casca_retrato_aplicado';
 
   // Captura o localStorage real e os métodos originais UMA vez, antes de qualquer embrulho e de qualquer script da
   // página. A restauração grava por eles (pelos embrulhados, ecoaria ao nativo o que acabou de vir dele) e o espelho
@@ -275,7 +302,28 @@
       getItem: proto.getItem,
       setItem: proto.setItem,
       removeItem: proto.removeItem,
+      sessao: capturarSessao(win),
     };
+  }
+
+  // O sessionStorage da origem, ou null. Ler `win.sessionStorage` pode lançar SecurityError, como o localStorage.
+  function capturarSessao(win) {
+    try { return win.sessionStorage || null; } catch (e) { return null; }
+  }
+
+  // Lê e grava a memória da sessão pelos métodos originais do Storage. Nunca lançam: sem sessionStorage (ou com um que
+  // recusa), ler dá null, como se nada tivesse sido lembrado, e gravar não faz nada.
+  function lerSessao(ls, chave) {
+    try { return ls.sessao ? ls.getItem.call(ls.sessao, chave) : null; } catch (e) { return null; }
+  }
+  function gravarSessao(ls, chave, valor) {
+    try { if (ls.sessao) ls.setItem.call(ls.sessao, chave, valor); } catch (e) { /* sem memória: a regra de antes */ }
+  }
+
+  // Manda a fila da WebView ao nativo e, se a mensagem saiu, lembra dela na sessão (SESSAO_FILA). É o caminho único da
+  // fila para o nativo: o espelho (seção 3), a WebView à frente e a segunda parada recusada passam por aqui.
+  function espelharFila(ctx, ls, valor, onde) {
+    if (ctx.enviar({ t: 'ls', k: CHAVE_FILA, v: valor }, onde)) gravarSessao(ls, SESSAO_FILA, fnv1a32(valor));
   }
 
   // Grava pelo original e diz se coube. Nunca lança: a cota estourada (ou qualquer recusa) vira `false`, e quem chama
@@ -291,14 +339,30 @@
 
   // Para esta carga e pede ao nativo o retrato completo; o nativo recarrega a página com ele (modo 'restaurar').
   // A marca vem antes do stop: se o stop falhar, a página roda, mas o espelho continua desligado até a próxima carga.
-  function pararCarga(ctx, motivo) {
+  // Uma vez por sessão (SESSAO_PAROU). Na segunda, a carga segue com o espelho ligado: a fila da WebView vai ao nativo
+  // (ela vence, porque é o que a página vai usar) e ele é avisado, sem chave nem valor. Sem fila na WebView, só o
+  // aviso: nunca se manda apagar a fila do nativo.
+  function pararCarga(ctx, ls, motivo) {
+    if (lerSessao(ls, SESSAO_PAROU) !== null) {
+      var atual = ls.getItem.call(ls.real, CHAVE_FILA);
+      if (atual !== null) espelharFila(ctx, ls, atual, 'fila');
+      ctx.falhou(motivo, new Error('conferência ignorada: já parou nesta sessão'));
+      return;
+    }
+    gravarSessao(ls, SESSAO_PAROU, motivo);
     ctx.cargaParada = true;
     try { ctx.win.stop(); } catch (e) { ctx.falhou('stop', e); }
     ctx.enviar({ t: 'precisoRetrato', motivo: motivo }, 'precisoRetrato');
   }
 
+  // O id do retrato completo, quando é texto não vazio (o nativo gera um a cada retrato); senão null, e o retrato é
+  // aplicado toda vez, como antes da regra.
+  function idDoRetrato(retrato) {
+    return typeof retrato.id === 'string' && retrato.id !== '' ? retrato.id : null;
+  }
+
   // Regrava a sentinela pelo original. Se não couber (o aparelho cheio), avisa sem chave e segue: a falta dela não
-  // para carga nenhuma enquanto a WebView tiver chaves (ver VALOR_SENTINELA), e ela volta numa carga com espaço.
+  // para carga nenhuma enquanto a WebView tiver chaves (ver QUANDO É PERDA), e ela volta numa carga com espaço.
   // A casca nunca apaga chave da página para abrir espaço para ela.
   function gravarSentinela(ctx, ls) {
     if (gravarOriginal(ls, SENTINELA_LS, VALOR_SENTINELA)) return true;
@@ -307,63 +371,83 @@
   }
 
   // Decide, antes da página, o que esta carga faz com o localStorage:
-  //   modo 'restaurar'                                → devolve o que o retrato traz (restaurarLS);
-  //   sem sentinela, sem espelho                      → instalação nova: grava a sentinela e avisa ('sentinela');
-  //   sem sentinela, com espelho, WebView vazia       → perda: para e pede o retrato;
-  //   sem sentinela, com espelho, WebView com chaves  → a faxina da página levou a sentinela: regrava e segue;
-  //   com sentinela (ou depois de regravá-la)         → compara a fila da WebView com as versões do nativo.
+  //   modo 'restaurar' com id novo nesta sessão        → devolve o que o retrato traz (restaurarLS);
+  //   o mesmo retrato completo de novo (mesmo id)       → segue como um leve (ele traz os mesmos campos);
+  //   sem sentinela, sem espelho                       → instalação nova: grava a sentinela, avisa ('sentinela') e
+  //                                                       confere a fila (a que já estiver na WebView é espelhada);
+  //   sem sentinela, com espelho, WebView vazia        → perda: para e pede o retrato;
+  //   sem sentinela, com espelho, WebView com chaves   → a faxina da página levou a sentinela: regrava e confere
+  //                                                       a fila;
+  //   com sentinela, sem espelho                       → reenvia 'sentinela' e confere a fila;
+  //   com sentinela, com espelho                       → confere a fila.
   // Fora da restauração, esta seção nunca escreve na página além da sentinela.
   function conferirSentinelaEFila(ctx, ls) {
     var retrato = ctx.retrato;
     if (retrato.modo === 'restaurar') {
-      restaurarLS(ctx, ls);
-      return;
+      var id = idDoRetrato(retrato);
+      if (id === null || lerSessao(ls, SESSAO_RETRATO) !== id) {
+        restaurarLS(ctx, ls);
+        return;
+      }
     }
 
+    // Só `true` vale: um retrato torto não pode parar a carga do técnico.
+    var temEspelho = retrato.temEspelho === true;
     if (ls.getItem.call(ls.real, SENTINELA_LS) === null) {
-      // Só `true` vale: um retrato torto não pode parar a carga do técnico.
-      if (retrato.temEspelho !== true) {
+      if (!temEspelho) {
         if (gravarSentinela(ctx, ls)) ctx.enviar({ t: 'sentinela' }, 'sentinela');
+      } else if (ls.real.length === 0) {
+        // Lido agora, antes de qualquer script da página: nesta hora só a perda de verdade deixa o localStorage vazio.
+        // Se a sessão já parou uma vez, a carga segue sem a sentinela: a partida seguinte ainda vê a perda.
+        pararCarga(ctx, ls, 'perda');
         return;
+      } else {
+        // Não é perda: o despejo por tamanho do `lsS` levou a sentinela com o aparelho cheio (ver QUANDO É PERDA). O
+        // que a WebView tem é o que a página deixou, e a fila é conferida abaixo, como em qualquer carga. O nativo já
+        // marcou o espelho (`temEspelho`), então não há `sentinela` a mandar.
+        gravarSentinela(ctx, ls);
       }
-      // Lido agora, antes de qualquer script da página: nesta hora só a perda de verdade deixa o localStorage vazio.
-      if (ls.real.length === 0) {
-        pararCarga(ctx, 'perda');
-        return;
-      }
-      // Não é perda: o despejo por tamanho do `lsS` levou a sentinela com o aparelho cheio. Tomar isso por perda
-      // pararia a carga justo com o armazenamento cheio, a restauração não teria onde pôr a sentinela, e a carga
-      // seguinte da mesma partida pediria o retrato de novo (o nativo atende um por partida): a página ficaria em
-      // branco. O que a WebView tem é o que a página deixou; a fila ainda é conferida abaixo, como em qualquer carga.
-      // O nativo já marcou o espelho (`temEspelho`), então não há `sentinela` a mandar.
-      gravarSentinela(ctx, ls);
+    } else if (!temEspelho) {
+      // A sentinela está na WebView, mas o nativo não marcou o espelho (a `sentinela` da instalação se perdeu, ou o
+      // banco dele foi recriado). Sem o reenvio, uma perda futura seria tomada por instalação nova e nada voltaria.
+      // O nativo trata a mensagem repetida como a primeira.
+      ctx.enviar({ t: 'sentinela' }, 'sentinela');
     }
 
-    // As versões da fila que o nativo guardou, mais nova primeiro (até 3), em fnv1a32.
-    var versoes = Array.isArray(retrato.filaHashes) ? retrato.filaHashes : [];
+    conferirFila(ctx, ls);
+  }
+
+  // Compara a fila da WebView com as versões do retrato (mais nova primeiro, até 3, em fnv1a32) e com a última que esta
+  // sessão espelhou ou restaurou (SESSAO_FILA).
+  function conferirFila(ctx, ls) {
+    var versoes = Array.isArray(ctx.retrato.filaHashes) ? ctx.retrato.filaHashes : [];
     var atual = ls.getItem.call(ls.real, CHAVE_FILA);
     if (atual === null) {
-      // Ruling R5: a página que apaga a fila manda lsDel, e o nativo apaga as versões junto. Versões no nativo sem fila
-      // na WebView é a fila que se perdeu sem a página saber: trata como fila atrasada. Custa um recarregar a mais
+      // A página que apaga a fila manda lsDel, e o nativo apaga as versões junto. Versões no nativo sem fila na
+      // WebView é, então, a fila que se perdeu sem a página saber: trata como fila atrasada. Custa um recarregar a mais
       // numa partida rara; o contrário perderia a fila inteira.
-      if (versoes.length) pararCarga(ctx, 'fila');
+      if (versoes.length) pararCarga(ctx, ls, 'fila');
       return;
     }
     var hash = fnv1a32(atual);
     // A mais nova vem antes: a página pode ter gravado A, B e A de novo, e a WebView com A está em dia.
     if (hash === versoes[0]) return;
+    // A última que chegou ao nativo nesta sessão: ele a tem como a mais nova, mesmo que o retrato (registrado no começo
+    // da partida) ainda não saiba.
+    if (hash === lerSessao(ls, SESSAO_FILA)) return;
     if (versoes.indexOf(hash) > 0) {
       // Bate com uma versão antiga: a WebView voltou no tempo (despejo parcial) e o nativo está à frente.
-      pararCarga(ctx, 'fila');
+      pararCarga(ctx, ls, 'fila');
       return;
     }
     // Não bate com nenhuma: a WebView está à frente (o nativo perdeu a última gravação, ou não tem versão nenhuma).
-    ctx.enviar({ t: 'ls', k: CHAVE_FILA, v: atual }, 'fila');
+    espelharFila(ctx, ls, atual, 'fila');
   }
 
   // Devolve ao localStorage o que o retrato completo traz, pelos métodos originais (sem eco ao nativo, que já tem
   // tudo isso). Ordem: a fila, depois o trabalho, depois o cache, chave por chave; a que não couber vai para a lista
   // `naoCouberam` e a próxima ainda é tentada (uma pequena pode caber depois de uma grande). Por último a sentinela.
+  // A fila que voltou e o id do retrato ficam na memória da sessão (SESSAO_FILA e SESSAO_RETRATO).
   // Com motivo 'fila' o nativo manda `ls` vazio, e só a fila é regravada.
   // Do `ls` do retrato só entra o que o classificar diz que é trabalho ou cache: msal.*, a sentinela, a própria fila
   // (que vem no campo `fila`) e as preferências ficam de fora, mesmo que o nativo as mande por engano.
@@ -376,7 +460,8 @@
 
     if (typeof retrato.fila === 'string') {
       fila = gravarOriginal(ls, CHAVE_FILA, retrato.fila);
-      if (!fila) naoCouberam.push(CHAVE_FILA);
+      if (fila) gravarSessao(ls, SESSAO_FILA, fnv1a32(retrato.fila));
+      else naoCouberam.push(CHAVE_FILA);
     }
 
     var nomes = Object.keys(origem);
@@ -394,6 +479,10 @@
     // Por último a sentinela. Se não couber, o que voltou fica (inclusive o cache, que o técnico usa sem sinal): a
     // carga seguinte acha a WebView com chaves e não toma a falta da sentinela por perda.
     gravarSentinela(ctx, ls);
+
+    // Aplicado: o mesmo retrato numa recarga desta sessão segue como leve (ver SESSAO_RETRATO).
+    var id = idDoRetrato(retrato);
+    if (id !== null) gravarSessao(ls, SESSAO_RETRATO, id);
 
     ctx.enviar({ t: 'restaurado', chaves: chaves, naoCouberam: naoCouberam, fila: fila }, 'restaurado');
   }

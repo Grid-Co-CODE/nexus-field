@@ -26,17 +26,22 @@ function leve({ temEspelho = true, filaHashes = [], idbChaves = [] } = {}) {
   return { temEspelho, filaHashes, idbChaves };
 }
 
-// O retrato completo, depois de um precisoRetrato. Com motivo 'fila' o nativo manda `ls` vazio.
-function completo({ ls = {}, fila = null, filaHashes = [] } = {}) {
-  return { ...leve({ filaHashes }), modo: 'restaurar', ls, fila };
+// O retrato completo, depois de um precisoRetrato. Com motivo 'fila' o nativo manda `ls` vazio. O `id` é o que o nativo
+// gera para cada retrato completo (sem `id`, o retrato de antes da regra: aplicado toda vez).
+function completo({ ls = {}, fila = null, filaHashes = [], id } = {}) {
+  const r = { ...leve({ filaHashes }), modo: 'restaurar', ls, fila };
+  if (id !== undefined) r.id = id;
+  return r;
 }
 
-// Espia, por baixo do script, cada gravação que chega ao localStorage real (a ordem da restauração).
+// Espia, por baixo do script, cada gravação que chega ao localStorage real (a ordem da restauração). O sessionStorage
+// usa o mesmo prototype e fica de fora: lá o script só guarda a memória da sessão.
 function espiarGravacoes(ordem) {
   return ({ win }) => {
     const original = win.Storage.prototype.setItem;
+    const lsReal = win.localStorage;
     win.Storage.prototype.setItem = function (k, v) {
-      ordem.push(String(k));
+      if (this === lsReal) ordem.push(String(k));
       return original.apply(this, arguments);
     };
   };
@@ -62,6 +67,22 @@ function lsDe({ win }) {
   const copia = {};
   for (let i = 0; i < ls.length; i++) copia[ls.key(i)] = ls.getItem(ls.key(i));
   return copia;
+}
+
+// O sessionStorage de uma janela agora (a WebView o mantém entre as cargas da mesma sessão).
+function sessaoDe({ win }) {
+  const copia = {};
+  try {
+    const s = win.sessionStorage;
+    for (let i = 0; i < s.length; i++) copia[s.key(i)] = s.getItem(s.key(i));
+  } catch (_) { /* sessionStorage ausente ou quebrado: nada a levar */ }
+  return copia;
+}
+
+// A carga seguinte na mesma WebView (loginRedirect, atualização do service worker, 'Tentar de novo'): o localStorage e
+// o sessionStorage continuam os da carga anterior; o retrato é o que o nativo registrou (por padrão, o mesmo de antes).
+function recarregar(anterior, opcoes = {}, antes) {
+  return montar({ ls: lsDe(anterior), sessao: sessaoDe(anterior), retrato: anterior.retrato, ...opcoes }, antes);
 }
 
 // O despejo por tamanho do `lsS` do campo.html (v257, `_lsMedir`, `_lsProtegida` e o recuo da fila do `lsS`), com os
@@ -363,8 +384,9 @@ test('fila nula com sentinela e espelho com versões → pede retrato motivo fil
 });
 
 test('fila à frente do espelho: espelha a atual', () => {
-  // filaHashes vazio é o nativo sem versão nenhuma (ex.: o banco dele se perdeu e a WebView não)
-  for (const retrato of [leve({ filaHashes: HASHES }), leve({ temEspelho: false, filaHashes: [] }), {}]) {
+  // filaHashes vazio é o nativo sem versão nenhuma (ex.: o banco dele se perdeu e a WebView não). O nativo sem
+  // `temEspelho` está no teste da `sentinela` reenviada, mais abaixo.
+  for (const retrato of [leve({ filaHashes: HASHES }), leve({ filaHashes: [] })]) {
     const j = montar({ ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: V4 }, retrato });
     assert.equal(j.paradas.length, 0);
     assert.deepEqual(j.enviados, [{ t: 'ls', k: CHAVE_FILA, v: V4 }], JSON.stringify(retrato));
@@ -397,4 +419,195 @@ test('filaHashes que não é lista conta como nenhuma versão', () => {
   const j = montar({ ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: V1 }, retrato: { temEspelho: true, filaHashes: 'abc' } });
   assert.equal(j.paradas.length, 0);
   assert.deepEqual(j.enviados, [{ t: 'ls', k: CHAVE_FILA, v: V1 }]);
+});
+
+test('com sentinela e sem temEspelho: reenvia `sentinela` e confere a fila', () => {
+  // O nativo não marcou o espelho (a `sentinela` da instalação se perdeu, ou o banco dele foi recriado): sem o
+  // reenvio, uma perda futura seria tomada por instalação nova e nada voltaria.
+  for (const retrato of [leve({ temEspelho: false }), {}, { temEspelho: 'sim' }]) {
+    const nome = JSON.stringify(retrato);
+    const soSentinela = montar({ ls: { [SENTINELA_LS]: '1' }, retrato });
+    assert.equal(soSentinela.paradas.length, 0, nome);
+    assert.deepEqual(soSentinela.enviados, [{ t: 'sentinela' }], nome);
+    assert.equal(soSentinela.ls.getItem(SENTINELA_LS), '1');
+
+    const comFila = montar({ ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: V4 }, retrato });
+    assert.equal(comFila.paradas.length, 0, nome);
+    assert.deepEqual(comFila.enviados, [{ t: 'sentinela' }, { t: 'ls', k: CHAVE_FILA, v: V4 }], nome);
+    comFila.ls.setItem('gc_fech_draft', 'x');
+    comFila.avancar(400);
+    assert.deepEqual(comFila.enviados[2], { t: 'ls', k: 'gc_fech_draft', v: 'x' }, 'espelho ligado');
+  }
+
+  // com o espelho marcado, nada a reenviar
+  const marcado = montar({ ls: { [SENTINELA_LS]: '1' }, retrato: leve() });
+  assert.deepEqual(marcado.enviados, []);
+});
+
+test('instalação nova com fila na WebView: grava a sentinela, avisa e espelha a fila', () => {
+  for (const retrato of [leve({ temEspelho: false }), {}]) {
+    const j = montar({ ls: { [CHAVE_FILA]: V1, gc_fech_draft: 'rascunho' }, retrato });
+    assert.equal(j.paradas.length, 0);
+    assert.notEqual(j.ls.getItem(SENTINELA_LS), null);
+    assert.deepEqual(j.enviados, [{ t: 'sentinela' }, { t: 'ls', k: CHAVE_FILA, v: V1 }], JSON.stringify(retrato));
+  }
+});
+
+test('recarga na mesma partida com o retrato velho não para a carga', () => {
+  // O nativo registra o retrato leve uma vez na partida, e ele vale para toda carga dela. O técnico abre o app com uma
+  // pendência (versões ['[x]', '[]']), a página a envia e grava '[]' (espelhada): uma recarga na mesma partida acha
+  // '[]' igual à versão antiga do retrato velho, mas o nativo já tem '[]' como a mais nova.
+  const velho = leve({ filaHashes: [fnv1a32('[x]'), fnv1a32('[]')] });
+  const j = montar({ ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: '[x]' }, retrato: velho });
+  assert.deepEqual(j.enviados, []);
+  j.ls.setItem(CHAVE_FILA, '[]');
+  assert.deepEqual(j.enviados, [{ t: 'ls', k: CHAVE_FILA, v: '[]' }]);
+  assert.equal(j.win.sessionStorage.getItem('gc_casca_fila_sessao'), fnv1a32('[]'));
+
+  const k = recarregar(j);
+  assert.equal(k.paradas.length, 0, 'não para a carga');
+  assert.deepEqual(k.enviados, [], 'nem pede retrato, nem reenvia a fila');
+  k.ls.setItem(CHAVE_FILA, V1);
+  assert.deepEqual(k.enviados, [{ t: 'ls', k: CHAVE_FILA, v: V1 }], 'espelho ligado');
+
+  // Uma partida nova (sessionStorage vazio) com o mesmo retrato velho ainda confere pelas versões: a regra de antes.
+  const nova = montar({ ls: lsDe(j), retrato: velho });
+  assert.equal(nova.paradas.length, 1);
+  assert.deepEqual(nova.enviados, [{ t: 'precisoRetrato', motivo: 'fila' }]);
+
+  // A fila que a própria conferência espelhou (a WebView à frente) também está em dia na recarga.
+  const frente = montar({ ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: V4 }, retrato: leve({ filaHashes: HASHES }) });
+  assert.deepEqual(frente.enviados, [{ t: 'ls', k: CHAVE_FILA, v: V4 }]);
+  const frente2 = recarregar(frente);
+  assert.equal(frente2.paradas.length, 0);
+  assert.deepEqual(frente2.enviados, [], 'o nativo já tem a V4: nada a reenviar');
+
+  // E a fila que a restauração devolveu: o retrato leve registrado antes dela ainda tem a V2 como versão antiga.
+  const restaurada = montar({ ls: VAZIO, retrato: completo({ fila: V2, filaHashes: [fnv1a32(V2)], id: 'r1' }) });
+  assert.equal(restaurada.enviados[0].t, 'restaurado');
+  const depois = recarregar(restaurada, { retrato: leve({ filaHashes: HASHES }) });
+  assert.equal(depois.paradas.length, 0);
+  assert.deepEqual(depois.enviados, []);
+
+  // Só vale a fila que chegou ao canal: se ele recusou a mensagem, a recarga confere pelas versões.
+  const semCanal = montar({ ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: '[x]' }, retrato: velho });
+  const postMessage = semCanal.canal.postMessage;
+  semCanal.canal.postMessage = () => { throw new Error('canal fora'); };
+  semCanal.ls.setItem(CHAVE_FILA, '[]');
+  semCanal.canal.postMessage = postMessage;
+  const semCanal2 = recarregar(semCanal);
+  assert.equal(semCanal2.paradas.length, 1);
+  assert.deepEqual(semCanal2.enviados, [{ t: 'precisoRetrato', motivo: 'fila' }]);
+});
+
+test('não para a carga duas vezes na mesma sessão', () => {
+  const MSG = 'conferência ignorada: já parou nesta sessão';
+
+  // Fila atrasada: a 1ª carga para; a 2ª, na mesma sessão (o retrato não mudou), segue, espelha a fila da WebView
+  // (ela vence) e avisa sem chave nem valor; a 3ª já acha a fila em dia.
+  const j = montar({ ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: V2 }, retrato: leve({ filaHashes: HASHES }) });
+  assert.equal(j.paradas.length, 1);
+  assert.deepEqual(j.enviados, [{ t: 'precisoRetrato', motivo: 'fila' }]);
+  assert.notEqual(j.win.sessionStorage.getItem('gc_casca_parou'), null);
+
+  const k = recarregar(j);
+  assert.equal(k.paradas.length, 0, 'não para de novo');
+  assert.deepEqual(k.enviados, [{ t: 'ls', k: CHAVE_FILA, v: V2 }, { t: 'erro', onde: 'fila', msg: MSG }]);
+  k.ls.setItem('gc_fech_draft', 'x');
+  k.avancar(400);
+  assert.deepEqual(k.enviados[2], { t: 'ls', k: 'gc_fech_draft', v: 'x' }, 'espelho ligado');
+
+  const l = recarregar(k);
+  assert.equal(l.paradas.length, 0);
+  assert.deepEqual(l.enviados, [], 'sem aviso repetido');
+
+  // Fila nula com versões no nativo: a 2ª vez não tem fila a espelhar (e nunca manda apagar a do nativo).
+  const n = montar({ ls: { [SENTINELA_LS]: '1' }, retrato: leve({ filaHashes: HASHES }) });
+  assert.equal(n.paradas.length, 1);
+  const n2 = recarregar(n);
+  assert.equal(n2.paradas.length, 0);
+  assert.deepEqual(n2.enviados, [{ t: 'erro', onde: 'fila', msg: MSG }]);
+
+  // Perda: a 2ª carga da sessão com a WebView ainda vazia segue, sem regravar a sentinela (a partida seguinte ainda
+  // vê a perda), e com o espelho ligado (o que o técnico fizer agora vai ao nativo).
+  const p = montar({ ls: VAZIO, retrato: leve({ filaHashes: HASHES }) });
+  assert.equal(p.paradas.length, 1);
+  const p2 = recarregar(p);
+  assert.equal(p2.paradas.length, 0);
+  assert.deepEqual(p2.enviados, [{ t: 'erro', onde: 'perda', msg: MSG }]);
+  assert.equal(p2.ls.getItem(SENTINELA_LS), null);
+  p2.ls.setItem(CHAVE_FILA, V4);
+  assert.deepEqual(p2.enviados[1], { t: 'ls', k: CHAVE_FILA, v: V4 });
+});
+
+test('o mesmo retrato completo não é aplicado duas vezes', () => {
+  // O nativo recarrega com o retrato completo; se a página recarregar antes de ele voltar ao leve (um loginRedirect),
+  // a mesma restauração regravaria por cima, sem espelhar, o que a página fez depois dela.
+  const retrato = completo({ ls: { gc_fech_draft: 'fech' }, fila: V3, filaHashes: HASHES, id: 'r1' });
+  const j = montar({ ls: VAZIO, retrato });
+  assert.deepEqual(j.enviados, [{ t: 'restaurado', chaves: 1, naoCouberam: [], fila: true }]);
+  assert.equal(j.win.sessionStorage.getItem('gc_casca_retrato_aplicado'), 'r1');
+  j.ls.setItem(CHAVE_FILA, V4);
+  j.ls.setItem('gc_fech_draft', 'rascunho novo');
+  j.avancar(400);
+  assert.equal(j.enviados.length, 3);
+
+  const k = recarregar(j);
+  assert.equal(k.paradas.length, 0);
+  assert.deepEqual(k.enviados, [], 'tratado como leve: a fila está em dia, nada a restaurar');
+  assert.equal(k.ls.getItem(CHAVE_FILA), V4);
+  assert.equal(k.ls.getItem('gc_fech_draft'), 'rascunho novo');
+  k.ls.setItem('gc_fech_draft', 'y');
+  k.avancar(400);
+  assert.deepEqual(k.enviados, [{ t: 'ls', k: 'gc_fech_draft', v: 'y' }], 'espelho ligado');
+
+  // Um retrato completo novo (outro id) é aplicado.
+  const r2 = recarregar(k, { retrato: { ...retrato, id: 'r2' } });
+  assert.deepEqual(r2.enviados, [{ t: 'restaurado', chaves: 1, naoCouberam: [], fila: true }]);
+  assert.equal(r2.ls.getItem(CHAVE_FILA), V3);
+
+  // Sem id (ou com id que não é texto, ou vazio) não há como saber: aplica toda vez, como antes.
+  for (const id of [undefined, 7, '']) {
+    const a = montar({ ls: VAZIO, retrato: completo({ ls: { gc_fech_draft: 'fech' }, fila: V3, id }) });
+    a.ls.setItem(CHAVE_FILA, V4);
+    const b = recarregar(a);
+    assert.equal(b.enviados[0].t, 'restaurado', String(id));
+    assert.equal(b.ls.getItem(CHAVE_FILA), V3);
+  }
+});
+
+test('sem sessionStorage, segue como antes', () => {
+  const quebras = {
+    ausente: ({ win }) => { delete win.sessionStorage; },
+    negado: ({ win }) => {
+      Object.defineProperty(win, 'sessionStorage', { get() { throw new DOMException('negado', 'SecurityError'); } });
+    },
+    // um objeto em que os métodos originais do Storage lançam (Illegal invocation, no navegador)
+    torto: ({ win }) => { win.sessionStorage = {}; },
+  };
+  for (const [nome, quebrar] of Object.entries(quebras)) {
+    // para a carga toda vez (sem a trava)
+    for (let i = 0; i < 2; i++) {
+      const atrasada = { ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: V2 }, retrato: leve({ filaHashes: HASHES }) };
+      const j = montar(atrasada, quebrar);
+      assert.equal(j.paradas.length, 1, nome);
+      assert.deepEqual(j.enviados, [{ t: 'precisoRetrato', motivo: 'fila' }], nome);
+    }
+
+    // a fila espelhada não vale como em dia: a recarga com o retrato velho para, como antes
+    const velho = leve({ filaHashes: [fnv1a32('[x]'), fnv1a32('[]')] });
+    const a = montar({ ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: '[x]' }, retrato: velho }, quebrar);
+    a.ls.setItem(CHAVE_FILA, '[]');
+    assert.deepEqual(a.enviados, [{ t: 'ls', k: CHAVE_FILA, v: '[]' }], nome);
+    const b = recarregar(a, {}, quebrar);
+    assert.equal(b.paradas.length, 1, nome);
+    assert.deepEqual(b.enviados, [{ t: 'precisoRetrato', motivo: 'fila' }], nome);
+
+    // e o mesmo retrato completo é aplicado de novo
+    const c = montar({ ls: VAZIO, retrato: completo({ fila: V3, id: 'r1' }) }, quebrar);
+    c.ls.setItem(CHAVE_FILA, V4);
+    const d = recarregar(c, {}, quebrar);
+    assert.deepEqual(d.enviados, [{ t: 'restaurado', chaves: 0, naoCouberam: [], fila: true }], nome);
+    assert.equal(d.ls.getItem(CHAVE_FILA), V3, nome);
+  }
 });
