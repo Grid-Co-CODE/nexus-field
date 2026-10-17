@@ -56,6 +56,38 @@ function paginaMexe({ win, ls, casca, avancar }) {
   casca.descarregar();
 }
 
+// O que o localStorage de uma janela tem agora, para montar a carga seguinte (a WebView guarda entre cargas).
+function lsDe({ win }) {
+  const ls = win.localStorage;
+  const copia = {};
+  for (let i = 0; i < ls.length; i++) copia[ls.key(i)] = ls.getItem(ls.key(i));
+  return copia;
+}
+
+// O despejo por tamanho do `lsS` do campo.html (v257, `_lsMedir`, `_lsProtegida` e o recuo da fila do `lsS`), com os
+// mesmos literais: quando a fila não cabe, derruba da maior chave para a menor tudo que não é msal nem começa com um
+// dos prefixos protegidos, tentando gravar a fila depois de cada remoção. A sentinela da casca não está protegida.
+const LS_TRABALHO_DA_PAGINA = ['gc_campo_queue', 'gc_campo_status', 'gc_fech_draft', 'gc_apr_rasc_',
+  'gc_v1_os_chamado', 'gc_ronda', 'gc_v1_os_voltou', 'gc_vivo', 'gc_campo_aprdia', 'gc_ext_rasc_'];
+function gravarFilaComoAPagina(ls, valor) {
+  try { ls.setItem(CHAVE_FILA, valor); return true; } catch (_) { /* cota: o recuo abaixo */ }
+  const chaves = [];
+  for (let i = 0; i < ls.length; i++) {
+    const c = ls.key(i);
+    chaves.push([c, c.length + (ls.getItem(c) || '').length]);
+  }
+  chaves.sort((a, b) => b[1] - a[1]);
+  for (const [alvo] of chaves) {
+    if (alvo.indexOf('msal') >= 0 || LS_TRABALHO_DA_PAGINA.some((p) => alvo.indexOf(p) === 0)) continue;
+    try {
+      ls.removeItem(alvo);
+      ls.setItem(CHAVE_FILA, valor);
+    } catch (_) { continue; }
+    return true;
+  }
+  return false;
+}
+
 const V1 = '[{"id":1}]';
 const V2 = '[{"id":1},{"id":2}]';
 const V3 = '[{"id":1},{"id":2},{"id":3}]';
@@ -104,6 +136,63 @@ test('perda: se win.stop() lança, o espelho fica desligado do mesmo jeito e o r
   j.enviados.length = 0;
   paginaMexe({ win: j.win, ls: j.win.localStorage, casca, avancar: j.avancar });
   assert.deepEqual(j.enviados, []);
+});
+
+test('a faxina por tamanho do lsS leva a sentinela com o aparelho cheio: a carga seguinte não é perda', () => {
+  // Contas (chave + valor): sentinela 19, msal.conta 10+40=50, gc_subs_1 9+60=69, fila V1 14+10=24 → 162; cota 170.
+  // A fila nova (14+100=114) só cabe sem o gc_subs_1 E sem a sentinela: 50+114=164; com a sentinela, 183.
+  const cota = 170;
+  const filaNova = 'q'.repeat(100);
+  const inicio = { [SENTINELA_LS]: '1', 'msal.conta': 'm'.repeat(40), gc_subs_1: 's'.repeat(60), [CHAVE_FILA]: V1 };
+  const j = montar({ ls: inicio, cota, retrato: leve({ filaHashes: [fnv1a32(V1)] }) });
+  assert.deepEqual(j.enviados, [], 'carga normal');
+
+  assert.equal(gravarFilaComoAPagina(j.ls, filaNova), true);
+  assert.equal(j.ls.getItem(SENTINELA_LS), null, 'a página levou a sentinela');
+  assert.deepEqual(j.enviados, [{ t: 'lsDel', k: 'gc_subs_1' }, { t: 'ls', k: CHAVE_FILA, v: filaNova }],
+    'a remoção da sentinela não é espelhada');
+
+  // A carga seguinte (recarregar, loginRedirect ou a próxima partida): o nativo tem a fila nova na frente.
+  const k = montar({ ls: lsDe(j), cota, retrato: leve({ filaHashes: [fnv1a32(filaNova), fnv1a32(V1)] }) });
+  assert.equal(k.paradas.length, 0, 'não para a carga');
+  assert.equal(k.enviados.length, 1, 'nem pede retrato');
+  assert.equal(k.enviados[0].t, 'erro', 'só avisa que a sentinela não coube (o aparelho continua cheio)');
+  assert.equal(k.enviados[0].onde, 'sentinela');
+  assert.ok(!/gc_|msal/.test(k.enviados[0].msg), 'o aviso não leva nome de chave');
+  assert.equal(k.ls.getItem(CHAVE_FILA), filaNova, 'a fila da WebView fica como está');
+
+  // e o espelho está ligado para a página
+  k.ls.setItem(CHAVE_FILA, V1);
+  assert.deepEqual(k.enviados[1], { t: 'ls', k: CHAVE_FILA, v: V1 });
+});
+
+test('sem sentinela e com chaves da página: regrava a sentinela, não manda `sentinela` e confere a fila', () => {
+  const semSentinela = { 'msal.conta': 'm', gc_vivo: '1' };
+
+  // fila em dia: nada a fazer além de regravar a sentinela
+  const emDia = montar({ ls: { ...semSentinela, [CHAVE_FILA]: V3 }, retrato: leve({ filaHashes: HASHES }) });
+  assert.equal(emDia.paradas.length, 0);
+  assert.deepEqual(emDia.enviados, []);
+  assert.notEqual(emDia.ls.getItem(SENTINELA_LS), null, 'a sentinela voltou');
+  emDia.ls.setItem('gc_fech_draft', 'x');
+  emDia.avancar(400);
+  assert.deepEqual(emDia.enviados, [{ t: 'ls', k: 'gc_fech_draft', v: 'x' }], 'espelho ligado');
+
+  // fila atrasada: a conferência da fila roda como em qualquer carga
+  const atrasada = montar({ ls: { ...semSentinela, [CHAVE_FILA]: V2 }, retrato: leve({ filaHashes: HASHES }) });
+  assert.equal(atrasada.paradas.length, 1);
+  assert.deepEqual(atrasada.enviados, [{ t: 'precisoRetrato', motivo: 'fila' }]);
+
+  // fila à frente: espelhada
+  const frente = montar({ ls: { ...semSentinela, [CHAVE_FILA]: V4 }, retrato: leve({ filaHashes: HASHES }) });
+  assert.equal(frente.paradas.length, 0);
+  assert.deepEqual(frente.enviados, [{ t: 'ls', k: CHAVE_FILA, v: V4 }]);
+
+  // só o que a página protege no despejo (msal), sem fila nem versões: segue, com a sentinela de volta
+  const soMsal = montar({ ls: { 'msal.conta': 'm' }, retrato: leve() });
+  assert.equal(soMsal.paradas.length, 0);
+  assert.deepEqual(soMsal.enviados, []);
+  assert.notEqual(soMsal.ls.getItem(SENTINELA_LS), null);
 });
 
 test('restaurar devolve fila, trabalho e cache e grava a sentinela', () => {
@@ -167,19 +256,28 @@ test('restaurar: chave por chave, a pequena que vem depois da grande ainda entra
   assert.deepEqual(j.enviados, [{ t: 'restaurado', chaves: 1, naoCouberam: ['gc_subs_1'], fila: true }]);
 });
 
-test('restaurar: a sentinela vence o cache (se não couber, o cache restaurado devolve o espaço)', () => {
-  // Sem a sentinela, a próxima carga desta mesma partida (um loginRedirect, um recarregar) veria "perda" de novo.
+test('restaurar: se a sentinela não couber, o que voltou fica e a carga seguinte não vê perda', () => {
   // cota 80: fila 34 + gc_fech_draft 18 = 52; gc_zl_serv (10+10) = 72 cabe; a sentinela (19) → 91 não cabe.
+  const fila = 'q'.repeat(20);
   const j = montar({
     ls: VAZIO,
     cota: 80,
-    retrato: completo({ ls: { gc_fech_draft: 'd'.repeat(5), gc_zl_serv: 'z'.repeat(10) }, fila: 'q'.repeat(20) }),
+    retrato: completo({ ls: { gc_fech_draft: 'd'.repeat(5), gc_zl_serv: 'z'.repeat(10) }, fila }),
   });
-  assert.notEqual(j.ls.getItem(SENTINELA_LS), null, 'a sentinela entrou');
-  assert.equal(j.ls.getItem('gc_zl_serv'), null, 'o cache deu o lugar');
-  assert.equal(j.ls.getItem('gc_fech_draft'), 'ddddd', 'o trabalho fica');
-  assert.equal(j.ls.getItem(CHAVE_FILA), 'q'.repeat(20), 'a fila fica');
-  assert.deepEqual(j.enviados, [{ t: 'restaurado', chaves: 1, naoCouberam: ['gc_zl_serv'], fila: true }]);
+  assert.equal(j.ls.getItem(SENTINELA_LS), null);
+  assert.equal(j.ls.getItem('gc_zl_serv'), 'z'.repeat(10), 'o cache fica: é o que o técnico usa sem sinal');
+  assert.equal(j.ls.getItem('gc_fech_draft'), 'ddddd');
+  assert.equal(j.ls.getItem(CHAVE_FILA), fila);
+  assert.equal(j.enviados.length, 2);
+  assert.equal(j.enviados[0].t, 'erro');
+  assert.equal(j.enviados[0].onde, 'sentinela');
+  assert.deepEqual(j.enviados[1], { t: 'restaurado', chaves: 2, naoCouberam: [], fila: true });
+
+  // A carga seguinte da mesma partida (um loginRedirect): sem sentinela, com o espelho, mas a WebView tem chaves.
+  const k = montar({ ls: lsDe(j), cota: 80, retrato: leve({ filaHashes: [fnv1a32(fila)] }) });
+  assert.equal(k.paradas.length, 0, 'não para a carga de novo');
+  assert.deepEqual(k.enviados.map((m) => m.t), ['erro'], 'nem pede retrato');
+  assert.equal(k.enviados[0].onde, 'sentinela');
 });
 
 test('restaurar com a fila que não cabe: fila false, e a fila entra no naoCouberam', () => {

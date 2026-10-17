@@ -254,9 +254,12 @@
   // 4. Sentinela do localStorage, versões da fila e restauração (spec 6.4, "Quando restaurar" e "A fila tem versões")
   // ---------------------------------------------------------------------------------------------------------------
 
-  // A sentinela é uma chave da casca que a página nunca grava nem apaga (o classificar a deixa fora do espelho). Se ela
-  // sumiu, a WebView perdeu o localStorage (despejo do Chromium, corrupção, troca de WebView), e o que a página veria
-  // agora é um aparelho vazio. O valor não importa, só a presença.
+  // A sentinela é uma chave da casca que a página nunca grava (o classificar a deixa fora do espelho). O valor não
+  // importa, só a presença. Sozinha, a falta dela NÃO prova perda: a página pode apagá-la. O despejo por tamanho do
+  // `lsS` do campo.html (quando a fila não cabe, derruba da maior chave para a menor tudo que o `_lsProtegida` não
+  // protege, e a sentinela não está protegida) a leva junto com o aparelho cheio, e o site não muda. A perda de verdade
+  // (corrupção, troca de WebView, dados apagados) leva o localStorage da origem inteiro; o despejo da página deixa no
+  // mínimo o que ela protege (msal e as chaves de trabalho). Por isso a perda é "sem sentinela E sem chave nenhuma".
   var VALOR_SENTINELA = '1';
 
   // Captura o localStorage real e os métodos originais UMA vez, antes de qualquer embrulho e de qualquer script da
@@ -294,11 +297,21 @@
     ctx.enviar({ t: 'precisoRetrato', motivo: motivo }, 'precisoRetrato');
   }
 
+  // Regrava a sentinela pelo original. Se não couber (o aparelho cheio), avisa sem chave e segue: a falta dela não
+  // para carga nenhuma enquanto a WebView tiver chaves (ver VALOR_SENTINELA), e ela volta numa carga com espaço.
+  // A casca nunca apaga chave da página para abrir espaço para ela.
+  function gravarSentinela(ctx, ls) {
+    if (gravarOriginal(ls, SENTINELA_LS, VALOR_SENTINELA)) return true;
+    ctx.falhou('sentinela', new Error('a sentinela não coube no localStorage'));
+    return false;
+  }
+
   // Decide, antes da página, o que esta carga faz com o localStorage:
-  //   modo 'restaurar'                     → devolve o que o retrato traz (restaurarLS);
-  //   sem sentinela, com espelho no nativo → perda: para e pede o retrato;
-  //   sem sentinela, sem espelho           → instalação nova: grava a sentinela e avisa ('sentinela');
-  //   com sentinela                        → compara a fila da WebView com as versões do nativo.
+  //   modo 'restaurar'                                → devolve o que o retrato traz (restaurarLS);
+  //   sem sentinela, sem espelho                      → instalação nova: grava a sentinela e avisa ('sentinela');
+  //   sem sentinela, com espelho, WebView vazia       → perda: para e pede o retrato;
+  //   sem sentinela, com espelho, WebView com chaves  → a faxina da página levou a sentinela: regrava e segue;
+  //   com sentinela (ou depois de regravá-la)         → compara a fila da WebView com as versões do nativo.
   // Fora da restauração, esta seção nunca escreve na página além da sentinela.
   function conferirSentinelaEFila(ctx, ls) {
     var retrato = ctx.retrato;
@@ -309,14 +322,21 @@
 
     if (ls.getItem.call(ls.real, SENTINELA_LS) === null) {
       // Só `true` vale: um retrato torto não pode parar a carga do técnico.
-      if (retrato.temEspelho === true) {
-        pararCarga(ctx, 'perda');
-      } else if (gravarOriginal(ls, SENTINELA_LS, VALOR_SENTINELA)) {
-        ctx.enviar({ t: 'sentinela' }, 'sentinela');
-      } else {
-        ctx.falhou('sentinela', new Error('a sentinela não coube no localStorage'));
+      if (retrato.temEspelho !== true) {
+        if (gravarSentinela(ctx, ls)) ctx.enviar({ t: 'sentinela' }, 'sentinela');
+        return;
       }
-      return;
+      // Lido agora, antes de qualquer script da página: nesta hora só a perda de verdade deixa o localStorage vazio.
+      if (ls.real.length === 0) {
+        pararCarga(ctx, 'perda');
+        return;
+      }
+      // Não é perda: o despejo por tamanho do `lsS` levou a sentinela com o aparelho cheio. Tomar isso por perda
+      // pararia a carga justo com o armazenamento cheio, a restauração não teria onde pôr a sentinela, e a carga
+      // seguinte da mesma partida pediria o retrato de novo (o nativo atende um por partida): a página ficaria em
+      // branco. O que a WebView tem é o que a página deixou; a fila ainda é conferida abaixo, como em qualquer carga.
+      // O nativo já marcou o espelho (`temEspelho`), então não há `sentinela` a mandar.
+      gravarSentinela(ctx, ls);
     }
 
     // As versões da fila que o nativo guardou, mais nova primeiro (até 3), em fnv1a32.
@@ -360,34 +380,20 @@
     }
 
     var nomes = Object.keys(origem);
-    var cacheGravado = [];
     var classes = ['trabalho', 'cache'];
     for (var c = 0; c < classes.length; c++) {
       for (var i = 0; i < nomes.length; i++) {
         var chave = nomes[i];
         var valor = origem[chave];
         if (classificar(chave) !== classes[c] || typeof valor !== 'string') continue;
-        if (gravarOriginal(ls, chave, valor)) {
-          chaves++;
-          if (classes[c] === 'cache') cacheGravado.push(chave);
-        } else {
-          naoCouberam.push(chave);
-        }
+        if (gravarOriginal(ls, chave, valor)) chaves++;
+        else naoCouberam.push(chave);
       }
     }
 
-    // A sentinela vence o cache: sem ela, a próxima carga desta mesma partida (um loginRedirect, um recarregar) veria
-    // "perda" de novo, e o nativo só atende um pedido de retrato por partida. O cache a página baixa de novo; então, se
-    // a sentinela não couber, o cache recém-restaurado devolve o espaço, da última chave para a primeira.
-    var sentinela = gravarOriginal(ls, SENTINELA_LS, VALOR_SENTINELA);
-    while (!sentinela && cacheGravado.length) {
-      var devolvida = cacheGravado.pop();
-      try { ls.removeItem.call(ls.real, devolvida); } catch (e) { ctx.falhou('restaurar', e); }
-      chaves--;
-      naoCouberam.push(devolvida);
-      sentinela = gravarOriginal(ls, SENTINELA_LS, VALOR_SENTINELA);
-    }
-    if (!sentinela) ctx.falhou('sentinela', new Error('a sentinela não coube no localStorage'));
+    // Por último a sentinela. Se não couber, o que voltou fica (inclusive o cache, que o técnico usa sem sinal): a
+    // carga seguinte acha a WebView com chaves e não toma a falta da sentinela por perda.
+    gravarSentinela(ctx, ls);
 
     ctx.enviar({ t: 'restaurado', chaves: chaves, naoCouberam: naoCouberam, fila: fila }, 'restaurado');
   }
