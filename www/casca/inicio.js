@@ -13,7 +13,8 @@
  *   2. contexto: canal ao nativo e tratamento de erro            (Task 2)
  *   3. espelho de escrita do localStorage                        (Task 2)
  *   4. sentinela do localStorage, versões da fila e restauração  (Task 3; roda ANTES da 3)
- *   5. espelho do IndexedDB das fotos e window.open              (Task 4)
+ *   5. espelho e restauração do IndexedDB das fotos              (Task 4; depois da 3 e da 4)
+ *   6. window.open: o login da Microsoft e o "Conectar Fracttal"  (Task 4)
  */
 (function () {
   'use strict';
@@ -120,6 +121,15 @@
       // espelha confere este campo.
       espelhoDesligado: false,
 
+      // Ligado pela seção 4 quando o win.stop() não lançou: a página não roda, o nativo a recarrega com o retrato
+      // completo, e a seção 5 não confere nem restaura o IndexedDB nesta carga. Se o stop lançou, a página roda até a
+      // recarga, sem espelho, e a seção 5 a trata como qualquer carga sem espelho.
+      cargaParada: false,
+
+      // O localStorage e a memória da sessão capturados pela seção 4 (capturarLS), ou null. A seção 5 guarda ali a
+      // marca da reconciliação.
+      ls: null,
+
       // Manda uma mensagem ao nativo e diz se ela saiu. Nunca lança: se o canal falhar, avisa por `falhou` e devolve
       // false (a seção 4 só lembra a fila como espelhada se a mensagem saiu).
       // O canal é lido a cada chamada (não guardado), porque é o objeto que o nativo injetou e pode ser trocado.
@@ -141,6 +151,23 @@
           try { msg = String((e && e.message) || e); } catch (_) { msg = 'erro sem texto'; }
           canal.postMessage(JSON.stringify({ t: 'erro', onde: onde, msg: msg.slice(0, 300) }));
         } catch (_) { /* sem saída: o espelho jamais quebra a página */ }
+      },
+
+      // Passa a `fn` cada mensagem do nativo (o JavaScriptReplyProxy responde pelo `onmessage` do mesmo objeto, com
+      // `event.data` em JSON). Só a restauração das fotos (seção 5) ouve. O texto que não for JSON vira um aviso sem
+      // o conteúdo: a mensagem do JSON.parse cita o texto, e ele pode ter nome de chave.
+      ouvirNativo: function (fn) {
+        canal.onmessage = function (evento) {
+          var mensagem;
+          try {
+            var dado = evento && evento.data;
+            mensagem = typeof dado === 'string' ? JSON.parse(dado) : dado;
+          } catch (e) {
+            ctx.falhou('canal', new Error('mensagem do nativo que não é JSON'));
+            return;
+          }
+          try { fn(mensagem); } catch (e) { ctx.falhou('canal', e); }
+        };
       },
     };
     return ctx;
@@ -374,7 +401,12 @@
     }
     gravarSessao(ls, SESSAO_PAROU, motivo);
     ctx.espelhoDesligado = true;
-    try { ctx.win.stop(); } catch (e) { ctx.falhou('stop', e); }
+    try {
+      ctx.win.stop();
+      ctx.cargaParada = true;
+    } catch (e) {
+      ctx.falhou('stop', e);
+    }
     ctx.enviar({ t: 'precisoRetrato', motivo: motivo }, 'precisoRetrato');
   }
 
@@ -542,6 +574,748 @@
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+  // 5. Espelho e restauração do IndexedDB das fotos (spec 6.3, item 4, e 6.4)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  // O banco e a store do campo.html (`IDB_NAME`, `IDB_STORE`): fotos e vídeos das OS, das rondas e da APR, o espelho do
+  // rascunho da ronda (rdraft:) e a programação offline. A store não tem keyPath: a chave vem sempre no put.
+  var BANCO_FOTOS = 'gc_campo_fotos';
+  var STORE_FOTOS = 'fotos';
+
+  // Blob e File vão em pedaços de 512 KB: o vídeo chega a 15 MB e não pode virar um base64 inteiro na memória de um
+  // aparelho de 4 GB. O nativo junta os pedaços pelo `id` e só cria a entrada no último (i === n-1).
+  var TAMANHO_PEDACO = 524288;
+
+  // Quanto a página espera a restauração das fotos antes de abrir o banco do mesmo jeito.
+  var ESPERA_NATIVO_MS = 15000;
+
+  // Memória da sessão (ver A MEMÓRIA DA SESSÃO, na seção 4): a reconciliação já rodou nesta sessão da WebView.
+  var SESSAO_IDB = 'gc_casca_idb_reconciliado';
+
+  // O banco sentinela da casca (BANCO_SENTINELA, `gc_casca`) quer dizer: o IndexedDB desta WebView está em dia com o
+  // nativo, sob o espelho. É ele que autoriza a reconciliação a mandar apagar no nativo o que falta na WebView. Por
+  // isso só nasce numa carga com o espelho ligado (na instalação nova, ou depois de uma restauração completa), e sai
+  // numa carga sem espelho: a página que roda sem espelho (a perda que a trava da sessão não deixou parar) roda com o
+  // localStorage vazio, e a faxina de órfãos dela (`idbKeys` + `idbDel` do campo.html) apaga as fotos que nenhum
+  // registro cita. Com o banco sentinela de pé, a próxima reconciliação mandaria apagar no nativo a cópia boa delas.
+
+  // Captura o IndexedDB e os métodos originais UMA vez, antes de qualquer embrulho e de qualquer script da página. A
+  // restauração grava pelo put original (pelo embrulhado, ecoaria ao nativo o que acabou de vir dele).
+  function capturarIDB(win) {
+    var fabrica = win.indexedDB; // pode lançar SecurityError (armazenamento negado): o `tentar` de fora engole
+    var proto = win.IDBObjectStore && win.IDBObjectStore.prototype;
+    if (!fabrica || typeof fabrica.open !== 'function' || !proto) return null;
+    return {
+      fabrica: fabrica,
+      abrir: fabrica.open,
+      apagarBanco: fabrica.deleteDatabase,
+      listarBancos: fabrica.databases,
+      proto: proto,
+      put: proto.put,
+      apagar: proto['delete'],
+      // Atados à janela, como no espelho do localStorage.
+      agendar: win.setTimeout.bind(win),
+      cancelar: win.clearTimeout.bind(win),
+    };
+  }
+
+  function ehDasFotos(store) {
+    return !!(store && store.name === STORE_FOTOS && store.transaction && store.transaction.db &&
+      store.transaction.db.name === BANCO_FOTOS);
+  }
+
+  function ehBlob(win, valor) {
+    return typeof win.Blob === 'function' && valor instanceof win.Blob;
+  }
+
+  // A operação que vai ao nativo para um valor do banco: texto, Blob/File (em pedaços, no envio) ou JSON. O JSON é feito
+  // agora, no put: o banco guarda a cópia do momento do put, e a página pode mudar o objeto antes do complete. O erro
+  // do JSON.stringify cita nomes de propriedade; vai um texto nosso no lugar.
+  function representar(win, chave, valor) {
+    if (typeof valor === 'string') return { t: 'put', k: chave, tipo: 'texto', v: valor };
+    if (ehBlob(win, valor)) return { t: 'put', k: chave, blob: valor };
+    var json;
+    try { json = JSON.stringify(valor); } catch (e) { json = undefined; }
+    if (typeof json !== 'string') throw new Error('valor sem representação em JSON: fica fora do espelho');
+    return { t: 'put', k: chave, tipo: 'json', v: json };
+  }
+
+  // Base64 de um ArrayBuffer, em fatias de 32 K caracteres (o String.fromCharCode com 512 K argumentos estoura a pilha).
+  function paraBase64(win, buffer) {
+    var bytes = new Uint8Array(buffer);
+    var partes = [];
+    for (var p = 0; p < bytes.length; p += 0x8000) {
+      partes.push(String.fromCharCode.apply(null, bytes.subarray(p, p + 0x8000)));
+    }
+    return win.btoa(partes.join(''));
+  }
+
+  function deBase64(win, texto) {
+    var binario = win.atob(texto);
+    var bytes = new Uint8Array(binario.length);
+    for (var i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+    return bytes;
+  }
+
+  function chavesDoNativo(retrato) {
+    var lista = Array.isArray(retrato.idbChaves) ? retrato.idbChaves : [];
+    return lista.filter(function (k) { return typeof k === 'string'; });
+  }
+
+  function lerSessaoCtx(ctx, chave) { return ctx.ls ? lerSessao(ctx.ls, chave) : null; }
+  function gravarSessaoCtx(ctx, chave, valor) { if (ctx.ls) gravarSessao(ctx.ls, chave, valor); }
+
+  // O envio ao nativo, numa fila só: as operações saem na ordem dos complete, e um Blob termina todos os pedaços antes
+  // da operação seguinte. Caso: a página grava um vídeo e logo o apaga; com o idbDel no meio dos pedaços, o último
+  // pedaço chegaria depois dele, e o nativo ficaria com o vídeo que a página apagou.
+  function criarEnvioIDB(ctx) {
+    var win = ctx.win;
+    var cadeia = Promise.resolve();
+    var contador = 0;
+    // O id vira nome de arquivo no nativo (files/espelho/tmp/<id>.parte): só [a-z0-9-]. Único por gravação (o contador)
+    // e entre cargas (o começo), porque as partes de uma carga que morreu no meio ficam lá até 24 h.
+    var prefixo = Math.floor(Math.random() * 0x7fffffff).toString(36) + '-' + Date.now().toString(36);
+
+    function enviarBlob(k, blob) {
+      var id = prefixo + '-' + (++contador);
+      var n = Math.max(1, Math.ceil(blob.size / TAMANHO_PEDACO)); // o vazio vai num pedaço só, vazio
+      var mime = typeof blob.type === 'string' ? blob.type : '';
+      function pedaco(i) {
+        if (i >= n) return undefined;
+        // Um pedaço por vez: só ele fica na memória, em bytes e em base64.
+        return blob.slice(i * TAMANHO_PEDACO, (i + 1) * TAMANHO_PEDACO).arrayBuffer().then(function (buffer) {
+          var saiu = ctx.enviar({ t: 'idbPedaco', k: k, id: id, i: i, n: n, mime: mime, b64: paraBase64(win, buffer) },
+            'idbPedaco');
+          // Com o canal fora, o resto não adianta: sem o último pedaço o nativo não cria a entrada. A reconciliação da
+          // próxima partida manda de novo.
+          return saiu ? pedaco(i + 1) : undefined;
+        });
+      }
+      return pedaco(0);
+    }
+
+    function enviar(op) {
+      if (op.t === 'del') {
+        ctx.enviar({ t: 'idbDel', k: op.k }, 'idbDel');
+        return undefined;
+      }
+      if (op.blob) return enviarBlob(op.k, op.blob);
+      ctx.enviar({ t: 'idbPut', k: op.k, tipo: op.tipo, v: op.v }, 'idbPut');
+      return undefined;
+    }
+
+    return {
+      operacao: function (op) {
+        cadeia = cadeia.then(function () { return enviar(op); }).then(null, function (e) { ctx.falhou('idbEnvio', e); });
+      },
+    };
+  }
+
+  // Embrulha IDBObjectStore.prototype.put e delete e espelha só o banco e a store das fotos. O original vem primeiro, e
+  // a exceção dele sobe intacta; a operação fica anotada na transação e só vai ao nativo no `complete` dela: a
+  // transação que aborta não gravou nada. get, getAll, getAllKeys e o resto ficam intocados.
+  function instalarEspelhoIDB(ctx, idb, envio) {
+    var putOriginal = idb.put;
+    var apagarOriginal = idb.apagar;
+    var porTransacao = new WeakMap(); // transação -> Map(chave -> última operação)
+
+    function anotar(store, op) {
+      var tx = store.transaction;
+      var ops = porTransacao.get(tx);
+      if (!ops) {
+        ops = new Map();
+        porTransacao.set(tx, ops);
+        // Pelo addEventListener: o oncomplete é da página (o idbPut do campo.html resolve a promessa nele). Na
+        // transação abortada este ouvinte nunca roda, e o WeakMap solta as operações junto com ela.
+        tx.addEventListener('complete', function () {
+          porTransacao['delete'](tx);
+          ops.forEach(function (o) { envio.operacao(o); });
+        });
+      }
+      // Na mesma transação vence a última operação de cada chave (é o que o complete deixou no banco).
+      ops.set(op.k, op);
+    }
+
+    // As chaves do campo.html são texto; uma que não seja não tem como ir ao nativo (ele guarda por texto).
+    function registrar(store, chave, criarOp, onde) {
+      if (!ehDasFotos(store)) return;
+      if (typeof chave !== 'string') {
+        ctx.falhou(onde, new Error('chave que não é texto: fica fora do espelho'));
+        return;
+      }
+      anotar(store, criarOp());
+    }
+
+    idb.proto.put = function put(valor, chave) {
+      var resultado = putOriginal.apply(this, arguments);
+      try {
+        registrar(this, chave, function () { return representar(ctx.win, chave, valor); }, 'idbPut');
+      } catch (e) {
+        ctx.falhou('idbPut', e);
+      }
+      return resultado;
+    };
+
+    idb.proto['delete'] = function apagar(chave) {
+      var resultado = apagarOriginal.apply(this, arguments);
+      try {
+        registrar(this, chave, function () { return { t: 'del', k: chave }; }, 'idbDel');
+      } catch (e) {
+        ctx.falhou('idbDel', e);
+      }
+      return resultado;
+    };
+  }
+
+  // Decide, antes de a página abrir o banco das fotos, o que esta carga faz com o IndexedDB. Devolve uma Promise que
+  // nunca rejeita (é o que segura o open da página):
+  //   carga parada                                 → nada (a página vai recarregar);
+  //   sem indexedDB.databases()                    → "não sei": avisa e segue sem restaurar nem reconciliar;
+  //   espelho desligado                            → derruba o banco sentinela (ver o comentário dele) e, se a WebView
+  //                                                  perdeu as fotos e o nativo tem espelho, restaura sem recriá-lo;
+  //   sem o banco sentinela (ou sem o banco das     → com espelho no nativo, restaura e cria o banco sentinela; sem,
+  //   fotos, com chaves no nativo)                     só o cria;
+  //   com o banco sentinela                        → reconcilia, uma vez por sessão.
+  // O banco das fotos sumir inteiro com o banco sentinela de pé conta como perda: nenhuma faxina da página apaga o
+  // banco, e a reconciliação mandaria apagar no nativo todas as fotos que ele guarda.
+  function conferirIDB(ctx, idb, envio) {
+    if (ctx.cargaParada) return Promise.resolve();
+    if (typeof idb.listarBancos !== 'function') {
+      ctx.falhou('idb', new Error('indexedDB.databases() indisponível: sem conferência do IndexedDB nesta carga'));
+      return Promise.resolve();
+    }
+    return new Promise(function (ok) { ok(idb.listarBancos.call(idb.fabrica)); }) // a chamada que lança vira recusa
+      .then(function (lista) {
+        var nomes = new Set();
+        (Array.isArray(lista) ? lista : []).forEach(function (d) { if (d && typeof d.name === 'string') nomes.add(d.name); });
+        var temCasca = nomes.has(BANCO_SENTINELA);
+        var temFotos = nomes.has(BANCO_FOTOS);
+        var temEspelho = ctx.retrato.temEspelho === true;
+        var doNativo = chavesDoNativo(ctx.retrato);
+        var perdeu = !temCasca || (!temFotos && doNativo.length > 0);
+
+        if (ctx.espelhoDesligado) {
+          var antes = temCasca ? apagarBancoSentinela(ctx, idb) : Promise.resolve();
+          // Ler do nativo não escreve nele: a restauração roda mesmo sem espelho, mas não recria o banco sentinela.
+          return antes.then(function () { return perdeu && temEspelho ? restaurarIDB(ctx, idb, false) : undefined; });
+        }
+        if (perdeu) return temEspelho ? restaurarIDB(ctx, idb, true) : criarBancoSentinela(ctx, idb);
+        if (lerSessaoCtx(ctx, SESSAO_IDB) !== null) return undefined;
+        return reconciliar(ctx, idb, envio, temFotos, doNativo);
+      })
+      .then(null, function (e) { ctx.falhou('idb', e); });
+  }
+
+  // A RECONCILIAÇÃO, com o banco sentinela de pé: a WebView é a verdade.
+  //   chave do banco real que falta em idbChaves  → reenvia (o espelho perdeu a gravação: canal fora, app morto no
+  //                                                meio dos pedaços);
+  //   chave de idbChaves que falta no banco real  → idbDel (o espelho perdeu a exclusão).
+  // Uma vez por sessão da WebView (SESSAO_IDB): o idbChaves do retrato leve é o do começo da partida e envelhece dentro
+  // dela; numa recarga ele reenviaria as mesmas fotos de novo. Sem sessionStorage, roda em toda carga.
+  // Só lê da página: o banco das fotos é aberto e fechado aqui, e nada é gravado nele.
+  function reconciliar(ctx, idb, envio, temFotos, doNativo) {
+    var noNativo = new Set(doNativo);
+    var leitura = temFotos ? lerParaReconciliar(ctx, idb, noNativo) : Promise.resolve({ chaves: new Set(), faltam: [] });
+    return leitura.then(function (r) {
+      if (!r) return; // o erro já foi avisado; a próxima carga tenta de novo
+      noNativo.forEach(function (k) { if (!r.chaves.has(k)) envio.operacao({ t: 'del', k: k }); });
+      r.faltam.forEach(function (item) {
+        try { envio.operacao(representar(ctx.win, item.k, item.v)); } catch (e) { ctx.falhou('idbReconciliar', e); }
+      });
+      gravarSessaoCtx(ctx, SESSAO_IDB, '1');
+    });
+  }
+
+  // As chaves do banco das fotos e o valor das que o nativo não tem, numa transação só de leitura. null em erro.
+  function lerParaReconciliar(ctx, idb, noNativo) {
+    return new Promise(function (ok) {
+      var r;
+      try { r = idb.abrir.call(idb.fabrica, BANCO_FOTOS); } catch (e) { ctx.falhou('idbReconciliar', e); ok(null); return; }
+      // O banco estava na lista do databases(); se sumiu desde então, o open o criaria vazio, e a reconciliação mandaria
+      // apagar tudo no nativo. Aborta: nada é criado, e a próxima carga confere de novo.
+      r.onupgradeneeded = function () { r.transaction.abort(); };
+      r.onerror = function () { ctx.falhou('idbReconciliar', r.error); ok(null); };
+      r.onsuccess = function () {
+        var db = r.result;
+        function sair(valor) { try { db.close(); } catch (_) { /* já fechado */ } ok(valor); }
+        if (!db.objectStoreNames.contains(STORE_FOTOS)) {
+          ctx.falhou('idbReconciliar', new Error('o banco das fotos está sem a store'));
+          sair(null);
+          return;
+        }
+        var chaves = new Set();
+        var faltam = [];
+        try {
+          var tx = db.transaction(STORE_FOTOS, 'readonly');
+          var store = tx.objectStore(STORE_FOTOS);
+          var pedido = store.getAllKeys();
+          pedido.onsuccess = function () {
+            (pedido.result || []).forEach(function (k) {
+              if (typeof k !== 'string') return;
+              chaves.add(k);
+              if (noNativo.has(k)) return;
+              var g = store.get(k);
+              g.onsuccess = function () { faltam.push({ k: k, v: g.result }); };
+            });
+          };
+          tx.oncomplete = function () { sair({ chaves: chaves, faltam: faltam }); };
+          tx.onabort = function () { ctx.falhou('idbReconciliar', tx.error || new Error('leitura abortada')); sair(null); };
+        } catch (e) {
+          ctx.falhou('idbReconciliar', e);
+          sair(null);
+        }
+      };
+    });
+  }
+
+  // A RESTAURAÇÃO: pede ao nativo o que ele guarda (idbPedir) e grava cada item no banco real pelo put original, sem
+  // espelhar. Respostas: {t:'idbItem', k, tipo, v} e {t:'idbPedaco', k, i, n, mime, b64} (pedaços de um Blob, na
+  // ordem ou não), e no fim {t:'idbFim', n}, com `n` = quantas entradas o nativo mandou.
+  // Resolve no que vier primeiro: o fim da restauração, ou ESPERA_NATIVO_MS sem ele (a página não pode esperar para
+  // sempre). Depois do prazo, o que chegar ainda é gravado.
+  // O banco sentinela só é criado (com `criarSentinela`) se tudo voltou: cada entrada gravada, nenhum pedaço faltando,
+  // e o `n` igual ao que chegou. Sem ele a próxima carga restaura de novo, em vez de reconciliar, porque a
+  // reconciliação mandaria apagar no nativo o que não voltou.
+  function restaurarIDB(ctx, idb, criarSentinela) {
+    var win = ctx.win;
+    return new Promise(function (resolver) {
+      var acabou = false;
+      var timer = null;
+      function soltar() {
+        if (acabou) return;
+        acabou = true;
+        if (timer !== null) { idb.cancelar(timer); timer = null; }
+        resolver();
+      }
+
+      var entradas = 0;
+      var falhas = 0;
+      var fim = false;
+      var pedacos = new Map(); // chave -> { n, mime, partes, chegaram }
+      var banco = abrirParaRestaurar(ctx, idb);
+      var gravacoes = Promise.resolve();
+
+      function gravar(k, valor) {
+        gravacoes = gravacoes.then(function () {
+          return banco.then(function (db) {
+            if (!db) { falhas++; return undefined; }
+            return gravarNoBanco(idb, db, k, valor).then(function (gravou) { if (!gravou) falhas++; });
+          });
+        });
+      }
+
+      function inteiro(x) { return typeof x === 'number' && x % 1 === 0; }
+
+      function receberPedaco(m) {
+        var k = m.k;
+        var n = m.n;
+        var i = m.i;
+        if (typeof k !== 'string' || !inteiro(n) || n < 1 || !inteiro(i) || i < 0 || i >= n || typeof m.b64 !== 'string') {
+          falhas++;
+          return;
+        }
+        var p = pedacos.get(k);
+        if (!p) {
+          p = { n: n, mime: typeof m.mime === 'string' ? m.mime : '', partes: new Array(n), chegaram: 0 };
+          pedacos.set(k, p);
+        }
+        if (p.n !== n || p.partes[i]) { falhas++; return; }
+        try { p.partes[i] = deBase64(win, m.b64); } catch (e) { falhas++; return; }
+        p.chegaram++;
+        if (p.chegaram === p.n) {
+          pedacos['delete'](k);
+          entradas++;
+          gravar(k, new win.Blob(p.partes, { type: p.mime }));
+        }
+      }
+
+      function receberItem(m) {
+        if (typeof m.k !== 'string' || typeof m.v !== 'string') { falhas++; return; }
+        entradas++;
+        var valor;
+        if (m.tipo === 'texto') valor = m.v;
+        else if (m.tipo === 'json') {
+          try { valor = JSON.parse(m.v); } catch (e) { falhas++; return; }
+        } else { falhas++; return; }
+        gravar(m.k, valor);
+      }
+
+      function concluir(n) {
+        banco.then(function (db) { if (db) db.close(); });
+        var completa = falhas === 0 && pedacos.size === 0 && n === entradas;
+        if (!completa) {
+          // Só contagens: nada de chave nem de valor.
+          ctx.falhou('idbRestaurar', new Error('restauração incompleta: ' + entradas + ' de ' +
+            (typeof n === 'number' ? n : '?') + ' entradas, ' + falhas + ' falhas, ' + pedacos.size +
+            ' sem todos os pedaços'));
+          soltar();
+          return;
+        }
+        (criarSentinela ? criarBancoSentinela(ctx, idb) : Promise.resolve()).then(soltar, soltar);
+      }
+
+      ctx.ouvirNativo(function (m) {
+        if (fim || !m || typeof m !== 'object') return;
+        if (m.t === 'idbItem') receberItem(m);
+        else if (m.t === 'idbPedaco') receberPedaco(m);
+        else if (m.t === 'idbFim') {
+          fim = true;
+          gravacoes.then(function () { concluir(m.n); }).then(null, function (e) { ctx.falhou('idbRestaurar', e); soltar(); });
+        }
+      });
+
+      if (!ctx.enviar({ t: 'idbPedir' }, 'idbPedir')) { soltar(); return; }
+      timer = idb.agendar(function () {
+        timer = null;
+        if (acabou) return;
+        ctx.falhou('idbPedir', new Error('o nativo não terminou a restauração das fotos em 15 s: a página segue'));
+        soltar();
+      }, ESPERA_NATIVO_MS);
+    });
+  }
+
+  // Abre o banco das fotos para a restauração como o idb() do campo.html o criaria (versão 1 e a store, se faltar). Se
+  // o banco existe sem a store, não há como criá-la sem subir a versão, e a página (que abre na 1) quebraria: desiste.
+  function abrirParaRestaurar(ctx, idb) {
+    return new Promise(function (ok) {
+      var r;
+      try { r = idb.abrir.call(idb.fabrica, BANCO_FOTOS); } catch (e) { ctx.falhou('idbRestaurar', e); ok(null); return; }
+      r.onupgradeneeded = function () {
+        var db = r.result;
+        if (!db.objectStoreNames.contains(STORE_FOTOS)) db.createObjectStore(STORE_FOTOS);
+      };
+      r.onsuccess = function () {
+        var db = r.result;
+        // Uma versão nova da página que suba a versão do banco não pode ficar presa nesta conexão.
+        db.onversionchange = function () { db.close(); };
+        if (db.objectStoreNames.contains(STORE_FOTOS)) { ok(db); return; }
+        db.close();
+        ctx.falhou('idbRestaurar', new Error('o banco das fotos existe sem a store'));
+        ok(null);
+      };
+      r.onerror = function () { ctx.falhou('idbRestaurar', r.error); ok(null); };
+    });
+  }
+
+  function gravarNoBanco(idb, db, k, valor) {
+    return new Promise(function (ok) {
+      try {
+        var tx = db.transaction(STORE_FOTOS, 'readwrite');
+        idb.put.call(tx.objectStore(STORE_FOTOS), valor, k);
+        tx.oncomplete = function () { ok(true); };
+        tx.onabort = function () { ok(false); };
+      } catch (e) {
+        ok(false);
+      }
+    });
+  }
+
+  function criarBancoSentinela(ctx, idb) {
+    return new Promise(function (ok) {
+      try {
+        var r = idb.abrir.call(idb.fabrica, BANCO_SENTINELA);
+        r.onsuccess = function () { try { r.result.close(); } catch (_) { /* já fechado */ } ok(); };
+        r.onerror = function () { ctx.falhou('idbSentinela', r.error); ok(); };
+      } catch (e) {
+        ctx.falhou('idbSentinela', e);
+        ok();
+      }
+    });
+  }
+
+  function apagarBancoSentinela(ctx, idb) {
+    return new Promise(function (ok) {
+      try {
+        var r = idb.apagarBanco.call(idb.fabrica, BANCO_SENTINELA);
+        r.onsuccess = function () { ok(); };
+        r.onerror = function () { ctx.falhou('idbSentinela', r.error); ok(); };
+        // Uma conexão aberta segura a exclusão até fechar; a página não espera por isso.
+        r.onblocked = function () { ok(); };
+      } catch (e) {
+        ctx.falhou('idbSentinela', e);
+        ok();
+      }
+    });
+  }
+
+  // O pedido que a página recebe do open do banco das fotos enquanto a conferência não termina. Tem o que o idb() do
+  // campo.html usa (onupgradeneeded, onsuccess, onerror e result) e o resto de um IDBOpenDBRequest que alguém poderia
+  // ler. `repassar` abre o real e repassa cada evento dele, com o result e o error copiados antes. A exceção de um
+  // ouvinte da página sobe para o real, como subiria sem a casca (no upgradeneeded, ela aborta a versão nova).
+  function criarPedidoSegurado(ctx) {
+    var ouvintes = Object.create(null);
+    var pedido = {
+      result: undefined,
+      error: null,
+      readyState: 'pending',
+      source: null,
+      transaction: null,
+      onsuccess: null,
+      onerror: null,
+      onupgradeneeded: null,
+      onblocked: null,
+      addEventListener: function (tipo, fn) {
+        if (typeof fn !== 'function') return;
+        (ouvintes[tipo] = ouvintes[tipo] || []).push(fn);
+      },
+      removeEventListener: function (tipo, fn) {
+        if (ouvintes[tipo]) ouvintes[tipo] = ouvintes[tipo].filter(function (f) { return f !== fn; });
+      },
+    };
+
+    function disparar(tipo, evento) {
+      var noAtributo = pedido['on' + tipo];
+      if (typeof noAtributo === 'function') noAtributo.call(pedido, evento);
+      var lista = (ouvintes[tipo] || []).slice();
+      for (var i = 0; i < lista.length; i++) lista[i].call(pedido, evento);
+    }
+
+    function copiar(real) {
+      try { pedido.result = real.result; } catch (e) { /* ainda sem resultado */ }
+      try { pedido.error = real.error; } catch (e) { /* idem */ }
+      pedido.readyState = real.readyState;
+      pedido.transaction = real.transaction;
+    }
+
+    function repassar(abrirReal) {
+      var real;
+      try {
+        real = abrirReal();
+      } catch (e) {
+        // O open real lançou (um nome ou uma versão que ele recusa): a página recebe o erro pelo onerror.
+        pedido.error = e;
+        pedido.readyState = 'done';
+        try { disparar('error', { type: 'error', target: pedido }); } catch (e2) { ctx.falhou('idbOpen', e2); }
+        return;
+      }
+      ['upgradeneeded', 'success', 'error', 'blocked'].forEach(function (tipo) {
+        real.addEventListener(tipo, function (evento) {
+          copiar(real);
+          disparar(tipo, evento);
+        });
+      });
+    }
+
+    return { pedido: pedido, repassar: repassar };
+  }
+
+  // Embrulha o `open` do window.indexedDB: o do banco das fotos espera o `pronto` da conferência; os outros bancos
+  // passam direto, e o das fotos também, depois dele.
+  function segurarAbertura(ctx, idb, pronto) {
+    var liberado = false;
+    pronto.then(function () { liberado = true; });
+    idb.fabrica.open = function open(nome) {
+      var dasFotos;
+      try { dasFotos = String(nome) === BANCO_FOTOS; } catch (e) { dasFotos = false; }
+      if (liberado || !dasFotos) return idb.abrir.apply(this, arguments);
+      var fabrica = this;
+      var argumentos = arguments;
+      var segurado = criarPedidoSegurado(ctx);
+      pronto.then(function () { segurado.repassar(function () { return idb.abrir.apply(fabrica, argumentos); }); });
+      return segurado.pedido;
+    };
+  }
+
+  // Liga a seção 5: o espelho (só com ele ligado), a conferência da partida e o open segurado até ela terminar.
+  function instalarIDB(ctx) {
+    var idb = capturarIDB(ctx.win);
+    if (!idb) return;
+    var envio = criarEnvioIDB(ctx);
+    if (!ctx.espelhoDesligado) instalarEspelhoIDB(ctx, idb, envio);
+    var pronto = conferirIDB(ctx, idb, envio);
+    ctx.prontos.push(pronto);
+    segurarAbertura(ctx, idb, pronto);
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // 6. window.open: o login da Microsoft e o "Conectar conta Fracttal" (spec 6.3, itens 1 e 2)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  // Na WebView sem múltiplas janelas, o window.open devolve a própria janela do App. O loginPopup do MSAL a usaria
+  // como popup, e o document.write do conectarFracttal (campo.html) apagaria a tela do App.
+  var HOSTS_LOGIN = ['login.microsoftonline.com', 'login.live.com', 'login.windows.net'];
+  var ESPERA_JANELA_MS = 1000;
+  var ID_CAMADA = 'gc-casca-aviso';
+
+  // O endereço, como a página o daria a uma aba: relativo à página do App. null se não der para ler.
+  function lerEndereco(win, url) {
+    if (url === undefined || url === null || typeof win.URL !== 'function') return null;
+    var base;
+    try { base = win.location && win.location.href; } catch (e) { base = undefined; }
+    try { return new win.URL(String(url), base || undefined); } catch (e) { return null; }
+  }
+
+  function semEndereco(url) {
+    if (url === undefined || url === null) return true;
+    var s = String(url);
+    return s === '' || s === 'about:blank';
+  }
+
+  // O nome do popup do MSAL começa com `msal.` (msal.<clientId>.<escopos>...), e o loginPopup o abre com
+  // 'about:blank'. Com null, o MSAL dá empty_window_error, e o campo.html cai no loginRedirect.
+  function ehLogin(win, url, nome) {
+    if (typeof nome === 'string' && nome.indexOf('msal') === 0) return true;
+    var u = lerEndereco(win, url);
+    return u !== null && HOSTS_LOGIN.indexOf(u.hostname.toLowerCase()) >= 0;
+  }
+
+  // O endereço absoluto que vai ao nativo (ele o abre numa Custom Tab), ou null se não for http nem https.
+  function enderecoDeFora(win, url) {
+    if (typeof win.URL !== 'function') {
+      var s = String(url);
+      return /^https?:\/\//i.test(s) ? s : null;
+    }
+    var u = lerEndereco(win, url);
+    return u !== null && (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : null;
+  }
+
+  // A camada por cima do App: o HTML que a página escreveu, num iframe sem permissão nenhuma (sandbox vazio: sem
+  // script, sem formulário, sem navegar o App), e o botão Fechar. Estilo só inline, com tudo que importa declarado, para
+  // o CSS da página não a desmontar. Cores neutras: véu escuro translúcido, cartão claro (o texto da página é escuro).
+  function montarCamada(doc, aoFechar) {
+    var velha = doc.getElementById(ID_CAMADA);
+    if (velha && velha.parentNode) velha.parentNode.removeChild(velha);
+
+    var raiz = doc.createElement('div');
+    raiz.id = ID_CAMADA;
+    raiz.setAttribute('role', 'dialog');
+    raiz.setAttribute('aria-modal', 'true');
+    raiz.setAttribute('aria-label', 'Aviso');
+    raiz.setAttribute('style', 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;display:flex;' +
+      'align-items:center;justify-content:center;margin:0;padding:16px;box-sizing:border-box;' +
+      'background:rgba(0,0,0,0.6)');
+
+    var cartao = doc.createElement('div');
+    cartao.setAttribute('style', 'display:flex;flex-direction:column;width:100%;max-width:560px;height:100%;' +
+      'max-height:640px;margin:0;padding:0;box-sizing:border-box;overflow:hidden;border-radius:12px;' +
+      'background:#ffffff;color:#14181d;box-shadow:0 8px 32px rgba(0,0,0,0.35)');
+
+    var quadro = doc.createElement('iframe');
+    // O sandbox antes do srcdoc: as restrições valem já para o primeiro conteúdo.
+    quadro.setAttribute('sandbox', '');
+    quadro.setAttribute('title', 'Aviso');
+    quadro.setAttribute('style', 'display:block;flex:1 1 auto;width:100%;min-height:0;margin:0;padding:0;border:0;' +
+      'background:#ffffff');
+
+    var botao = doc.createElement('button');
+    botao.setAttribute('type', 'button');
+    botao.textContent = 'Fechar';
+    botao.setAttribute('style', 'display:block;flex:0 0 auto;width:100%;min-height:52px;margin:0;' +
+      'padding:14px 16px;box-sizing:border-box;border:0;border-top:1px solid #e5e7eb;border-radius:0;' +
+      'background:#f3f4f6;color:#14181d;font:600 16px/1.2 system-ui,-apple-system,sans-serif;cursor:pointer');
+    botao.addEventListener('click', aoFechar);
+
+    cartao.appendChild(quadro);
+    cartao.appendChild(botao);
+    raiz.appendChild(cartao);
+    return { raiz: raiz, quadro: quadro };
+  }
+
+  // A janela de mentira do window.open que não é login. Imita uma aba: o document guarda o HTML escrito, e levá-la a
+  // um endereço manda {t:'fora', url} ao nativo. Passado ESPERA_JANELA_MS sem endereço e com HTML, é o caso de erro do
+  // conectarFracttal (a página escreveu uma explicação, como "sua sessão da Microsoft expirou"): a camada a mostra. Com
+  // a rede lenta, a camada pode aparecer antes, com o "Abrindo o Fracttal…"; o que a página escrever depois troca o
+  // conteúdo, e o endereço que chegar depois tira a camada. O Fechar só tira a camada: a explicação que vier depois a
+  // traz de volta, porque é ela que diz ao técnico o que fazer.
+  function criarJanelaDeMentira(ctx, urlInicial) {
+    var win = ctx.win;
+    var partes = [];
+    var aberto = false; // o documento aceita escrita sem recomeçar (depois do close, um write recomeça, como no navegador)
+    var navegou = false;
+    var prazoVencido = false;
+    var ultimaUrl = 'about:blank';
+    var camada = null;
+    var janela = { closed: false };
+
+    // Cada entrada da página passa por aqui: um erro nosso nunca sobe para ela.
+    function seguro(onde, fn) {
+      return function () {
+        try { return fn.apply(this, arguments); } catch (e) { ctx.falhou(onde, e); return undefined; }
+      };
+    }
+
+    function tirarCamada() {
+      if (camada && camada.raiz.parentNode) camada.raiz.parentNode.removeChild(camada.raiz);
+      camada = null;
+    }
+
+    function mostrar() {
+      var html = partes.join('');
+      if (!prazoVencido || navegou || janela.closed || html === '') return;
+      var doc = win.document;
+      if (!camada) {
+        camada = montarCamada(doc, seguro('camada', tirarCamada));
+        (doc.body || doc.documentElement).appendChild(camada.raiz);
+      }
+      camada.quadro.setAttribute('srcdoc', html);
+    }
+
+    function irPara(url) {
+      var destino = enderecoDeFora(win, url);
+      if (destino === null) {
+        ctx.falhou('fora', new Error('endereço que não é http nem https: não abre fora'));
+        return;
+      }
+      navegou = true;
+      ultimaUrl = destino;
+      tirarCamada();
+      ctx.enviar({ t: 'fora', url: destino }, 'fora');
+    }
+
+    function escrever(args, fimDeLinha) {
+      if (!aberto) { partes = []; aberto = true; }
+      for (var i = 0; i < args.length; i++) partes.push(String(args[i]));
+      if (fimDeLinha) partes.push('\n');
+      mostrar();
+    }
+
+    var documento = {};
+    documento.open = seguro('document.open', function () { partes = []; aberto = true; return documento; });
+    documento.write = seguro('document.write', function () { escrever(arguments, false); });
+    documento.writeln = seguro('document.writeln', function () { escrever(arguments, true); });
+    documento.close = seguro('document.close', function () { aberto = false; mostrar(); });
+
+    var localizacao = {
+      assign: seguro('location.assign', irPara),
+      replace: seguro('location.replace', irPara),
+      toString: function () { return ultimaUrl; },
+    };
+    Object.defineProperty(localizacao, 'href', {
+      enumerable: true,
+      get: function () { return ultimaUrl; },
+      set: seguro('location.href', irPara),
+    });
+
+    janela.document = documento;
+    janela.close = seguro('close', function () { janela.closed = true; tirarCamada(); });
+    Object.defineProperty(janela, 'location', {
+      enumerable: true,
+      get: function () { return localizacao; },
+      set: seguro('location', irPara),
+    });
+
+    if (!semEndereco(urlInicial)) irPara(urlInicial);
+    if (!navegou) {
+      win.setTimeout(seguro('janela', function () { prazoVencido = true; mostrar(); }), ESPERA_JANELA_MS);
+    }
+    return janela;
+  }
+
+  function instalarJanela(ctx) {
+    var win = ctx.win;
+    win.open = function open(url, nome) {
+      try {
+        if (ehLogin(win, url, nome)) return null;
+        return criarJanelaDeMentira(ctx, url);
+      } catch (e) {
+        // Um erro nosso: o null é o que a página já trata (o campo.html navega a própria aba, e o MSAL cai no redirect).
+        ctx.falhou('open', e);
+        return null;
+      }
+    };
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
   // Ponto único de entrada
   // ---------------------------------------------------------------------------------------------------------------
 
@@ -557,6 +1331,7 @@
     tentar(ctx, 'espelho-ls', function () {
       var ls = capturarLS(win);
       if (!ls) return;
+      ctx.ls = ls;
       // A 4 antes da 3: a sentinela e a restauração gravam pelos originais e decidem se esta carga para; só depois,
       // e só se ela puder espelhar, o espelho liga. Com a marca da perda ainda no localStorage, a carga não espelha,
       // venha a marca de onde vier (a perda que parou, a que a trava não deixou parar, a restauração só da fila): a
@@ -566,6 +1341,10 @@
       if (temMarcaDePerda(ls)) ctx.espelhoDesligado = true;
       if (!ctx.espelhoDesligado) instalarEspelhoLS(ctx, ls);
     });
+    // A 5 depois da 3 e da 4: ela lê o `espelhoDesligado` e o `cargaParada` que a 4 decidiu. A 6 não espelha nada e
+    // vale em toda carga.
+    tentar(ctx, 'idb', function () { instalarIDB(ctx); });
+    tentar(ctx, 'janela', function () { instalarJanela(ctx); });
 
     return {
       pronto: Promise.all(ctx.prontos).then(function () { return undefined; }),
