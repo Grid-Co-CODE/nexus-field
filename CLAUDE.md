@@ -84,4 +84,20 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
     o formato é provado com chave de software (`CifraKeystoreTest`) e o resto dos testes usa a `CifraFalsa`. Gerar a chave
     no Keystore de verdade só se vê no aparelho.
   - `Retrato.completo(armazem, motivo)` só aceita `'perda'` ou `'fila'` e lança nos outros: quem chama valida o pedido.
-- A tela da primeira abertura, a splash e o resto do nativo vêm nas tarefas seguintes do plano.
+- **O plugin e o canal** (`CascaPlugin`, `Mensageiro`; `MainActivity` registra o plugin antes do `super.onCreate`):
+  - No Capacitor 8.5.3 o `load()` dos plugins roda no construtor do `Bridge`, antes do `loadWebView` (o primeiro
+    `loadUrl`): o script registrado ali vale para a primeira carga. Mas o `Bridge.Builder.create()` troca a lista de
+    `WebViewListener` logo depois do construtor, e o que um plugin puser nela dentro do `load()` some sem aviso. Por isso
+    o ouvinte (renderer que morre, histórico depois do login) entra por um `post` na thread de UI.
+  - Tudo que mexe no espelho roda numa thread só (`GcCasca-espelho`), na ordem em que a página mandou; o que mexe na
+    WebView volta para a de UI. O `EspelhoSqlite` é um por processo: a tela recriada (renderer que morreu) reaproveita.
+  - Todo `precisoRetrato` recarrega a página (ela parou e espera) com um retrato completo de id novo; o disjuntor deixa 2
+    completos em 60 s e, daí em diante, recarrega com o leve SEM `filaHashes`. No `restaurado`, volta ao leve fresco.
+  - Nada do técnico vai ao log (os nomes das chaves têm e-mail): o `Mensageiro` avisa só com rótulo e contagem, e limpa o
+    texto de erro da página (`semDados`: o `QuotaExceededError` do Chromium cita a chave entre aspas). O `MensageiroTest`
+    confere pelo `ShadowLog`.
+  - O `android.util.Base64` pula em silêncio o que não é do alfabeto: o pedaço é conferido antes (`base64Valido`).
+  - O `CascaPlugin` não tem teste de JVM (WebView de verdade): é conferido pela montagem e pela prova no aparelho.
+  - O AGP 8 não gera o `BuildConfig` sem `buildFeatures.buildConfig` (o user agent e o `DEBUG` vêm dele), e o
+    `androidx.webkit` entra no app de novo porque o `capacitor-android` o tem só como `implementation`.
+- A splash, a atualização da casca e o resto do nativo vêm nas tarefas seguintes do plano.

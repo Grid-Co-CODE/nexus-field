@@ -26,6 +26,11 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    buildFeatures {
+        // O AGP 8 não gera mais o BuildConfig sozinho; o plugin da casca lê dele a versionName (o fim do user agent,
+        // GridcoCampoApp/<versão>) e o DEBUG (o registro das navegações só na versão de teste).
+        buildConfig = true
+    }
     signingConfigs {
         release {
             if (casca_assinatura) {
@@ -80,6 +85,9 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     implementation "androidx.browser:browser:1.10.0"
+    // O script de início, o canal por regra de origem e o ScriptHandler. O capacitor-android já usa a mesma versão,
+    // mas como `implementation`, e não a repassa ao app.
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     testImplementation "junit:junit:$junitVersion"
     testImplementation "org.robolectric:robolectric:4.17"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

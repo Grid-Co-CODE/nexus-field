@@ -6,4 +6,29 @@
     <string name="title_activity_main">Campo GridCo</string>
     <string name="package_name">br.com.gridco.campo</string>
     <string name="custom_url_scheme">br.com.gridco.campo</string>
+
+    <!--
+      Os diálogos da casca. Vão ao campo: os textos são os aprovados para a prévia do Levi; não mude sem nova prévia.
+    -->
+
+    <!-- Primeira abertura: pede a câmera e a localização precisa. -->
+    <string name="casca_permissoes_titulo">Antes de começar</string>
+    <string name="casca_permissoes_texto">O App de Campo usa a câmera para as fotos das OS e das rondas, e a localização precisa para registrar onde o serviço começou e terminou.</string>
+    <string name="casca_permissoes_continuar">Continuar</string>
+
+    <!-- O técnico escolheu a localização aproximada (Android 12+). -->
+    <string name="casca_aproximada_titulo">Localização precisa desligada</string>
+    <string name="casca_aproximada_texto">Com a localização aproximada, a posição vem com erro de quilômetros e o App não consegue registrar o início e o fim do serviço. Nos ajustes, toque em Permissões &gt; Localização e ligue Usar localização precisa.</string>
+
+    <!-- A câmera ou a localização negadas. -->
+    <string name="casca_negadas_titulo">Permissões necessárias</string>
+    <string name="casca_negadas_texto">Sem a câmera e a localização, o App não consegue registrar as OS. Nos ajustes, toque em Permissões e libere Câmera e Localização.</string>
+
+    <string name="casca_abrir_ajustes">Abrir ajustes</string>
+    <string name="casca_agora_nao">Agora não</string>
+
+    <!-- A WebView sem o script de início antes da página (DOCUMENT_START_SCRIPT). -->
+    <string name="casca_webview_titulo">Atualize o Android System WebView</string>
+    <string name="casca_webview_texto">O App de Campo precisa de uma versão mais nova do componente que mostra as telas. Atualize o Android System WebView na Play Store e abra o App de novo.</string>
+    <string name="casca_webview_abrir_loja">Abrir a Play Store</string>
 </resources>
