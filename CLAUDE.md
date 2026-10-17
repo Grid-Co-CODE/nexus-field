@@ -23,6 +23,10 @@ O `lint` sai sem erro (os avisos que restam são do template e das versões). O 
 O APK de depuração sai em `android/app/build/outputs/apk/debug/app-debug.apk`. Não há emulador nesta máquina, e
 nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por link ou arquivo, pelo próprio dono.
 
+O que o GitHub Actions roda (`.github/workflows/`): em todo push e PR, o `npm test`, o `testDebugUnitTest assembleDebug lint`
+e o APK de depuração como artifact (`montar.yml`); em tag `v*`, a Release assinada; todo dia às 11h UTC, o contrato com o
+site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
+
 ## Regras que não mudam
 
 - O site atual não muda (`campo.html`, `sw.js`, `function_app.py`, App Settings, CORS, rotas).
@@ -42,7 +46,9 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
 
 - **`npm test` usa glob entre aspas** (`node --test "testes/*.test.mjs"`). No Node 24, `node --test testes/` trata a
   pasta como arquivo e quebra com `MODULE_NOT_FOUND`. O glob só pega `*.test.mjs`, então arquivo de apoio sem `.test.`
-  no nome (e o teste de contrato com o site, que usa a rede) não roda sozinho dentro do `npm test`.
+  no nome não roda sozinho dentro do `npm test`. É o caso do `testes/contrato.mjs` (o contrato com o site ao vivo, que usa a
+  rede, e que o `contrato.yml` roda todo dia): o que o `npm test` roda dele é o `testes/contrato.test.mjs`, com HTML
+  fictício e rede falsa.
 - **Gradle com `Unable to establish loopback connection`:** o JDK 21 no Windows abre o `Selector` por um socket de
   domínio Unix numa pasta temporária, e onde o `TEMP` do perfil não é gravável (visto no terminal do assistente, em
   16/10/2026) isso falha, até no `./gradlew help`. Contorno, antes do `./gradlew`: `mkdir -p android/.gradle/uds` e
@@ -57,7 +63,11 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
   library". No Linux do CI nada disso é preciso, e a variável fica vazia.
 - **Versão e assinatura vêm do ambiente** (`android/app/build.gradle`): `versionCode` de `GITHUB_RUN_NUMBER` (padrão 1),
   `versionName` de `VERSAO_CASCA` (padrão `0.0.0-dev`). O release só é assinado com `CASCA_KEYSTORE`,
-  `CASCA_KEYSTORE_SENHA`, `CASCA_CHAVE_ALIAS` e `CASCA_CHAVE_SENHA` juntas; sem elas sai sem assinar.
+  `CASCA_KEYSTORE_SENHA`, `CASCA_CHAVE_ALIAS` e `CASCA_CHAVE_SENHA` juntas. Com as quatro ausentes (ou vazias) sai sem
+  assinar (`app-release-unsigned.apk`; é o caso do CI de PR). Com só 1 a 3 o build FALHA com uma `GradleException` que diz
+  o NOME das que faltam (nunca o valor): o caso real é um secret vazio ou com o nome trocado, que sairia um release sem
+  assinatura sem ninguém ver. Provado em 17/10/2026 com `CASCA_KEYSTORE` sozinha (falha), nenhuma (sem assinar) e as
+  quatro de uma chave descartável (assinado, `apksigner verify` passa).
 - **Dois FileProvider, de propósito.** `${applicationId}.fileprovider` é o do template do Capacitor, e o
   `BridgeWebChromeClient` o exige para a foto do `<input capture>` (a reserva da câmera interna): não remova.
   `br.com.gridco.campo.arquivos` (classe `ArquivosProvider`, caminhos em `caminhos_arquivos.xml`) é só do instalador da
@@ -174,4 +184,46 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
     confere tudo isso, e que nenhuma regra da folha alcança o iframe da camada (só o `#erro-html` é dimensionado por ela).
   - O desenho dos diálogos (AppCompat DayNight: fundo branco ou `#424242`, canto de 2 dp, botão verde-azulado) é
     aproximação: o que se aprova é texto, botão e quando cada aviso aparece.
+- **A Release e o CI** (`.github/workflows/montar.yml` e `contrato.yml`; escritos em 17/10/2026, ainda sem repositório no
+  GitHub: a primeira execução real é a da Task 10, e o `testes/workflows.test.mjs` guarda as regras abaixo no texto dos
+  arquivos, porque o Actions não roda daqui):
+  - **Montagem (`montar`):** Node `22.x` (o jsdom 30 pede `^22.22.2`; o `package.json` declara `engines`), `npm ci` e
+    `npm test`, depois Java 21 (Temurin), `npx cap sync android` e `./gradlew testDebugUnitTest assembleDebug lint`, e o
+    APK de depuração sobe como artifact. As actions estão fixadas por versão maior (`actions/checkout@v7`,
+    `setup-node@v7`, `setup-java@v6`, `upload-artifact@v7`, `gradle/actions/setup-gradle@v6`; conferidas em 17/10/2026 com
+    `gh api repos/<action>/releases/latest`). O `setup-gradle` usa `cache-provider: basic` (o `enhanced`, padrão, é um
+    serviço comercial; regra de "sem serviço pago").
+  - **Os dois testes do FileProvider têm de rodar no Linux.** `instaladorRecebeOUriDoProviderParaOApkDaPasta` e
+    `oProviderDoInstaladorNaoExpoeNadaAlemDeCacheAtualizacao` são pulados no Windows e o Gradle conta pulado como sucesso:
+    o `ferramentas/testes-pulados.mjs` lê o XML de resultado e derruba o CI se um deles aparecer pulado, falho ou sumido
+    (renomeado). Esta é a primeira vez que eles rodam fora do Windows: se falharem no Linux, o problema é do teste ou do
+    `FileProvider`, não do conferidor.
+  - **A Release (`release`, só em tag `v*`, depois do `montar`, no ambiente `release`).** `contents: write` é só deste job. A
+    tag tem de ser `vX.Y.Z` (semver; `vX.Y.Z-rc.1` sai como pré-lançamento, que a `releases/latest/` do app não enxerga) e
+    tem de existir `novidades/<versão>.md` (as linhas `- ` viram as novidades do aviso e o arquivo inteiro é o texto da
+    Release). `VERSAO_CASCA` é a tag sem o `v`; o `versionCode` é o `GITHUB_RUN_NUMBER` **do workflow `montar`: não renomeie
+    nem apague o arquivo**, senão a contagem recomeça em 1 e o Android recusa a atualização.
+  - **A chave:** o secret `CASCA_KEYSTORE_B64` é decodificado para `$RUNNER_TEMP/casca.jks` (permissão só do dono, `printf`
+    direto no `base64 -d`, sem `echo`) e apagado no último passo (`if: always()`). As quatro `CASCA_*` entram só no `env:`
+    do passo do `assembleRelease` (nunca no `GITHUB_ENV`, que as passaria a todos os passos). Depois do build, o
+    `apksigner verify --print-certs` (o build-tools do runner) tem de passar, senão nada é publicado: o SHA-256 do
+    certificado que ele imprime é público e dá para comparar com o da chave guardada. A Release leva `app-campo.apk`,
+    `app-campo.apk.sha256` e `versao.json`.
+  - **O `ferramentas/versao-json.mjs`** gera o `versao.json` com as MESMAS regras do `VersaoRemota.java` (o
+    `testes/versao-json.test.mjs` lê o `.java` e compara o prefixo, o padrão do link e o SHA; o SHA tem 64 hex minúsculos,
+    o `versionName` é o semver, o `apk` sai de `v<versão>/app-campo.apk`). O SHA-256 vem do próprio APK; o workflow ainda
+    confere com o `sha256sum`. Sem nenhuma linha `- ` nas novidades o arquivo sai com a lista vazia (o app mostra só
+    "Versão X.").
+  - **O contrato com o site (`testes/contrato.mjs`):** um GET do `/api/app`, só leitura. Importa as chaves e os prefixos
+    da `CLASSES` do `www/casca/inicio.js` (a lista existe num lugar só) e exige no HTML cada chave exata entre aspas e cada
+    prefixo; mais o banco `gc_campo_fotos` com a store `fotos` por perto, a `conectarFracttal` com o
+    `window.open('','_blank')`, o `loginRedirect`, o `'/api/app'` e o `msal-browser` na 2.38.1 (no mesmo endereço). Falha
+    também se o site passar a usar o que o espelho não enxerga (`localStorage.clear(`, atribuição por índice,
+    `delete localStorage`): o espelho só embrulha `setItem` e `removeItem`. A mensagem diz o NOME do que sumiu, nunca um
+    trecho do HTML. Sai com 0 (ok), 1 (o site mudou) ou 2 (não deu para ler o site). Limite: a chave citada num comentário
+    entre aspas simples ainda conta como presente (entre crases não conta). Medido em 17/10/2026: passa no site vivo, e
+    cada mudança de uma peça no HTML real (versão do MSAL, store, `window.open`, prefixo...) é pega.
+  - **A issue diária (`contrato`)**: se o contrato falhar, abre UMA issue com o rótulo `contrato` (não abre outra
+    enquanto houver uma aberta) e deixa o job vermelho. O GitHub desliga os workflows agendados de um repositório sem
+    atividade por 60 dias: se a issue nunca vem, confira que o workflow continua ligado.
 - A splash e o resto do nativo vêm nas tarefas seguintes do plano.

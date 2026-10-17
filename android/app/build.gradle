@@ -4,11 +4,18 @@ apply plugin: 'com.android.application'
 // versionCode = número da execução do GitHub Actions (sempre cresce, o Android exige); versionName = semver da casca.
 def casca_versionCode = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
 def casca_versionName = System.getenv('VERSAO_CASCA') ?: '0.0.0-dev'
-// A assinatura só existe com as quatro variáveis juntas. Sem elas o release sai SEM assinar (o build de depuração e os
-// testes não precisam de chave), em vez de quebrar. As senhas nunca são impressas.
+// A assinatura vem de quatro variáveis, todas ou nenhuma. Nenhuma: o release sai SEM assinar (o build de depuração, os
+// testes e o CI de PR não precisam de chave). Só algumas: o build FALHA, dizendo quais faltam, porque o caso real é um secret
+// do Actions vazio ou com o nome trocado, e o release sairia sem assinar sem ninguém ver (o técnico só descobriria quando
+// o Android recusasse a atualização). Variável vazia vale como ausente. Só os NOMES são impressos, nunca os valores.
+def casca_vars_assinatura = ['CASCA_KEYSTORE', 'CASCA_KEYSTORE_SENHA', 'CASCA_CHAVE_ALIAS', 'CASCA_CHAVE_SENHA']
+def casca_vars_faltando = casca_vars_assinatura.findAll { !System.getenv(it) }
+if (casca_vars_faltando && casca_vars_faltando.size() < casca_vars_assinatura.size()) {
+    throw new GradleException('Assinatura incompleta: faltam as variáveis ' + casca_vars_faltando.join(', ') +
+            '. Defina as quatro (CASCA_KEYSTORE, CASCA_KEYSTORE_SENHA, CASCA_CHAVE_ALIAS, CASCA_CHAVE_SENHA) ou nenhuma.')
+}
+def casca_assinatura = casca_vars_faltando.isEmpty()
 def casca_keystore = System.getenv('CASCA_KEYSTORE')
-def casca_assinatura = casca_keystore && System.getenv('CASCA_KEYSTORE_SENHA') &&
-        System.getenv('CASCA_CHAVE_ALIAS') && System.getenv('CASCA_CHAVE_SENHA')
 
 android {
     namespace = "br.com.gridco.campo"

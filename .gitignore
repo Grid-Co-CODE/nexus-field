@@ -5,3 +5,9 @@ android/.gradle/
 *.jks
 *.keystore
 android/app/src/main/assets/public/
+
+# Saídas da montagem da Release (o CI as gera na raiz; rodar o ferramentas/versao-json.mjs aqui não pode sujar o git).
+/app-campo.apk
+/app-campo.apk.sha256
+/versao.json
+/versao.json.tmp

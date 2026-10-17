@@ -1,0 +1,200 @@
+# Montagem da casca. Em todo push e PR: os testes de Node, os de JVM, o APK de depuração e o lint. Em tag v*: a Release
+# assinada, com o APK, o SHA-256 e o versao.json que o app lê para se atualizar (spec 2026-10-16, seções 7 e 8).
+#
+# O versionCode da Release é o GITHUB_RUN_NUMBER deste workflow, que o GitHub conta por arquivo de workflow: NÃO renomeie
+# nem apague este arquivo, senão a contagem recomeça em 1 e o Android recusa a atualização (versionCode menor).
+name: montar
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+
+# O padrão é só leitura. A única permissão de escrita (contents: write) é a do job release, mais abaixo.
+permissions:
+  contents: read
+
+jobs:
+  montar:
+    name: Testes e APK de depuração
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # O jsdom 30 (testes do script de início) pede Node ^22.22.2; o 22.x pega o mais recente da série.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Testes de Node
+        run: |
+          npm ci
+          npm test
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # cache-provider basic: o cache de código aberto (o 'enhanced', padrão, é um serviço comercial). O cache só é gravado
+      # a partir da main; PRs e tags só leem.
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Testes de JVM, APK de depuração e lint
+        run: |
+          npx cap sync android
+          cd android
+          ./gradlew testDebugUnitTest assembleDebug lint
+
+      # No Windows do desenvolvedor estes dois testes são PULADOS (o FileProvider compara caminhos com "/"), e o Gradle conta
+      # teste pulado como sucesso. Só o Linux daqui os prova: se um deles aparecer como pulado, falho ou sumido, o CI cai.
+      - name: Os dois testes do FileProvider rodaram de verdade
+        run: >
+          node ferramentas/testes-pulados.mjs
+          android/app/build/test-results/testDebugUnitTest
+          br.com.gridco.campo.AtualizadorTest
+          instaladorRecebeOUriDoProviderParaOApkDaPasta
+          oProviderDoInstaladorNaoExpoeNadaAlemDeCacheAtualizacao
+
+      - name: APK de depuração
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-campo-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Relatórios do Gradle (só se algo falhou)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: relatorios-gradle
+          path: |
+            android/app/build/reports/tests/
+            android/app/build/reports/lint-results-*.html
+          retention-days: 7
+          if-no-files-found: ignore
+
+  release:
+    name: Release assinada
+    needs: montar
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # O ambiente 'release' é onde moram os secrets da chave de assinatura (Settings > Environments).
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Sem cache: o APK que vai ao campo sai de dependências baixadas agora, não de um cache de outro build.
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-disabled: true
+
+      # VERSAO_CASCA é a tag sem o v. A tag é conferida ANTES de virar variável e de virar nome de arquivo: só o semver
+      # X.Y.Z (com pré-versão ou metadado) passa, e há de existir o novidades/<versão>.md.
+      - name: Versão da tag
+        run: |
+          set -euo pipefail
+          versao="${GITHUB_REF_NAME#v}"
+          if ! [[ "$versao" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "A tag ${GITHUB_REF_NAME} não é vX.Y.Z (semver)." >&2
+            exit 1
+          fi
+          if [ ! -f "novidades/${versao}.md" ]; then
+            echo "Falta o arquivo novidades/${versao}.md (as novidades desta versão)." >&2
+            exit 1
+          fi
+          echo "VERSAO_CASCA=${versao}" >> "$GITHUB_ENV"
+
+      # A chave vem em base64 num secret e é gravada na pasta temporária do runner, só com permissão do dono. Nada aqui
+      # imprime o secret: o printf é embutido no shell (não aparece nos argumentos de nenhum processo) e vai direto ao base64.
+      - name: Decodificar a chave de assinatura
+        env:
+          CASCA_KEYSTORE_B64: ${{ secrets.CASCA_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          : "${CASCA_KEYSTORE_B64:?o secret CASCA_KEYSTORE_B64 está vazio ou não existe no ambiente release}"
+          umask 077
+          printf '%s' "$CASCA_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/casca.jks"
+          test -s "$RUNNER_TEMP/casca.jks"
+
+      # As quatro CASCA_* só existem neste passo (e não no GITHUB_ENV, que passaria os secrets a todos os passos seguintes).
+      # Se alguma estiver vazia, o android/app/build.gradle derruba o build dizendo o NOME das que faltam.
+      - name: APK assinado
+        env:
+          CASCA_KEYSTORE: ${{ runner.temp }}/casca.jks
+          CASCA_KEYSTORE_SENHA: ${{ secrets.CASCA_KEYSTORE_SENHA }}
+          CASCA_CHAVE_ALIAS: ${{ secrets.CASCA_CHAVE_ALIAS }}
+          CASCA_CHAVE_SENHA: ${{ secrets.CASCA_CHAVE_SENHA }}
+        run: |
+          set -euo pipefail
+          npx cap sync android
+          cd android
+          ./gradlew assembleRelease
+
+      # Sem assinatura o AGP escreve app-release-unsigned.apk, e o app-release.apk nem existe. O apksigner confere a
+      # assinatura de verdade (o build-tools do próprio runner) e imprime o certificado (SHA-256 público), que dá para
+      # comparar com o da chave guardada.
+      - name: Conferir a assinatura
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            echo "Não saiu o APK assinado (app-release.apk): confira se as quatro variáveis CASCA_* chegaram ao build." >&2
+            exit 1
+          fi
+          cp "$apk" app-campo.apk
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)"
+          "$apksigner" verify --print-certs app-campo.apk
+
+      # O SHA-256 vai em dois lugares (o arquivo .sha256 e o versao.json) calculados por programas diferentes
+      # (sha256sum e o node): se divergirem, algo está errado e nada é publicado.
+      - name: SHA-256 e versao.json
+        run: |
+          set -euo pipefail
+          sha256sum app-campo.apk > app-campo.apk.sha256
+          node ferramentas/versao-json.mjs --apk app-campo.apk --novidades "novidades/${VERSAO_CASCA}.md" --saida versao.json
+          test "$(cut -d' ' -f1 app-campo.apk.sha256)" = "$(node -p "require('./versao.json').sha256")"
+
+      # Versão com pré-versão (1.1.0-rc.1) sai como pré-lançamento: a releases/latest/ que o app lê não a enxerga.
+      - name: Publicar a Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          extras=()
+          case "$VERSAO_CASCA" in *-*) extras+=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" app-campo.apk app-campo.apk.sha256 versao.json \
+            --verify-tag \
+            --title "App de Campo ${VERSAO_CASCA}" \
+            --notes-file "novidades/${VERSAO_CASCA}.md" \
+            "${extras[@]}"
+
+      - name: Apagar a chave do runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/casca.jks"

@@ -1,0 +1,72 @@
+# Contrato diário com o site (spec 2026-10-16, seção 10.2). Um GET de leitura no /api/app: se sumir do campo.html algo de
+# que a casca depende, abre uma issue com o rótulo "contrato", antes de o campo sentir. O que é conferido está no
+# testes/contrato.mjs. O site não é alterado.
+#
+# O GitHub desliga os workflows agendados de um repositório sem atividade por 60 dias: se a issue nunca vier, confira
+# na aba Actions que este workflow continua ligado.
+name: contrato
+
+on:
+  schedule:
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  contrato:
+    name: Contrato com o site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # O contrato só lê o inicio.js (CommonJS, sem dependências) e usa o fetch do Node: não precisa de npm ci.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.x
+
+      # O código de saída vai para a saída do passo (e não derruba o passo) para a issue poder ser aberta antes de o job cair.
+      - name: Conferir o contrato
+        id: conferir
+        run: |
+          set +e
+          node testes/contrato.mjs 2>&1 | tee "$RUNNER_TEMP/contrato.txt"
+          echo "codigo=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      # Uma issue só: enquanto houver uma aberta com o rótulo, não abre outra (o contrato falha todo dia até alguém consertar).
+      # O corpo é a saída do contrato, que diz o NOME do que sumiu e nunca copia trecho do campo.html.
+      - name: Abrir a issue se o contrato falhou
+        if: steps.conferir.outputs.codigo != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CODIGO: ${{ steps.conferir.outputs.codigo }}
+        run: |
+          set -euo pipefail
+          gh label create contrato --color B60205 --description "O campo.html mudou e a casca depende do que mudou" 2>/dev/null || true
+          abertas="$(gh issue list --label contrato --state open --json number --jq length)"
+          if [ "$abertas" != "0" ]; then
+            echo "Já há uma issue aberta com o rótulo contrato; não abro outra."
+            exit 0
+          fi
+          {
+            echo "O teste de contrato diário com o site falhou (código ${CODIGO}: 1 = o campo.html mudou, 2 = não deu para ler o site). Saída:"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/contrato.txt"
+            echo '```'
+            echo
+            echo "Execução: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "O que fazer: avisar a sessão \"App de campo\", conferir a classificação das chaves em www/casca/inicio.js (CLASSES) e a janela do Fracttal, e só então atualizar o testes/contrato.mjs se a mudança no site for de propósito."
+          } > "$RUNNER_TEMP/issue.md"
+          gh issue create --label contrato --title "Contrato com o site quebrado" --body-file "$RUNNER_TEMP/issue.md"
+
+      - name: Derrubar o job se o contrato falhou
+        if: steps.conferir.outputs.codigo != '0'
+        run: exit 1
