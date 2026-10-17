@@ -148,4 +148,13 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
     verdade e o instalador do sistema só se veem no aparelho. **Os dois testes que passam pelo `FileProvider` são pulados no
     Windows** (ele compara caminhos com `/`; medido em 17/10/2026) e rodam no Linux do CI; a configuração do provider
     (autoridade, uma pasta só, não exportado) é conferida em Node, no `testes/configuracao.test.mjs`.
+- **A prévia das telas novas** (`docs/previas/telas.html`, fora do APK): uma página só, autocontida, com os diálogos do
+  `strings.xml`, o toast, o `www/erro.html` num iframe e a camada do Fracttal, cada um numa moldura de 360 px, para o Levi
+  aprovar texto e visual antes de ir ao campo. O texto aprovado vive no arquivo-fonte, não na prévia: pedido de mudança
+  se faz no `strings.xml`, no `erro.html` ou no `inicio.js` e a prévia acompanha. O `testes/previas.test.mjs` falha se um
+  texto de diálogo da prévia não existir no `strings.xml` (ou o contrário), se o `srcdoc` do erro não for o `erro.html`
+  inteiro (copie o arquivo trocando `"` por `&quot;`) ou se a camada do Fracttal não for igual à que o `inicio.js` monta
+  (o estilo inline é o do aparelho; a moldura tem `transform` para a `position:fixed` da camada cobrir só o celular).
+  O desenho dos diálogos (AppCompat DayNight: fundo branco ou `#424242`, canto de 2 dp, botão verde-azulado) é aproximação:
+  o que se aprova é texto, botão e quando cada aviso aparece.
 - A splash e o resto do nativo vêm nas tarefas seguintes do plano.
