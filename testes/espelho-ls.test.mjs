@@ -203,11 +203,11 @@ test('getItem, key, length e clear ficam intocados; só setItem e removeItem sã
   assert.deepEqual(Object.getOwnPropertyDescriptor(proto, 'length'), antes.length);
   assert.notEqual(proto.setItem, antes.setItem);
   assert.notEqual(proto.removeItem, antes.removeItem);
-  // e o real continua legível por inteiro
+  // e o real continua legível por inteiro (a sentinela da casca já estava lá: é um aparelho em uso)
   j.win.localStorage.setItem('gc_campo_queue', 'a');
   j.win.localStorage.setItem('msal.x', 'b');
-  assert.equal(j.win.localStorage.length, 2);
-  assert.equal(j.win.localStorage.key(1), 'msal.x');
+  assert.equal(j.win.localStorage.length, 3);
+  assert.equal(j.win.localStorage.key(2), 'msal.x');
 });
 
 test('removeItem de chave espelhada manda lsDel na hora, e o real perde a chave', () => {

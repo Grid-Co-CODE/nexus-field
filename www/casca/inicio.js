@@ -9,11 +9,11 @@
  * para o nativo, sem valor e sem nome de chave (os nomes das chaves têm e-mail).
  *
  * Seções (o `instalar` é o ponto único de entrada e liga cada uma):
- *   1. constantes e classificação das chaves        (esta tarefa)
- *   2. contexto: canal ao nativo e tratamento de erro (esta tarefa)
- *   3. espelho de escrita do localStorage            (esta tarefa)
- *   4. sentinelas e restauração                      (Task 3)
- *   5. espelho do IndexedDB das fotos e window.open  (Task 4)
+ *   1. constantes e classificação das chaves                     (Task 2)
+ *   2. contexto: canal ao nativo e tratamento de erro            (Task 2)
+ *   3. espelho de escrita do localStorage                        (Task 2)
+ *   4. sentinela do localStorage, versões da fila e restauração  (Task 3; roda ANTES da 3)
+ *   5. espelho do IndexedDB das fotos e window.open              (Task 4)
  */
 (function () {
   'use strict';
@@ -111,6 +111,10 @@
       retrato: retrato,
       descarregadores: [],
       prontos: [],
+      // Ligada pela seção 4 quando esta carga foi parada para pedir o retrato completo (perda ou fila atrasada). Daí
+      // até a próxima carga nenhum espelho liga: a página que ainda rodar está vazia ou atrasada, e espelhá-la
+      // gravaria esse estado por cima do que o nativo guardou. Toda seção que espelha confere esta marca.
+      cargaParada: false,
 
       // Manda uma mensagem ao nativo. Nunca lança: se o canal falhar, avisa por `falhou` e segue.
       // O canal é lido a cada chamada (não guardado), porque é o objeto que o nativo injetou e pode ser trocado.
@@ -148,18 +152,16 @@
   // 3. Espelho de escrita do localStorage (spec 6.3, item 3)
   // ---------------------------------------------------------------------------------------------------------------
 
-  // Embrulha Storage.prototype.setItem e removeItem, e SÓ quando `this` é o localStorage real capturado agora: o
-  // sessionStorage (onde o MSAL guarda o que importa) usa o mesmo prototype e fica de fora.
+  // Embrulha Storage.prototype.setItem e removeItem, e SÓ quando `this` é o localStorage real capturado no início
+  // (`ls`, ver capturarLS): o sessionStorage (onde o MSAL guarda o que importa) usa o mesmo prototype e fica de fora.
   // getItem, key, length e Object.keys(localStorage) ficam intocados: o real continua completo, e as faxinas da
   // página e o MSAL continuam enxergando tudo.
-  function instalarEspelhoLS(ctx) {
+  function instalarEspelhoLS(ctx, ls) {
     var win = ctx.win;
-    var lsReal = win.localStorage; // pode lançar SecurityError (armazenamento negado): o `tentar` de fora engole
-    var proto = win.Storage && win.Storage.prototype;
-    if (!lsReal || !proto) return;
-
-    var setItemOriginal = proto.setItem;
-    var removeItemOriginal = proto.removeItem;
+    var lsReal = ls.real;
+    var proto = ls.proto;
+    var setItemOriginal = ls.setItem;
+    var removeItemOriginal = ls.removeItem;
     // Guardados agora, atados à janela: a página pode trocar o setTimeout depois, e chamar a função solta daria
     // "Illegal invocation" no navegador.
     var agendar = win.setTimeout.bind(win);
@@ -249,6 +251,148 @@
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+  // 4. Sentinela do localStorage, versões da fila e restauração (spec 6.4, "Quando restaurar" e "A fila tem versões")
+  // ---------------------------------------------------------------------------------------------------------------
+
+  // A sentinela é uma chave da casca que a página nunca grava nem apaga (o classificar a deixa fora do espelho). Se ela
+  // sumiu, a WebView perdeu o localStorage (despejo do Chromium, corrupção, troca de WebView), e o que a página veria
+  // agora é um aparelho vazio. O valor não importa, só a presença.
+  var VALOR_SENTINELA = '1';
+
+  // Captura o localStorage real e os métodos originais UMA vez, antes de qualquer embrulho e de qualquer script da
+  // página. A restauração grava por eles (pelos embrulhados, ecoaria ao nativo o que acabou de vir dele) e o espelho
+  // os chama por baixo do embrulho.
+  function capturarLS(win) {
+    var real = win.localStorage; // pode lançar SecurityError (armazenamento negado): o `tentar` de fora engole
+    var proto = win.Storage && win.Storage.prototype;
+    if (!real || !proto) return null;
+    return {
+      real: real,
+      proto: proto,
+      getItem: proto.getItem,
+      setItem: proto.setItem,
+      removeItem: proto.removeItem,
+    };
+  }
+
+  // Grava pelo original e diz se coube. Nunca lança: a cota estourada (ou qualquer recusa) vira `false`, e quem chama
+  // decide o que fazer com a chave que ficou de fora.
+  function gravarOriginal(ls, chave, valor) {
+    try {
+      ls.setItem.call(ls.real, chave, valor);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Para esta carga e pede ao nativo o retrato completo; o nativo recarrega a página com ele (modo 'restaurar').
+  // A marca vem antes do stop: se o stop falhar, a página roda, mas o espelho continua desligado até a próxima carga.
+  function pararCarga(ctx, motivo) {
+    ctx.cargaParada = true;
+    try { ctx.win.stop(); } catch (e) { ctx.falhou('stop', e); }
+    ctx.enviar({ t: 'precisoRetrato', motivo: motivo }, 'precisoRetrato');
+  }
+
+  // Decide, antes da página, o que esta carga faz com o localStorage:
+  //   modo 'restaurar'                     → devolve o que o retrato traz (restaurarLS);
+  //   sem sentinela, com espelho no nativo → perda: para e pede o retrato;
+  //   sem sentinela, sem espelho           → instalação nova: grava a sentinela e avisa ('sentinela');
+  //   com sentinela                        → compara a fila da WebView com as versões do nativo.
+  // Fora da restauração, esta seção nunca escreve na página além da sentinela.
+  function conferirSentinelaEFila(ctx, ls) {
+    var retrato = ctx.retrato;
+    if (retrato.modo === 'restaurar') {
+      restaurarLS(ctx, ls);
+      return;
+    }
+
+    if (ls.getItem.call(ls.real, SENTINELA_LS) === null) {
+      // Só `true` vale: um retrato torto não pode parar a carga do técnico.
+      if (retrato.temEspelho === true) {
+        pararCarga(ctx, 'perda');
+      } else if (gravarOriginal(ls, SENTINELA_LS, VALOR_SENTINELA)) {
+        ctx.enviar({ t: 'sentinela' }, 'sentinela');
+      } else {
+        ctx.falhou('sentinela', new Error('a sentinela não coube no localStorage'));
+      }
+      return;
+    }
+
+    // As versões da fila que o nativo guardou, mais nova primeiro (até 3), em fnv1a32.
+    var versoes = Array.isArray(retrato.filaHashes) ? retrato.filaHashes : [];
+    var atual = ls.getItem.call(ls.real, CHAVE_FILA);
+    if (atual === null) {
+      // Ruling R5: a página que apaga a fila manda lsDel, e o nativo apaga as versões junto. Versões no nativo sem fila
+      // na WebView é a fila que se perdeu sem a página saber: trata como fila atrasada. Custa um recarregar a mais
+      // numa partida rara; o contrário perderia a fila inteira.
+      if (versoes.length) pararCarga(ctx, 'fila');
+      return;
+    }
+    var hash = fnv1a32(atual);
+    // A mais nova vem antes: a página pode ter gravado A, B e A de novo, e a WebView com A está em dia.
+    if (hash === versoes[0]) return;
+    if (versoes.indexOf(hash) > 0) {
+      // Bate com uma versão antiga: a WebView voltou no tempo (despejo parcial) e o nativo está à frente.
+      pararCarga(ctx, 'fila');
+      return;
+    }
+    // Não bate com nenhuma: a WebView está à frente (o nativo perdeu a última gravação, ou não tem versão nenhuma).
+    ctx.enviar({ t: 'ls', k: CHAVE_FILA, v: atual }, 'fila');
+  }
+
+  // Devolve ao localStorage o que o retrato completo traz, pelos métodos originais (sem eco ao nativo, que já tem
+  // tudo isso). Ordem: a fila, depois o trabalho, depois o cache, chave por chave; a que não couber vai para a lista
+  // `naoCouberam` e a próxima ainda é tentada (uma pequena pode caber depois de uma grande). Por último a sentinela.
+  // Com motivo 'fila' o nativo manda `ls` vazio, e só a fila é regravada.
+  // Do `ls` do retrato só entra o que o classificar diz que é trabalho ou cache: msal.*, a sentinela, a própria fila
+  // (que vem no campo `fila`) e as preferências ficam de fora, mesmo que o nativo as mande por engano.
+  function restaurarLS(ctx, ls) {
+    var retrato = ctx.retrato;
+    var origem = retrato.ls && typeof retrato.ls === 'object' ? retrato.ls : {};
+    var naoCouberam = [];
+    var chaves = 0;
+    var fila = false;
+
+    if (typeof retrato.fila === 'string') {
+      fila = gravarOriginal(ls, CHAVE_FILA, retrato.fila);
+      if (!fila) naoCouberam.push(CHAVE_FILA);
+    }
+
+    var nomes = Object.keys(origem);
+    var cacheGravado = [];
+    var classes = ['trabalho', 'cache'];
+    for (var c = 0; c < classes.length; c++) {
+      for (var i = 0; i < nomes.length; i++) {
+        var chave = nomes[i];
+        var valor = origem[chave];
+        if (classificar(chave) !== classes[c] || typeof valor !== 'string') continue;
+        if (gravarOriginal(ls, chave, valor)) {
+          chaves++;
+          if (classes[c] === 'cache') cacheGravado.push(chave);
+        } else {
+          naoCouberam.push(chave);
+        }
+      }
+    }
+
+    // A sentinela vence o cache: sem ela, a próxima carga desta mesma partida (um loginRedirect, um recarregar) veria
+    // "perda" de novo, e o nativo só atende um pedido de retrato por partida. O cache a página baixa de novo; então, se
+    // a sentinela não couber, o cache recém-restaurado devolve o espaço, da última chave para a primeira.
+    var sentinela = gravarOriginal(ls, SENTINELA_LS, VALOR_SENTINELA);
+    while (!sentinela && cacheGravado.length) {
+      var devolvida = cacheGravado.pop();
+      try { ls.removeItem.call(ls.real, devolvida); } catch (e) { ctx.falhou('restaurar', e); }
+      chaves--;
+      naoCouberam.push(devolvida);
+      sentinela = gravarOriginal(ls, SENTINELA_LS, VALOR_SENTINELA);
+    }
+    if (!sentinela) ctx.falhou('sentinela', new Error('a sentinela não coube no localStorage'));
+
+    ctx.enviar({ t: 'restaurado', chaves: chaves, naoCouberam: naoCouberam, fila: fila }, 'restaurado');
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
   // Ponto único de entrada
   // ---------------------------------------------------------------------------------------------------------------
 
@@ -261,7 +405,14 @@
     if (!win || !canal || typeof canal.postMessage !== 'function') return vazio;
 
     var ctx = criarContexto(win, canal, retrato || {});
-    tentar(ctx, 'espelho-ls', function () { instalarEspelhoLS(ctx); });
+    tentar(ctx, 'espelho-ls', function () {
+      var ls = capturarLS(win);
+      if (!ls) return;
+      // A 4 antes da 3: a sentinela e a restauração gravam pelos originais e decidem se esta carga para; só depois,
+      // e só se ela seguir, o espelho liga. Se a 4 falhar por um erro nosso, a página abre com o espelho ligado.
+      tentar(ctx, 'sentinela', function () { conferirSentinelaEFila(ctx, ls); });
+      if (!ctx.cargaParada) instalarEspelhoLS(ctx, ls);
+    });
 
     return {
       pronto: Promise.all(ctx.prontos).then(function () { return undefined; }),

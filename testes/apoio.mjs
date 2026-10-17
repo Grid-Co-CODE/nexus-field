@@ -4,9 +4,20 @@
 // Por que falsa e não jsdom: o jsdom não deixa configurar a cota do localStorage, e a cota estourada
 // (QuotaExceededError) é a regra mais delicada do espelho. Aqui a cota é um número.
 //
-// `win.stop()` já é espionado desde a Task 2 (a Task 3 prova que a perda para a carga com ele). As Tasks 3 e 4 estendem
-// `criarJanela` só com indexedDB e document.open/write/close: acrescentam campos em `win` ou `document` dentro da função
-// e, se preciso, devolvem helpers a mais. Nada aqui assume a lista fechada.
+// `win.stop()` já é espionado desde a Task 2 (a Task 3 prova que a perda para a carga com ele). A Task 3 acrescentou a
+// opção `ls` (o que a WebView já tinha antes da carga); a Task 4 estende `criarJanela` com indexedDB e
+// document.open/write/close: acrescenta campos em `win` ou `document` dentro da função e, se preciso, devolve helpers a
+// mais. Nada aqui assume a lista fechada.
+
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { SENTINELA_LS } = require('../www/casca/inicio.js');
+
+// O localStorage de um aparelho EM USO: a sentinela da casca já está lá e não há fila, então o script de início não tem
+// nada a restaurar nem a parar. É o padrão do `criarJanela` porque é o estado em que o espelho (Task 2) e o IndexedDB
+// (Task 4) trabalham. Quem prova a partida (instalação nova, perda) passa `ls: {}`, a WebView sem nada.
+export const LS_EM_USO = Object.freeze({ [SENTINELA_LS]: '1' });
 
 // Tem a cara de um EventTarget mínimo: o script só usa addEventListener, e o teste dispara com dispatchEvent({type}).
 export function alvoDeEventos(alvo = {}) {
@@ -80,13 +91,16 @@ export function criarRelogio() {
 }
 
 // `retrato` é o que o nativo devolveria na partida (window.__GC_RETRATO__); `cota` é o limite do localStorage em
-// caracteres. Devolve a janela, o canal falso e tudo que o canal recebeu, já em objeto (o script manda JSON em texto).
+// caracteres; `ls` é o que o localStorage já tinha antes da carga (posto direto, sem a cota e sem o setItem).
+// Devolve a janela, o canal falso e tudo que o canal recebeu, já em objeto (o script manda JSON em texto).
 // `paradas` guarda uma entrada por chamada de `win.stop()` (o teste confere `paradas.length`); `stop()` não faz mais nada.
-export function criarJanela({ retrato = {}, cota = Infinity } = {}) {
+export function criarJanela({ retrato = {}, cota = Infinity, ls = LS_EM_USO } = {}) {
   const Storage = criarClasseStorage();
   const relogio = criarRelogio();
   const enviados = [];
   const paradas = [];
+  const localStorage = new Storage(cota);
+  for (const [k, v] of Object.entries(ls)) localStorage._itens.set(k, String(v));
 
   const canal = {
     postMessage(texto) {
@@ -99,7 +113,7 @@ export function criarJanela({ retrato = {}, cota = Infinity } = {}) {
 
   const win = alvoDeEventos({
     Storage,
-    localStorage: new Storage(cota),
+    localStorage,
     sessionStorage: new Storage(),
     document,
     setTimeout: relogio.setTimeout,
