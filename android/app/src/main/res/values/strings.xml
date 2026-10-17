@@ -8,7 +8,9 @@
     <string name="custom_url_scheme">br.com.gridco.campo</string>
 
     <!--
-      Os diálogos da casca. Vão ao campo: os textos são os aprovados para a prévia do Levi; não mude sem nova prévia.
+      Os diálogos da casca. Vão ao campo, e os textos estão PENDENTES de aprovação do Levi na prévia
+      (docs/previas/telas.html). Quando ele aprovar, esta nota passa a dizer "aprovados", com a data; daí em diante
+      não se muda texto sem nova prévia.
     -->
 
     <!-- Primeira abertura: pede a câmera e a localização precisa. -->
@@ -33,7 +35,7 @@
     <string name="casca_webview_abrir_loja">Abrir a Play Store</string>
 
     <!--
-      A atualização da casca (spec, seção 7). Mesma regra: texto aprovado na prévia, não mude sem nova prévia.
+      A atualização da casca (spec, seção 7). Mesma regra: texto PENDENTE de aprovação do Levi na prévia.
       O texto da versão leva o versionName e uma linha "- item" por novidade do versao.json; o "_simples" é o caso de
       uma Release sem nenhuma novidade (não aparece "Novidades:" com a lista vazia).
     -->

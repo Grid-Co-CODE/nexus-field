@@ -1,140 +1,163 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Prévia das telas novas</title>
-  <style>
-    /* Prévia para aprovar os textos e o visual das telas novas da casca antes de irem ao campo. Fora do APK: nada daqui
-       é empacotado. Os textos são cópia do strings.xml, do erro.html e do inicio.js, e o testes/previas.test.mjs falha se
-       um deles mudar e esta página ficar para trás. Autocontida: sem CDN, sem fonte nem imagem de fora, sem script. */
+<title>Telas novas do App de Campo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Prévia para aprovar os textos e o visual das telas novas da casca antes de irem ao campo. Fora do APK: nada daqui
+     é empacotado. Os textos são cópia do strings.xml, do erro.html, do inicio.js e do campo.html, e o
+     testes/previas.test.mjs falha se um deles mudar e esta página ficar para trás. Autocontida: sem CDN, sem fonte nem
+     imagem de fora, sem script.
 
-    /* Cores só por token. A página: */
-    :root {
-      --fundo:#f3f4f7;
-      --superficie:#ffffff;
-      --texto:#14181d;
-      --texto-suave:#48505e;
-      --borda:#d5d9e1;
-      --destaque:#0b6b3a;
-      --sobre-destaque:#ffffff;
-      --moldura:#20232b;
-      --sombra:rgba(20, 24, 29, 0.22);
+     É uma página de Artifact (página privada do claude.ai): o publicador a embrulha, por isso o arquivo não tem doctype,
+     html, head nem body. O gutter lateral fica no envoltório .pagina, com a área segura do aparelho.
 
-      /* A tela do App de Campo atrás dos avisos: o fundo do erro.html e blocos só para dar volume (sem texto). */
-      --app-fundo:#191528;
-      --app-barra:#2a2440;
-      --app-bloco:#2a2440;
-      --veu:rgba(0, 0, 0, 0.6);
+     Cores só por token, definidos no :root (claro) e redefinidos no escuro pelos dois caminhos do contrato: o do sistema
+     e o data-theme="dark". As únicas cores por extenso fora daqui são cópias fiéis do aplicativo: o estilo inline da
+     camada do Fracttal (o inicio.js) e o HTML dentro dos iframes (o erro.html e o campo.html). */
 
-      /* O diálogo do Android (AppCompat DayNight, tema do template do Capacitor), com o aparelho no tema claro. As
-         medidas e as cores vêm dos recursos do AppCompat: fundo flutuante branco, texto primário 87% preto, botão na
-         cor de destaque padrão (verde-azulado), canto de 2dp. */
-      --dlg-fundo:#ffffff;
-      --dlg-texto:#212121;
-      --dlg-botao:#008577;
-      --dlg-sombra:0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14), 0 9px 46px 8px rgba(0, 0, 0, 0.12);
-      --toast-fundo:#323232;
-      --toast-texto:#ffffff;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --fundo:#0f1218;
-        --superficie:#181c24;
-        --texto:#e8ebf1;
-        --texto-suave:#a9b1c0;
-        --borda:#2c3340;
-        --destaque:#5fd08d;
-        --sobre-destaque:#0b1a12;
-        --moldura:#3a404d;
-        --sombra:rgba(0, 0, 0, 0.6);
-      }
-    }
-    /* O tema do aparelho é escolha de quem confere, à parte do tema da página: o diálogo segue o tema do celular. */
-    :root:has(#ap-escuro:checked) {
-      --dlg-fundo:#424242;
-      --dlg-texto:#ffffff;
-      --dlg-botao:#80cbc4;
-    }
+  /* A página, no tema claro: */
+  :root {
+    color-scheme: light;
+    --fundo:#f3f4f7;
+    --superficie:#ffffff;
+    --texto:#14181d;
+    --texto-suave:#48505e;
+    --borda:#d5d9e1;
+    --destaque:#0b6b3a;
+    --moldura:#20232b;
+    --sombra:rgba(20, 24, 29, 0.22);
 
-    * { box-sizing:border-box; }
-    html { background:var(--fundo); }
-    body {
-      margin:0; padding:32px 16px 72px; background:var(--fundo); color:var(--texto);
-      font:16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    }
-    main { max-width:1240px; margin:0 auto; }
-    h1 { margin:0 0 8px; font-size:28px; line-height:1.2; }
-    h2 { margin:0 0 4px; font-size:22px; line-height:1.3; }
-    p { margin:0 0 12px; }
-    .suave { color:var(--texto-suave); }
-    .intro { max-width:72ch; }
-    a { color:var(--destaque); }
-    a:focus-visible, input:focus-visible { outline:3px solid var(--destaque); outline-offset:2px; }
+    /* A tela do App de Campo atrás dos avisos: o fundo do erro.html e blocos só para dar volume (sem texto). */
+    --app-fundo:#191528;
+    --app-barra:#2a2440;
+    --app-bloco:#2a2440;
+    --veu:rgba(0, 0, 0, 0.6);
 
-    .cartao { background:var(--superficie); border:1px solid var(--borda); border-radius:12px; padding:16px 20px; }
-    .aprovar { margin:24px 0; }
-    .aprovar ul { list-style:none; margin:12px 0 0; padding:0; }
-    .aprovar li { display:flex; align-items:flex-start; gap:12px; padding:8px 0; border-top:1px solid var(--borda); }
-    .aprovar li:first-child { border-top:0; }
-    .aprovar input { flex:none; width:20px; height:20px; margin:3px 0 0; accent-color:var(--destaque); }
-    .aprovar label { flex:1 1 auto; min-width:0; }
-    .aprovar .ver { flex:none; font-size:14px; padding-top:2px; }
-    .cita { font-weight:700; }
+    /* O diálogo do Android (AppCompat DayNight, tema do template do Capacitor), com o aparelho no tema claro. As
+       medidas e as cores vêm dos recursos do AppCompat: fundo flutuante branco, texto primário 87% preto, botão na
+       cor de destaque padrão (verde-azulado), canto de 2dp. */
+    --dlg-fundo:#ffffff;
+    --dlg-texto:#212121;
+    --dlg-botao:#008577;
+    --dlg-sombra:0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14), 0 9px 46px 8px rgba(0, 0, 0, 0.12);
+    --toast-fundo:#323232;
+    --toast-texto:#ffffff;
+  }
+  /* A página, no escuro: pelo sistema, a menos que a página peça o claro... */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --fundo:#0f1218;
+      --superficie:#181c24;
+      --texto:#e8ebf1;
+      --texto-suave:#a9b1c0;
+      --borda:#2c3340;
+      --destaque:#5fd08d;
+      --moldura:#3a404d;
+      --sombra:rgba(0, 0, 0, 0.6);
+    }
+  }
+  /* ... ou quando o publicador pede o escuro. Os mesmos valores do bloco de cima. */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --fundo:#0f1218;
+    --superficie:#181c24;
+    --texto:#e8ebf1;
+    --texto-suave:#a9b1c0;
+    --borda:#2c3340;
+    --destaque:#5fd08d;
+    --moldura:#3a404d;
+    --sombra:rgba(0, 0, 0, 0.6);
+  }
+  /* O tema do aparelho é escolha de quem confere, à parte do tema da página: o diálogo segue o tema do celular. */
+  :root:has(#ap-escuro:checked) {
+    --dlg-fundo:#424242;
+    --dlg-texto:#ffffff;
+    --dlg-botao:#80cbc4;
+  }
 
-    .aparelho { margin:0 0 8px; padding:0; border:0; display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; }
-    .aparelho legend { float:left; padding:0; margin-right:16px; font-weight:600; }
-    .aparelho label { display:inline-flex; align-items:center; gap:8px; min-height:44px; }
-    .aparelho input { width:20px; height:20px; margin:0; accent-color:var(--destaque); }
+  * { box-sizing:border-box; }
+  html { background:var(--fundo); }
+  body {
+    margin:0; background:var(--fundo); color:var(--texto);
+    font:16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .pagina {
+    padding-block:32px 72px;
+    padding-left:max(16px, env(safe-area-inset-left, 0px));
+    padding-right:max(16px, env(safe-area-inset-right, 0px));
+  }
+  main { max-width:1240px; margin:0 auto; }
+  h1 { margin:0 0 8px; font-size:28px; line-height:1.2; }
+  h2 { margin:0 0 4px; font-size:22px; line-height:1.3; }
+  p { margin:0 0 12px; }
+  .suave { color:var(--texto-suave); }
+  .intro { max-width:72ch; }
+  a { color:var(--destaque); }
+  a:focus-visible, input:focus-visible { outline:3px solid var(--destaque); outline-offset:2px; }
 
-    .grupo { margin:40px 0 0; }
-    .galeria {
-      display:grid; gap:40px 24px; margin-top:20px; align-items:start;
-      grid-template-columns:repeat(auto-fill, minmax(min(100%, 380px), 1fr));
-    }
-    .item { margin:0; min-width:0; scroll-margin-top:16px; }
-    .item figcaption { width:min(360px, 100%); margin:20px auto 0; font-size:15px; color:var(--texto-suave); }
-    .item figcaption strong { color:var(--texto); }
+  .cartao { background:var(--superficie); border:1px solid var(--borda); border-radius:12px; padding:16px 20px; }
+  .aprovar { margin:24px 0; }
+  .aprovar ul { list-style:none; margin:12px 0 0; padding:0; }
+  .aprovar li { display:flex; align-items:center; gap:12px; padding:8px 0; border-top:1px solid var(--borda); }
+  .aprovar li:first-child { border-top:0; }
+  .aprovar input { flex:none; width:20px; height:20px; margin:0; accent-color:var(--destaque); }
+  .aprovar label { flex:1 1 auto; min-width:0; }
+  /* Alvo de toque de 44 px: o link é curto e fica no canto da linha, onde o dedo erra fácil. */
+  .aprovar .ver { flex:none; display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; font-size:14px; }
+  .cita { font-weight:700; }
 
-    /* A moldura de 360 px. O transform faz dela o bloco de contenção do que é position:fixed, e é assim que a camada do
-       Fracttal, com o estilo inline do inicio.js sem mudar uma vírgula, cobre o celular e não a página. */
-    .celular {
-      position:relative; width:min(360px, 100%); height:640px; margin:0 auto; overflow:hidden;
-      border-radius:24px; background:var(--app-fundo);
-      box-shadow:0 0 0 8px var(--moldura), 0 14px 32px var(--sombra);
-      transform:translateZ(0);
-    }
-    .app-falso { position:absolute; top:0; right:0; bottom:0; left:0; display:flex; flex-direction:column; gap:12px; padding:0 16px; }
-    .app-falso i { display:block; flex:none; height:72px; border-radius:12px; background:var(--app-bloco); }
-    .app-falso .barra { height:56px; margin:0 -16px 4px; border-radius:0; background:var(--app-barra); }
-    .app-falso .alto { height:152px; }
-    .veu { position:absolute; top:0; right:0; bottom:0; left:0; display:flex; align-items:center; justify-content:center; background:var(--veu); }
+  .aparelho { margin:0 0 8px; padding:0; border:0; display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; }
+  .aparelho legend { float:left; padding:0; margin-right:16px; font-weight:600; }
+  .aparelho label { display:inline-flex; align-items:center; gap:8px; min-height:44px; }
+  .aparelho input { width:20px; height:20px; margin:0; accent-color:var(--destaque); }
 
-    .dialogo {
-      width:95%; padding:18px 0 8px; border-radius:2px; background:var(--dlg-fundo); box-shadow:var(--dlg-sombra);
-      color:var(--dlg-texto); font-family:Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
-    }
-    .dialogo-titulo { padding:0 24px 20px; font-size:20px; font-weight:500; line-height:1.3; }
-    .dialogo-texto { margin:0; padding:0 24px 24px; font-size:16px; line-height:1.5; white-space:pre-line; }
-    .dialogo-botoes { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:0 4px; padding:0 8px; }
-    .dialogo-botao {
-      display:inline-flex; align-items:center; min-height:48px; padding:0 8px; color:var(--dlg-botao);
-      font-size:14px; font-weight:500; letter-spacing:0.09em; text-transform:uppercase;
-    }
-    .toast {
-      position:absolute; left:50%; bottom:56px; width:max-content; max-width:calc(100% - 48px); transform:translateX(-50%);
-      padding:12px 24px; border-radius:24px; background:var(--toast-fundo); color:var(--toast-texto);
-      font:14px/1.4 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; text-align:center;
-    }
-    .celular iframe { display:block; width:100%; height:100%; border:0; background:var(--app-fundo); }
-    .celular iframe#erro-html { position:absolute; top:0; left:0; }
-  </style>
-</head>
-<body>
+  .grupo { margin:40px 0 0; }
+  .galeria {
+    display:grid; gap:40px 24px; margin-top:20px; align-items:start;
+    grid-template-columns:repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  }
+  .item { margin:0; min-width:0; scroll-margin-top:16px; }
+  .item figcaption { width:min(360px, 100%); margin:20px auto 0; font-size:15px; color:var(--texto-suave); }
+  .item figcaption strong { color:var(--texto); }
+
+  /* A moldura de 360 px. O transform faz dela o bloco de contenção do que é position:fixed, e é assim que a camada do
+     Fracttal, com o estilo inline do inicio.js sem mudar uma vírgula, cobre o celular e não a página. */
+  .celular {
+    position:relative; width:min(360px, 100%); height:640px; margin:0 auto; overflow:hidden;
+    border-radius:24px; background:var(--app-fundo);
+    box-shadow:0 0 0 8px var(--moldura), 0 14px 32px var(--sombra);
+    transform:translateZ(0);
+  }
+  .app-falso { position:absolute; top:0; right:0; bottom:0; left:0; display:flex; flex-direction:column; gap:12px; padding:0 16px; }
+  .app-falso i { display:block; flex:none; height:72px; border-radius:12px; background:var(--app-bloco); }
+  .app-falso .barra { height:56px; margin:0 -16px 4px; border-radius:0; background:var(--app-barra); }
+  .app-falso .alto { height:152px; }
+  .veu { position:absolute; top:0; right:0; bottom:0; left:0; display:flex; align-items:center; justify-content:center; background:var(--veu); }
+
+  .dialogo {
+    width:95%; padding:18px 0 8px; border-radius:2px; background:var(--dlg-fundo); box-shadow:var(--dlg-sombra);
+    color:var(--dlg-texto); font-family:Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .dialogo-titulo { padding:0 24px 20px; font-size:20px; font-weight:500; line-height:1.3; }
+  .dialogo-texto { margin:0; padding:0 24px 24px; font-size:16px; line-height:1.5; white-space:pre-line; }
+  .dialogo-botoes { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:0 4px; padding:0 8px; }
+  .dialogo-botao {
+    display:inline-flex; align-items:center; min-height:48px; padding:0 8px; color:var(--dlg-botao);
+    font-size:14px; font-weight:500; letter-spacing:0.09em; text-transform:uppercase;
+  }
+  .toast {
+    position:absolute; left:50%; bottom:56px; width:max-content; max-width:calc(100% - 48px); transform:translateX(-50%);
+    padding:12px 24px; border-radius:24px; background:var(--toast-fundo); color:var(--toast-texto);
+    font:14px/1.4 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; text-align:center;
+  }
+  /* Só o iframe do erro.html é dimensionado por esta folha. O da camada do Fracttal fica só com o estilo inline que o
+     inicio.js declara: uma regra aqui, como a de um "iframe" qualquer, mudaria o que o aparelho mostra. */
+  #erro-html { display:block; position:absolute; top:0; left:0; width:100%; height:100%; border:0; background:var(--app-fundo); }
+</style>
+<div class="pagina" lang="pt-BR">
 <main>
   <header>
     <h1>Prévia das telas novas da casca</h1>
-    <p class="intro suave">Os avisos que a casca Android do App de Campo acrescenta, para aprovar os textos e o visual antes de irem ao campo. Cada moldura tem 360 px, a largura de um celular comum. Os textos são os do aplicativo (strings.xml, erro.html e inicio.js); um teste confere que esta página e o aplicativo dizem o mesmo. Se algo mudar, muda no aplicativo e a página acompanha.</p>
+    <p class="intro suave">Os avisos que a casca Android do App de Campo acrescenta, para aprovar os textos e o visual antes de irem ao campo. Cada moldura tem 360 px, a largura de um celular comum. Os textos são os do aplicativo (strings.xml, erro.html e inicio.js) e, no aviso do Fracttal, os que a página do App escreve (campo.html); um teste confere que esta página e o aplicativo dizem o mesmo. Se algo mudar, muda no aplicativo e a página acompanha.</p>
     <p class="intro suave">O desenho dos diálogos é uma aproximação do Android: o que se aprova são os textos, os botões e quando cada aviso aparece. O aspecto exato varia um pouco com a versão do Android.</p>
   </header>
 
@@ -170,9 +193,9 @@
         <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Antes de começar">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
-            <div class="dialogo" role="alertdialog">
-              <div class="dialogo-titulo">Antes de começar</div>
-              <p class="dialogo-texto">O App de Campo usa a câmera para as fotos das OS e das rondas, e a localização precisa para registrar onde o serviço começou e terminou.</p>
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-antes" aria-describedby="dx-antes">
+              <div class="dialogo-titulo" id="dt-antes">Antes de começar</div>
+              <p class="dialogo-texto" id="dx-antes">O App de Campo usa a câmera para as fotos das OS e das rondas, e a localização precisa para registrar onde o serviço começou e terminou.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Continuar</span></div>
             </div>
           </div>
@@ -184,9 +207,9 @@
         <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Localização precisa desligada">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
-            <div class="dialogo" role="alertdialog">
-              <div class="dialogo-titulo">Localização precisa desligada</div>
-              <p class="dialogo-texto">Com a localização aproximada, a posição vem com erro de quilômetros e o App não consegue registrar o início e o fim do serviço. Nos ajustes, toque em Permissões &gt; Localização e ligue Usar localização precisa.</p>
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-aproximada" aria-describedby="dx-aproximada">
+              <div class="dialogo-titulo" id="dt-aproximada">Localização precisa desligada</div>
+              <p class="dialogo-texto" id="dx-aproximada">Com a localização aproximada, a posição vem com erro de quilômetros e o App não consegue registrar o início e o fim do serviço. Nos ajustes, toque em Permissões &gt; Localização e ligue Usar localização precisa.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Agora não</span><span class="dialogo-botao">Abrir ajustes</span></div>
             </div>
           </div>
@@ -198,9 +221,9 @@
         <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Permissões necessárias">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
-            <div class="dialogo" role="alertdialog">
-              <div class="dialogo-titulo">Permissões necessárias</div>
-              <p class="dialogo-texto">Sem a câmera e a localização, o App não consegue registrar as OS. Nos ajustes, toque em Permissões e libere Câmera e Localização.</p>
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-negadas" aria-describedby="dx-negadas">
+              <div class="dialogo-titulo" id="dt-negadas">Permissões necessárias</div>
+              <p class="dialogo-texto" id="dx-negadas">Sem a câmera e a localização, o App não consegue registrar as OS. Nos ajustes, toque em Permissões e libere Câmera e Localização.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Agora não</span><span class="dialogo-botao">Abrir ajustes</span></div>
             </div>
           </div>
@@ -212,9 +235,9 @@
         <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Atualize o Android System WebView">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
-            <div class="dialogo" role="alertdialog">
-              <div class="dialogo-titulo">Atualize o Android System WebView</div>
-              <p class="dialogo-texto">O App de Campo precisa de uma versão mais nova do componente que mostra as telas. Atualize o Android System WebView na Play Store e abra o App de novo.</p>
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-webview" aria-describedby="dx-webview">
+              <div class="dialogo-titulo" id="dt-webview">Atualize o Android System WebView</div>
+              <p class="dialogo-texto" id="dx-webview">O App de Campo precisa de uma versão mais nova do componente que mostra as telas. Atualize o Android System WebView na Play Store e abra o App de novo.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Abrir a Play Store</span></div>
             </div>
           </div>
@@ -234,9 +257,9 @@
         <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Nova versão do App de Campo, com novidades">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
-            <div class="dialogo" role="alertdialog">
-              <div class="dialogo-titulo">Nova versão do App de Campo</div>
-              <p class="dialogo-texto">Versão 1.2.0. Novidades:
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-nova-com" aria-describedby="dx-nova-com">
+              <div class="dialogo-titulo" id="dt-nova-com">Nova versão do App de Campo</div>
+              <p class="dialogo-texto" id="dx-nova-com">Versão 1.2.0. Novidades:
 - Melhorias de estabilidade
 - Ajuste no envio das fotos</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Depois</span><span class="dialogo-botao">Atualizar agora</span></div>
@@ -250,9 +273,9 @@
         <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Nova versão do App de Campo, sem novidades">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
-            <div class="dialogo" role="alertdialog">
-              <div class="dialogo-titulo">Nova versão do App de Campo</div>
-              <p class="dialogo-texto">Versão 1.2.0.</p>
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-nova-sem" aria-describedby="dx-nova-sem">
+              <div class="dialogo-titulo" id="dt-nova-sem">Nova versão do App de Campo</div>
+              <p class="dialogo-texto" id="dx-nova-sem">Versão 1.2.0.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Depois</span><span class="dialogo-botao">Atualizar agora</span></div>
             </div>
           </div>
@@ -264,9 +287,9 @@
         <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Permitir a atualização">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
-            <div class="dialogo" role="alertdialog">
-              <div class="dialogo-titulo">Permitir a atualização</div>
-              <p class="dialogo-texto">Para instalar a versão nova, libere Instalar apps desconhecidos para o App de Campo e volte para cá.</p>
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-instalar" aria-describedby="dx-instalar">
+              <div class="dialogo-titulo" id="dt-instalar">Permitir a atualização</div>
+              <p class="dialogo-texto" id="dx-instalar">Para instalar a versão nova, libere Instalar apps desconhecidos para o App de Campo e volte para cá.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Abrir ajustes</span></div>
             </div>
           </div>
@@ -277,9 +300,9 @@
       <figure class="item" id="t-sha">
         <div class="celular" role="group" aria-label="Tela do aparelho com o aviso rápido do arquivo que não confere">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
-          <div class="toast" role="status">Não consegui conferir o arquivo da atualização. Tento de novo mais tarde.</div>
+          <div class="toast" role="status" aria-labelledby="sha-nome">Não consegui conferir o arquivo da atualização. Tento de novo mais tarde.</div>
         </div>
-        <figcaption><strong>Aviso rápido (toast).</strong> Aparece embaixo da tela por alguns segundos, sem botão, quando o arquivo baixado não bate com o SHA-256 da Release. O arquivo é apagado e não é instalado.</figcaption>
+        <figcaption><strong id="sha-nome">Aviso rápido (toast).</strong> Aparece embaixo da tela por alguns segundos, sem botão, quando o arquivo baixado não bate com o SHA-256 da Release. O arquivo é apagado e não é instalado.</figcaption>
       </figure>
 
     </div>
@@ -343,13 +366,15 @@
       <figure class="item" id="t-fracttal">
         <div class="celular" role="group" aria-label="Tela do aparelho com o aviso do Fracttal por cima do App">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
-          <div id="gc-casca-aviso" role="dialog" aria-modal="true" aria-label="Aviso" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;margin:0;padding:16px;box-sizing:border-box;background:rgba(0,0,0,0.6)"><div style="display:flex;flex-direction:column;width:100%;max-width:560px;height:100%;max-height:640px;margin:0;padding:0;box-sizing:border-box;overflow:hidden;border-radius:12px;background:#ffffff;color:#14181d;box-shadow:0 8px 32px rgba(0,0,0,0.35)"><iframe sandbox="" title="Aviso" style="display:block;flex:1 1 auto;width:100%;min-height:0;margin:0;padding:0;border:0;background:#ffffff" srcdoc="<meta charset=&quot;utf-8&quot;><title>Conectar Fracttal</title><div style=&quot;font-family:sans-serif;padding:24px&quot;><h2 style=&quot;margin:0 0 12px&quot;>Sua sessão da Microsoft expirou</h2><p>Entre de novo com a sua conta da Microsoft no App e toque outra vez em Conectar conta Fracttal.</p></div>"></iframe><button type="button" style="display:block;flex:0 0 auto;width:100%;min-height:52px;margin:0;padding:14px 16px;box-sizing:border-box;border:0;border-top:1px solid #e5e7eb;border-radius:0;background:#f3f4f6;color:#14181d;font:600 16px/1.2 system-ui,-apple-system,sans-serif;cursor:pointer">Fechar</button></div></div>
+          <!-- No aparelho a camada é modal (aria-modal="true"). Nesta página estática um aria-modal ativo esconderia o
+               resto da página da acessibilidade (leitor de tela, lista de elementos), por isso a prévia usa "false"; é a
+               única diferença em relação ao que o inicio.js monta, e o teste a normaliza antes de comparar. -->
+          <div id="gc-casca-aviso" role="dialog" aria-modal="false" aria-label="Aviso" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;margin:0;padding:16px;box-sizing:border-box;background:rgba(0,0,0,0.6)"><div style="display:flex;flex-direction:column;width:100%;max-width:560px;height:100%;max-height:640px;margin:0;padding:0;box-sizing:border-box;overflow:hidden;border-radius:12px;background:#ffffff;color:#14181d;box-shadow:0 8px 32px rgba(0,0,0,0.35)"><iframe sandbox="" title="Aviso" style="display:block;flex:1 1 auto;width:100%;min-height:0;margin:0;padding:0;border:0;background:#ffffff" srcdoc="<meta charset=&quot;utf-8&quot;><meta name=&quot;viewport&quot; content=&quot;width=device-width,initial-scale=1&quot;><title>Conectar Fracttal</title><div style=&quot;font:15px/1.55 -apple-system,system-ui,sans-serif;padding:26px 22px;max-width:34em;color:#14181d&quot;><h2 style=&quot;font-size:19px;margin:0 0 12px;line-height:1.3&quot;>Sua sessão da Microsoft expirou</h2><p>Para reconectar o Fracttal, o app precisa primeiro que você <b>entre de novo com a conta Microsoft</b>. Isso não apaga nada do que você já registrou.</p><p style=&quot;background:#f3f4f6;border-radius:10px;padding:13px 15px&quot;><b>O que fazer:</b><br>1. Volte para o app<br>2. Toque no seu nome, no topo<br>3. Toque em <b>Sair</b><br>4. Entre de novo com <b>o mesmo e-mail</b><br>5. Aí sim, toque em Conectar conta Fracttal</p><p style=&quot;margin-top:22px;color:#6b7280;font-size:13px&quot;>Pode fechar esta aba.</p></div>"></iframe><button type="button" style="display:block;flex:0 0 auto;width:100%;min-height:52px;margin:0;padding:14px 16px;box-sizing:border-box;border:0;border-top:1px solid #e5e7eb;border-radius:0;background:#f3f4f6;color:#14181d;font:600 16px/1.2 system-ui,-apple-system,sans-serif;cursor:pointer">Fechar</button></div></div>
         </div>
-        <figcaption><strong>Aviso do Fracttal.</strong> Aparece quando o Conectar conta Fracttal escreve uma explicação em vez de abrir o Fracttal, por exemplo quando a sessão da Microsoft expirou. É o estilo e o botão do inicio.js sem mudar nada; o texto de dentro é HTML da página do App, e este é de exemplo. Fechar tira a camada.</figcaption>
+        <figcaption><strong>Aviso do Fracttal.</strong> Aparece quando o Conectar conta Fracttal escreve uma explicação em vez de abrir o Fracttal, por exemplo quando a sessão da Microsoft expirou. A camada (o estilo e o botão Fechar) é a do inicio.js, sem mudar nada além do aria-modal. O texto de dentro é o que o campo.html escreve na aba nesse caso (função conectarFracttal, no App v282, lido em 17/10/2026); no aparelho vem da página do App, e pode mudar com ela. Fechar tira a camada.</figcaption>
       </figure>
 
     </div>
   </section>
 </main>
-</body>
-</html>
+</div>

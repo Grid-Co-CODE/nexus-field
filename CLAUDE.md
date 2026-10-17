@@ -141,8 +141,8 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
     nem reabre o instalador.
   - O `cache/atualizacao/` é limpo a cada checagem de 6 h (sobra da versão instalada, diálogo fechado) e, antes do
     instalador, fica só o APK novo. O `confere` lê em pedaços de 64 KB.
-  - Os textos estão no `strings.xml` (`casca_atualizacao_*`, `casca_instalar_*`), aprovados na prévia. O
-    `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) não estava no brief original.
+  - Os textos estão no `strings.xml` (`casca_atualizacao_*`, `casca_instalar_*`), PENDENTES de aprovação do
+    Levi na prévia. O `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) não estava no brief original.
   - Não há aviso durante o download (o brief não prevê texto para isso).
   - Do `Atualizador` testa-se em JVM o fluxo inteiro com rede, telas e relógio falsos (`AtualizadorTest`); os diálogos de
     verdade e o instalador do sistema só se veem no aparelho. **Os dois testes que passam pelo `FileProvider` são pulados no
@@ -150,11 +150,28 @@ nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por
     (autoridade, uma pasta só, não exportado) é conferida em Node, no `testes/configuracao.test.mjs`.
 - **A prévia das telas novas** (`docs/previas/telas.html`, fora do APK): uma página só, autocontida, com os diálogos do
   `strings.xml`, o toast, o `www/erro.html` num iframe e a camada do Fracttal, cada um numa moldura de 360 px, para o Levi
-  aprovar texto e visual antes de ir ao campo. O texto aprovado vive no arquivo-fonte, não na prévia: pedido de mudança
-  se faz no `strings.xml`, no `erro.html` ou no `inicio.js` e a prévia acompanha. O `testes/previas.test.mjs` falha se um
-  texto de diálogo da prévia não existir no `strings.xml` (ou o contrário), se o `srcdoc` do erro não for o `erro.html`
-  inteiro (copie o arquivo trocando `"` por `&quot;`) ou se a camada do Fracttal não for igual à que o `inicio.js` monta
-  (o estilo inline é o do aparelho; a moldura tem `transform` para a `position:fixed` da camada cobrir só o celular).
-  O desenho dos diálogos (AppCompat DayNight: fundo branco ou `#424242`, canto de 2 dp, botão verde-azulado) é aproximação:
-  o que se aprova é texto, botão e quando cada aviso aparece.
+  aprovar texto e visual antes de ir ao campo. **Os textos estão PENDENTES de aprovação do Levi** (a página é publicada
+  como Artifact privado do claude.ai e ele aprova por lá); quando ele aprovar, esta frase e os cabeçalhos do
+  `strings.xml` passam a dizer "aprovados", com a data. O texto vive no arquivo-fonte, não na prévia: pedido de mudança
+  se faz no `strings.xml`, no `erro.html` ou no `inicio.js` e a prévia acompanha.
+  - O `testes/previas.test.mjs` falha se um diálogo da prévia não for um grupo do `strings.xml` (título, texto e botões
+    no conjunto e na ordem do aplicativo: negativo à esquerda, positivo à direita, como a `MainActivity`, o `CascaPlugin`
+    e o `Atualizador` os montam; o teste lê os `AlertDialog.Builder` do Java), se uma string da casca ficar sem quadro, se
+    as novidades não forem uma linha `- item` cada, se o `srcdoc` do erro não for o `erro.html` inteiro (copie o arquivo
+    escapando `&` como `&amp;` e `"` como `&quot;`, nessa ordem) ou se a camada do Fracttal não for igual à que o
+    `inicio.js` monta (o estilo inline é o do aparelho; a moldura tem `transform` para a `position:fixed` da camada
+    cobrir só o celular). A única diferença aceita é o `aria-modal="false"` da prévia: numa página estática um
+    `aria-modal` ativo esconderia o resto da página da acessibilidade.
+  - O HTML de dentro da camada do Fracttal é o que o `campo.html` escreve na aba quando a sessão da Microsoft expirou
+    (`conectarFracttal`/`naAba`, App v282, lido em 17/10/2026), não um exemplo inventado; a legenda diz de onde veio. O
+    `campo.html` mora fora deste repositório: se o App mudar o texto, atualize a cópia e a versão da legenda.
+  - Contrato da página do Artifact: o arquivo não tem `doctype`, `html`, `head` nem `body` (o publicador embrulha),
+    abre com `<title>`, `<meta name="claude:viewport-fit-sides" content="cover">` e `<style>`, leva o gutter lateral
+    num envoltório (`.pagina`, com `env(safe-area-inset-*)`), sem script nem recurso externo. Toda cor da página é token
+    no `:root` (claro), redefinido no escuro por `@media (prefers-color-scheme: dark)` com
+    `:root:not([data-theme="light"])` e por `:root[data-theme="dark"]`, com os mesmos valores; token sem uso sai. As
+    cores por extenso que restam estão dentro das cópias fiéis do aplicativo (o estilo da camada e os iframes). O teste
+    confere tudo isso, e que nenhuma regra da folha alcança o iframe da camada (só o `#erro-html` é dimensionado por ela).
+  - O desenho dos diálogos (AppCompat DayNight: fundo branco ou `#424242`, canto de 2 dp, botão verde-azulado) é
+    aproximação: o que se aprova é texto, botão e quando cada aviso aparece.
 - A splash e o resto do nativo vêm nas tarefas seguintes do plano.
