@@ -147,14 +147,25 @@ function arquivosVersionados() {
 //     e-mail): em qualquer lugar;
 //   - o primeiro nome sozinho, só onde parece gente: com maiúscula, depois de artigo ou preposição ("o X preenche", "no
 //     celular do X", "para o X aprovar") e sem dígito ou hífen logo depois. O que esta regra não pega, a revisão pega.
-// Fica de fora o registro datado do desenho e do plano (docs/superpowers/), que o dono assina como responsável: como o
-// histórico do git, não se reescreve. Conta automática (nome com "[bot]") e as do próprio GitHub não são gente.
+// Ficam de fora, pelo caminho exato, só o desenho e o plano datados de 16/10 (FORA_DA_VARREDURA_DE_NOMES), que trazem o
+// dono como responsável; a lista não cresce sozinha, e entrada cujo arquivo saiu do git faz o teste falhar. Conta
+// automática (nome com "[bot]") e as do próprio GitHub não são gente.
 
 const PARTICULAS = new Set(['de', 'da', 'do', 'das', 'dos', 'di', 'du', 'del', 'van', 'von']);
 const SEPARADOR = '[\\s._-]+';
 const ANTES_DE_GENTE = /(?:^|[\s("'])(?:o|a|do|da|pelo|pela|ao|à|com o|com a|que o|que a|para o|para a)\s+$/i;
 const CONTAS_QUE_NAO_SAO_GENTE = new Set(['github', 'copilot', 'claude', 'dependabot']);
-const FORA_DA_VARREDURA_DE_NOMES = 'docs/superpowers/';
+// Pelo caminho exato, nunca pela pasta: com o prefixo `docs/superpowers/`, todo desenho ou plano novo gravado ali (o
+// lugar padrão deles) nunca seria varrido. Arquivo novo nessa pasta passa pela varredura como qualquer outro.
+const FORA_DA_VARREDURA_DE_NOMES = new Set([
+  'docs/superpowers/specs/2026-10-16-app-campo-android-design.md',
+  'docs/superpowers/plans/2026-10-16-app-campo-android.md',
+]);
+
+/** Se o caminho versionado (como o `git ls-files` o escreve) fica fora da varredura de nomes. */
+export function foraDaVarreduraDeNomes(caminho) {
+  return FORA_DA_VARREDURA_DE_NOMES.has(caminho);
+}
 
 const semAcento = (s) => s.normalize('NFKD').replace(/[̀-ͯ]/g, '');
 const escaparRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -217,6 +228,22 @@ test('o detector de nome acha o nome inteiro em qualquer lugar e o primeiro nome
   assert.deepEqual(padroesDeNomes([]), { inteiro: null, primeiro: null });
 });
 
+test('fora da varredura de nomes ficam só os dois arquivos datados, e arquivo novo em docs/superpowers/ é varrido', () => {
+  for (const caminho of [
+    'docs/superpowers/specs/2026-10-16-app-campo-android-design.md',
+    'docs/superpowers/plans/2026-10-16-app-campo-android.md',
+  ]) {
+    assert.equal(foraDaVarreduraDeNomes(caminho), true, caminho);
+  }
+  for (const caminho of [
+    'docs/superpowers/specs/2026-11-01-outro-design.md', 'docs/superpowers/plans/2026-11-01-outro.md',
+    'docs/superpowers/notas.md', 'docs/superpowers/specs/2026-10-16-app-campo-android-design.md.bak',
+    'docs/superpowers/plans/', 'docs/prova-no-aparelho.md', 'CLAUDE.md',
+  ]) {
+    assert.equal(foraDaVarreduraDeNomes(caminho), false, caminho);
+  }
+});
+
 function autoresDoGit() {
   const r = spawnSync('git', ['log', '--format=%an'], { cwd: raiz, encoding: 'utf8' });
   assert.equal(r.status, 0, `o git log falhou: ${r.stderr}`);
@@ -229,9 +256,14 @@ test('nenhum arquivo versionado cita pelo nome quem trabalha no repositório (os
     t.skip('o git log não tem autor que seja gente');
     return;
   }
+  const arquivos = arquivosVersionados();
+  // A exceção é de arquivo que existe: renomeado ou apagado, a entrada sai da lista (e o renomeado é varrido).
+  for (const caminho of FORA_DA_VARREDURA_DE_NOMES) {
+    assert.ok(arquivos.includes(caminho), `${caminho} está fora da varredura de nomes, mas não é mais versionado`);
+  }
   const problemas = [];
-  for (const caminho of arquivosVersionados()) {
-    if (caminho.startsWith(FORA_DA_VARREDURA_DE_NOMES) || BINARIOS.has(extname(caminho).toLowerCase())) continue;
+  for (const caminho of arquivos) {
+    if (foraDaVarreduraDeNomes(caminho) || BINARIOS.has(extname(caminho).toLowerCase())) continue;
     let texto;
     try { texto = readFileSync(join(raiz, caminho), 'utf8'); } catch { continue; /* apagado e não commitado */ }
     if (texto.slice(0, 8000).includes('\0')) continue;

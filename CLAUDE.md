@@ -52,9 +52,10 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   telefone, CPF, nome na pasta do usuário (`C:/Users/<nome>`) e o nome de quem trabalha no repositório: a lista sai dos
   autores do `git log`, só na memória (como o teste do Nexus faz com o cadastro), e conta o nome inteiro em qualquer
   lugar e o primeiro nome com maiúscula depois de artigo ou preposição ("o X preenche", "do X"). Caso que o criou: o
-  roteiro da prova dizia quem preenche o usuário de teste e de quem era o celular. Fica de fora o `docs/superpowers/`
-  (o desenho e o plano datados, que o dono assina como responsável; como o histórico do git, não se reescreve). Nome de
-  colega que não é autor do git ele não acha: isso segue na revisão.
+  roteiro da prova dizia quem preenche o usuário de teste e de quem era o celular. Ficam de fora só o desenho e o plano
+  datados de 16/10, pelo caminho exato (`FORA_DA_VARREDURA_DE_NOMES`), porque ainda trazem o dono como responsável;
+  nunca a pasta: desenho ou plano novo em `docs/superpowers/` é varrido, e entrada da lista cujo arquivo saiu do git faz
+  o teste falhar. Nome de colega que não é autor do git ele não acha: isso segue na revisão.
 - A chave de assinatura e as senhas nunca são impressas em terminal, log ou commit.
 - O repositório continua PÚBLICO e em `Grid-Co-CODE/app-campo-android`: o app lê a `releases/latest/download/` sem
   autenticação, e o `VersaoRemota` só aceita APK desse endereço. Privado ou movido, o app fica sem atualização em silêncio.
