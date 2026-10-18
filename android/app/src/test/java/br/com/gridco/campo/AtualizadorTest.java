@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -33,6 +34,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
+import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.shadows.ShadowLog;
@@ -94,8 +96,10 @@ public class AtualizadorTest {
         }
     };
 
+    private boolean depuracao;
+
     private Atualizador novo() {
-        return new Atualizador(prefs, pasta, versaoAtual, agora::get, rede, telas, direto, dono);
+        return new Atualizador(prefs, pasta, versaoAtual, agora::get, rede, telas, direto, dono, depuracao);
     }
 
     @After
@@ -287,7 +291,7 @@ public class AtualizadorTest {
         novo().verificar();
         assertEquals(1, rede.leituras);
         assertEquals(0, telas.ofertas.size());
-        assertEquals(0, telas.avisosDeSha);
+        assertEquals(0, telas.avisosDeFalha);
         assertEquals(agora.get(), prefs.getLong("ultima_checagem_ms", -1));
         assertNull("o fluxo termina", dono.get());
 
@@ -349,7 +353,7 @@ public class AtualizadorTest {
         File apk = telas.instalados.get(0);
         assertEquals(new File(pasta, "app-campo.apk"), apk);
         assertArrayEquals(bytes("abc"), Files.readAllBytes(apk.toPath()));
-        assertEquals(0, telas.avisosDeSha);
+        assertEquals(0, telas.avisosDeFalha);
         assertEquals(0, telas.pedidosDePermissao);
         assertNull(dono.get());
     }
@@ -360,7 +364,7 @@ public class AtualizadorTest {
         telas.resposta = Resposta.ACEITAR;
         novo().verificar();
         assertEquals(1, rede.downloads);
-        assertEquals(1, telas.avisosDeSha);
+        assertEquals(1, telas.avisosDeFalha);
         assertEquals(0, telas.instalados.size());
         assertEquals(0, telas.pedidosDePermissao);
         assertFalse(new File(pasta, "app-campo.apk").exists());
@@ -368,13 +372,14 @@ public class AtualizadorTest {
     }
 
     @Test
-    public void falhaNoDownloadApagaOParcialEFicaEmSilencio() {
+    public void falhaNoDownloadApagaOParcialEAvisa() {
+        // A pessoa tocou em "Atualizar agora" e viu o "Baixando": o download que cai não pode terminar em silêncio.
         rede.falhaAoBaixar = new IOException("caiu");
         telas.resposta = Resposta.ACEITAR;
         novo().verificar();
         assertEquals(1, rede.downloads);
         assertFalse("o pedaço baixado não fica", new File(pasta, "app-campo.apk").exists());
-        assertEquals(0, telas.avisosDeSha);
+        assertEquals(1, telas.avisosDeFalha);
         assertEquals(0, telas.instalados.size());
         assertEquals(0, telas.pedidosDePermissao);
         assertNull(dono.get());
@@ -424,7 +429,7 @@ public class AtualizadorTest {
         novo().verificar(); // continua sem permissão
         assertEquals(0, telas.instalados.size());
         assertEquals("não pergunta de novo a cada volta ao app", 1, telas.pedidosDePermissao);
-        assertEquals(0, telas.avisosDeSha);
+        assertEquals(0, telas.avisosDeFalha);
 
         telas.pode = true; // liberou depois, por fora: a pendência já foi dada como desistida
         novo().verificar();
@@ -460,7 +465,7 @@ public class AtualizadorTest {
         telas.pode = true;
         novo().verificar();
         assertEquals(0, telas.instalados.size());
-        assertEquals(0, telas.avisosDeSha);
+        assertEquals(0, telas.avisosDeFalha);
     }
 
     @Test
@@ -472,7 +477,7 @@ public class AtualizadorTest {
         novo().verificar();
         assertEquals(0, telas.instalados.size());
         assertFalse("não fica APK que não bate", apk.exists());
-        assertEquals(0, telas.avisosDeSha);
+        assertEquals(0, telas.avisosDeFalha);
     }
 
     /** O APK baixado e conferido, sem a permissão, e a pessoa tocou em "Abrir ajustes". */
@@ -555,14 +560,14 @@ public class AtualizadorTest {
         novo().verificar();
         assertEquals(1, rede.downloads);
         assertEquals(0, telas.instalados.size());
-        assertEquals(0, telas.avisosDeSha);
+        assertEquals("o erro antes do instalador também avisa", 1, telas.avisosDeFalha);
         assertNull(dono.get());
     }
 
     @Test
     public void executorQueRecusaNaoPrendeOFluxo() {
         Executor recusa = tarefa -> { throw new RejectedExecutionException("encerrado"); };
-        new Atualizador(prefs, pasta, versaoAtual, agora::get, rede, telas, recusa, dono).verificar();
+        new Atualizador(prefs, pasta, versaoAtual, agora::get, rede, telas, recusa, dono, false).verificar();
         assertNull(dono.get());
         assertEquals(0, rede.leituras);
     }
@@ -613,6 +618,144 @@ public class AtualizadorTest {
         }
     }
 
+    // ---------------------------------------------------------------- o aviso do download e a tela no fundo
+
+    @Test
+    public void atualizarAgoraAvisaQueEstaBaixandoAntesDoDownload() {
+        telas.resposta = Resposta.ACEITAR;
+        novo().verificar();
+        assertEquals(1, telas.avisosDeBaixando);
+        assertEquals(Arrays.asList("oferta", "baixando", "download", "instalar"), telas.eventos);
+        assertEquals(0, telas.avisosDeFalha);
+    }
+
+    @Test
+    public void depoisNaoAvisaQueEstaBaixando() {
+        telas.resposta = Resposta.ADIAR;
+        novo().verificar();
+        assertEquals(0, telas.avisosDeBaixando);
+    }
+
+    @Test
+    public void shaErradoAvisaUmaVezSo() {
+        rede.json = json(12, "1.2.0", APK_CERTO, SHA_ABD, "x");
+        telas.resposta = Resposta.ACEITAR;
+        novo().verificar();
+        assertEquals(1, telas.avisosDeBaixando);
+        assertEquals(1, telas.avisosDeFalha);
+    }
+
+    @Test
+    public void downloadQueTerminaComATelaNoFundoInstalaNoProximoResume() throws IOException {
+        // O técnico foi a outro app enquanto baixava: o Android 10+ bloqueia em silêncio a tela aberta do fundo.
+        telas.naFrente = false;
+        telas.resposta = Resposta.ACEITAR;
+        novo().verificar();
+        assertEquals(0, telas.instalados.size());
+        assertEquals(1, telas.instalacoesNoFundo);
+        assertNull("o fluxo solta: quem segue é o resume", dono.get());
+        assertTrue("o APK conferido fica no cache", new File(pasta, "app-campo.apk").isFile());
+        assertEquals("tela no fundo não é falha", 0, telas.avisosDeFalha);
+
+        // Volta ao app (outro processo, se o Android o matou): abre o instalador sem baixar nem ler o versao.json.
+        telas.naFrente = true;
+        agora.addAndGet(UMA_HORA_MS);
+        novo().verificar();
+        assertEquals(1, telas.instalados.size());
+        assertArrayEquals(bytes("abc"), Files.readAllBytes(telas.instalados.get(0).toPath()));
+        assertEquals(1, rede.downloads);
+        assertEquals(1, rede.leituras);
+
+        // Uma tentativa: o resume seguinte (a câmera, o instalador que a pessoa cancelou) não reabre.
+        novo().verificar();
+        assertEquals(1, telas.instalados.size());
+    }
+
+    @Test
+    public void aRetomadaQueCaiNoFundoDeNovoGuardaOPrazoDaPrimeira() {
+        telas.naFrente = false;
+        telas.resposta = Resposta.ACEITAR;
+        novo().verificar(); // baixou às 0 h, tela no fundo
+        agora.addAndGet(5 * UMA_HORA_MS);
+        novo().verificar(); // 5 h: retoma, e a tela foi para o fundo de novo antes do instalador
+        assertEquals(2, telas.instalacoesNoFundo);
+        agora.addAndGet(UMA_HORA_MS);
+        telas.naFrente = true;
+        telas.resposta = Resposta.ADIAR;
+        novo().verificar(); // 6 h depois do download: o prazo é contado da primeira vez, e a pendência venceu
+        assertEquals(0, telas.instalados.size());
+    }
+
+    @Test
+    public void aPendenciaDaPermissaoVenceEmSeisHoras() {
+        deixarPendente();
+        telas.pode = true;
+        agora.addAndGet(SEIS_HORAS_MS);
+        telas.resposta = Resposta.ADIAR;
+        novo().verificar();
+        assertEquals("passadas as 6 h, a pendência não abre o instalador", 0, telas.instalados.size());
+        // E não sobra: a checagem normal (as 6 h também passaram) segue, oferece de novo e limpa o cache.
+        assertEquals(2, rede.leituras);
+        assertEquals(2, telas.ofertas.size());
+        assertFalse(new File(pasta, "app-campo.apk").exists());
+        novo().verificar();
+        assertEquals(0, telas.instalados.size());
+    }
+
+    @Test
+    public void aPendenciaDaPermissaoValeAteUmMsAntesDasSeisHoras() {
+        deixarPendente();
+        telas.pode = true;
+        agora.addAndGet(SEIS_HORAS_MS - 1);
+        novo().verificar();
+        assertEquals(1, telas.instalados.size());
+    }
+
+    @Test
+    public void prazoDaPendencia() {
+        long t = 1_800_000_000_000L;
+        assertTrue(Atualizador.pendenciaValida(t, t));
+        assertTrue(Atualizador.pendenciaValida(t + SEIS_HORAS_MS - 1, t));
+        assertFalse(Atualizador.pendenciaValida(t + SEIS_HORAS_MS, t));
+        assertFalse("o relógio que voltou não deixa a pendência valer para sempre", Atualizador.pendenciaValida(t - 1, t));
+        assertFalse("pendência sem a hora (de uma versão anterior)", Atualizador.pendenciaValida(t, 0));
+    }
+
+    @Test
+    public void pendenciaSemAHoraNaoInstala() throws IOException {
+        // A pendência gravada sem a hora (uma versão de teste anterior da casca) não tem como provar que é recente.
+        assertTrue(pasta.mkdirs());
+        Files.write(new File(pasta, "app-campo.apk").toPath(), bytes("abc"));
+        prefs.edit().putInt("pendente_codigo", 12).putString("pendente_sha256", SHA_ABC).commit();
+        telas.resposta = Resposta.ADIAR;
+        novo().verificar();
+        assertEquals(0, telas.instalados.size());
+    }
+
+    // ---------------------------------------------------------------- o build de depuração
+
+    @Test
+    public void oBuildDeDepuracaoNaoOfereceARelease() {
+        // O APK de depuração tem outra assinatura: o instalador recusaria a Release por cima, e o reflexo de desinstalar
+        // apagaria o espelho. Ele nem lê o versao.json.
+        depuracao = true;
+        telas.resposta = Resposta.ACEITAR;
+        novo().verificar();
+        assertEquals(0, rede.leituras);
+        assertEquals(0, telas.ofertas.size());
+        assertNull(dono.get());
+        assertEquals("nem grava a hora da checagem", -1, prefs.getLong("ultima_checagem_ms", -1));
+    }
+
+    @Test
+    public void aTelaDeVerdadeLevaODebugDoBuild() {
+        Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
+        Atualizador a = new Atualizador(activity);
+        // No testDebugUnitTest (o que o CI roda) o DEBUG é verdadeiro, e a tela que ignorasse o build daria falso aqui;
+        // num teste do release os dois são falsos, e o teste continua valendo.
+        assertEquals(BuildConfig.DEBUG, a.depuracao());
+    }
+
     // ---------------------------------------------------------------- textos e instalador
 
     @Test
@@ -627,6 +770,7 @@ public class AtualizadorTest {
         assertEquals("Abrir ajustes", c.getString(R.string.casca_abrir_ajustes));
         assertEquals("Não consegui conferir o arquivo da atualização. Tento de novo mais tarde.",
             c.getString(R.string.casca_atualizacao_sha_toast));
+        assertEquals("Baixando a versão nova…", c.getString(R.string.casca_atualizacao_baixando));
     }
 
     @Test
@@ -730,7 +874,7 @@ public class AtualizadorTest {
     private enum Resposta { NADA, ACEITAR, ADIAR }
 
     /** A rede: devolve o que o teste pôs, grava o "APK" no destino e conta os pedidos. Nunca abre soquete. */
-    private static final class RedeFalsa implements Atualizador.Rede {
+    private final class RedeFalsa implements Atualizador.Rede {
         String json;
         byte[] apk;
         IOException falhaAoLer;
@@ -754,6 +898,7 @@ public class AtualizadorTest {
         public void baixar(String url, File destino) throws IOException {
             downloads++;
             ultimaUrl = url;
+            telas.eventos.add("download");
             if (erroInesperadoAoBaixar != null) throw erroInesperadoAoBaixar;
             // Sem a pasta criada por quem baixa isto falha, como o FileOutputStream de verdade.
             Files.write(destino.toPath(), falhaAoBaixar == null ? apk : bytes("so o comeco"));
@@ -766,11 +911,15 @@ public class AtualizadorTest {
     private static final class TelasFalsas implements Atualizador.Telas {
         boolean pode = true;
         boolean ajustesAbrem = true;
+        boolean naFrente = true;
+        int avisosDeBaixando;
+        int instalacoesNoFundo;
+        final List<String> eventos = new ArrayList<>();
         Resposta resposta = Resposta.NADA;
         final List<VersaoRemota> ofertas = new ArrayList<>();
         final List<File> instalados = new ArrayList<>();
         List<String> nomesNaPastaAoInstalar;
-        int avisosDeSha;
+        int avisosDeFalha;
         int pedidosDePermissao;
         int ajustesAbertos;
         boolean encerrou;
@@ -786,6 +935,7 @@ public class AtualizadorTest {
         @Override
         public void oferecer(VersaoRemota v, Runnable aceitou, Runnable adiou) {
             ofertas.add(v);
+            eventos.add("oferta");
             this.aceitou = aceitou;
             this.adiou = adiou;
             if (resposta == Resposta.ACEITAR) aceitou.run();
@@ -793,8 +943,14 @@ public class AtualizadorTest {
         }
 
         @Override
-        public void avisarSha() {
-            avisosDeSha++;
+        public void avisarBaixando() {
+            avisosDeBaixando++;
+            eventos.add("baixando");
+        }
+
+        @Override
+        public void avisarFalha() {
+            avisosDeFalha++;
         }
 
         @Override
@@ -815,7 +971,13 @@ public class AtualizadorTest {
         }
 
         @Override
-        public void instalar(File apk) {
+        public void instalar(File apk, Runnable foraDaFrente) {
+            if (!naFrente) {
+                instalacoesNoFundo++;
+                foraDaFrente.run();
+                return;
+            }
+            eventos.add("instalar");
             instalados.add(apk);
             String[] nomes = apk.getParentFile().list();
             Arrays.sort(nomes);

@@ -2,7 +2,7 @@
 // e o visual por ela; se a prévia e o aparelho divergirem, a aprovação vale para uma tela que não existe. Por isso a
 // prévia não é conferida "por olho": ela é lida contra as fontes do que vai ao aparelho.
 //   1. cada diálogo da prévia é um grupo do strings.xml (título, texto, botões no conjunto e na ordem em que a
-//      MainActivity, o CascaPlugin e o Atualizador os montam), e o toast é o do strings.xml;
+//      MainActivity, o CascaPlugin e o Atualizador os montam), e cada toast é um do strings.xml que o Java mostra;
 //   2. a tela de erro é o www/erro.html, byte a byte (a prévia o embute num iframe);
 //   3. a camada do Fracttal é a que o www/casca/inicio.js monta de verdade, com o HTML que o campo.html escreve na aba.
 // Quando o Levi pedir outro texto, o arquivo-fonte muda (strings.xml, erro.html ou inicio.js) e a prévia acompanha; este
@@ -70,7 +70,8 @@ const DIALOGOS = [
     botoes: ['casca_atualizacao_depois', 'casca_atualizacao_atualizar'] },
   { titulo: 'casca_instalar_titulo', textos: ['casca_instalar_texto'], botoes: ['casca_abrir_ajustes'] },
 ];
-const TOAST = 'casca_atualizacao_sha_toast';
+// Os toasts, na ordem da prévia: o do download que começou e o da atualização que não deu certo.
+const TOASTS = ['casca_atualizacao_baixando', 'casca_atualizacao_sha_toast'];
 
 // Os botões de cada AlertDialog.Builder do código Java, "negativo>positivo" (ou só o positivo): é como o aplicativo os
 // monta de verdade. Vai até o primeiro .show() ou .create() da cadeia (as lambdas dos botões não têm nenhum dos dois).
@@ -90,6 +91,16 @@ function paresDeBotoesDoJava() {
     }
   }
   return pares;
+}
+
+// As strings que o Java mostra num Toast.makeText(..., R.string.x, ...): o toast que o aplicativo mostra de verdade.
+function toastsDoJava() {
+  const nomes = [];
+  for (const arquivo of readdirSync(new URL(PASTA_JAVA, import.meta.url)).filter((n) => n.endsWith('.java'))) {
+    const fonte = lerArquivo(PASTA_JAVA + arquivo);
+    for (const m of fonte.matchAll(/Toast\.makeText\([^;]*?R\.string\.(\w+)/g)) nomes.push(m[1]);
+  }
+  return nomes;
 }
 
 // Lê a folha de estilo da página sem depender do CSSOM do jsdom (que descarta o que não entende): regra a regra, com o
@@ -164,11 +175,17 @@ test('cada quadro de diálogo é um grupo do strings.xml: título, texto e os bo
   }
 
   const toasts = [...d.querySelectorAll('.celular .toast')].map((t) => compactar(t.textContent));
-  assert.deepEqual(toasts, [textoDe(TOAST)], 'o toast da prévia é o do strings.xml');
+  assert.deepEqual(toasts, TOASTS.map(textoDe), 'os toasts da prévia são os do strings.xml, na ordem');
+});
+
+test('cada toast da prévia é um que o Java mostra, e todo toast do Java tem quadro', () => {
+  const doJava = toastsDoJava();
+  assert.ok(doJava.length >= 2, 'o teste achou os toasts do Atualizador');
+  assert.deepEqual([...new Set(doJava)].sort(), [...TOASTS].sort());
 });
 
 test('nenhuma string da casca fica sem quadro, e a tabela do teste não cita string que não existe', () => {
-  const citadas = new Set([TOAST, ...DIALOGOS.flatMap((g) => [g.titulo, ...g.textos, ...g.botoes])]);
+  const citadas = new Set([...TOASTS, ...DIALOGOS.flatMap((g) => [g.titulo, ...g.textos, ...g.botoes])]);
   const existentes = new Set(stringsDaCasca().map((s) => s.nome));
   for (const nome of existentes) assert.ok(citadas.has(nome), `${nome} está no strings.xml e não tem quadro na prévia`);
   for (const nome of citadas) assert.ok(existentes.has(nome), `${nome} está na tabela do teste e não existe no strings.xml`);

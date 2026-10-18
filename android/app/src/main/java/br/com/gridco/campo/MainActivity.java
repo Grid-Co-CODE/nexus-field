@@ -50,8 +50,15 @@ public class MainActivity extends BridgeActivity {
         // espelho, e a janela do Fracttal apagaria a tela sem nada guardado. O Bridge nasce sem server.url e carrega a
         // página local; o plugin mostra o aviso, que não fecha.
         boolean webViewAntiga = !CascaPlugin.webViewTemOQueACascaPrecisa();
-        if (webViewAntiga) config = configSemOApp(this);
+        // Só no build de depuração (no release a Depuracao é vazia e devolve false): a prova da restauração abre sem o
+        // App, apaga o armazenamento da WebView e recria a tela (docs/prova-no-aparelho.md).
+        boolean apagarWebView = !webViewAntiga && Depuracao.pedeApagarWebView(getIntent(), savedInstanceState);
+        if (webViewAntiga || apagarWebView) config = configSemOApp(this);
         super.onCreate(savedInstanceState);
+        if (apagarWebView) {
+            Depuracao.apagarWebView(this);
+            return;
+        }
         // Com estado salvo é a mesma partida voltando (a tela recriada depois do renderer que morreu, ou o processo
         // restaurado): o técnico já viu o pedido nesta partida, e ele volta na próxima abertura se ainda faltar.
         if (savedInstanceState == null && !webViewAntiga) primeiraAbertura();

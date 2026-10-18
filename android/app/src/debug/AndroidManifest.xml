@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SÓ NO BUILD DE DEPURAÇÃO (src/debug): mesclado ao manifesto principal, põe no ícone o atalho da prova da restauração
+  (res/xml/atalhos_depuracao.xml, docs/prova-no-aparelho.md). O release não tem este arquivo, e o
+  testes/depuracao.test.mjs confere que o atalho e o extra não aparecem no código que vai ao release.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name=".MainActivity">
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/atalhos_depuracao" />
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SÓ NO BUILD DE DEPURAÇÃO (src/debug). O atalho do ícone (tocar e segurar o ícone do App) que abre a tela com o extra
+  gc_apagar_webview: a prova da restauração (spec 10.3) sem o cabo USB e sem o shell do adb, que a regra do aparelho
+  pessoal não permite. O android:value="true" é compilado como booleano (o DepuracaoTest lê este arquivo como o
+  Android lê e confere que a Depuracao aceita o intent). O targetPackage é o applicationId do build.gradle e muda junto
+  com ele (o testes/depuracao.test.mjs compara os dois). Os atalhos existem do Android 7.1 (API 25) em diante; no 7.0 o
+  launcher ignora o arquivo, daí o tools:targetApi.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:targetApi="25">
+    <shortcut
+        android:shortcutId="prova_apagar_webview"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/depuracao_atalho_apagar"
+        android:shortcutLongLabel="@string/depuracao_atalho_apagar_longo">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="br.com.gridco.campo"
+            android:targetClass="br.com.gridco.campo.MainActivity">
+            <extra
+                android:name="gc_apagar_webview"
+                android:value="true" />
+        </intent>
+    </shortcut>
+</shortcuts>

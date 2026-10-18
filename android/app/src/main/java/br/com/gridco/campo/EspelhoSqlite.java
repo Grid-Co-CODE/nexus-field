@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiPredicate;
 import java.util.regex.Pattern;
 
 /**
@@ -37,7 +38,10 @@ import java.util.regex.Pattern;
  *   <li>Nada de nome de chave nem de valor em log ou em mensagem de exceção: as chaves do localStorage têm e-mail do
  *       técnico. O log só tem contagem.</li>
  *   <li>Só a identidade (gc_campo_ident) é cifrada; o resto do localStorage é rascunho e cache. Se a cifra falhar ao
- *       gravar, a exceção sobe e a identidade NÃO é gravada em claro como plano B.</li>
+ *       gravar, a exceção sobe, a identidade NÃO é gravada em claro como plano B, e a versão anterior sai do banco
+ *       (uma restauração devolveria a identidade velha com a fila nova; no aparelho dividido entre técnicos, isso troca
+ *       a autoria). A que a chave de agora nunca mais lê ({@link Cifra.Ilegivel}) também sai, na primeira leitura; a
+ *       página a regrava no próximo login.</li>
  *   <li>Valor lido em pedaços de 512 KB: o CursorWindow do Android recusa uma linha de mais de ~2 MB, e uma chave do
  *       localStorage (o limite é 5 MB) pode passar disso. Sem isso, um valor grande derrubaria a restauração inteira.</li>
  *   <li>Os métodos são sincronizados: o canal do WebView entrega as mensagens fora da thread principal.</li>
@@ -131,7 +135,12 @@ public class EspelhoSqlite implements ArmazemEspelho {
         byte[] valor;
         int cifrado = 0;
         if (CHAVE_IDENT.equals(k)) {
-            valor = cifra.cifrar(v);
+            try {
+                valor = cifra.cifrar(v);
+            } catch (RuntimeException e) {
+                db.execSQL("DELETE FROM ls WHERE chave = ?", new Object[] {k});
+                throw e;
+            }
             cifrado = 1;
         } else {
             valor = v.getBytes(StandardCharsets.UTF_8);
@@ -215,20 +224,27 @@ public class EspelhoSqlite implements ArmazemEspelho {
         }
         Map<String, String> saida = new LinkedHashMap<>();
         int ilegiveis = 0;
+        int foraDoAr = 0;
         for (Map.Entry<String, Boolean> linha : linhas.entrySet()) {
             byte[] valor = lerEmPedacos(db, "ls", "chave", linha.getKey(), "valor");
             if (valor == null) valor = new byte[0]; // a linha existe: valor NULL é o texto vazio
             if (linha.getValue()) {
                 try {
                     saida.put(linha.getKey(), cifra.decifrar(valor));
+                } catch (Cifra.Ilegivel e) {
+                    // A chave de agora nunca vai ler isto (a do Keystore foi refeita, ou o dado se corrompeu): sai do
+                    // banco, e o resto do retrato segue.
+                    db.execSQL("DELETE FROM ls WHERE chave = ?", new Object[] {linha.getKey()});
+                    ilegiveis++;
                 } catch (RuntimeException e) {
-                    ilegiveis++; // a chave do Keystore se perdeu ou o dado está corrompido: fica de fora, o resto sai
+                    foraDoAr++; // o Keystore não respondeu agora: fica de fora deste retrato e guardado para o próximo
                 }
             } else {
                 saida.put(linha.getKey(), new String(valor, StandardCharsets.UTF_8));
             }
         }
-        if (ilegiveis > 0) Log.w(TAG, ilegiveis + " valor(es) cifrado(s) ilegível(is) ficou(aram) de fora do retrato");
+        if (ilegiveis > 0) Log.w(TAG, ilegiveis + " valor(es) cifrado(s) ilegível(is) apagado(s) do espelho");
+        if (foraDoAr > 0) Log.w(TAG, foraDoAr + " valor(es) cifrado(s) ficou(aram) de fora do retrato (Keystore)");
         return saida;
     }
 
@@ -293,8 +309,10 @@ public class EspelhoSqlite implements ArmazemEspelho {
         if (ultimo) concluirRemessa(id, parte, remessa);
     }
 
-    // O último pedaço chegou e todos vieram na ordem: a parte vira o arquivo da entrada e a linha é gravada, juntas
-    // (se uma falhar, a outra desfaz). O nome é o sha1 da chave, então regravar a mesma chave troca o arquivo.
+    // O último pedaço chegou e todos vieram na ordem: a parte vira o arquivo da entrada e a linha é gravada. O nome é o
+    // sha1 da chave, então regravar a mesma chave troca o arquivo (ver trocarArquivo). A linha vai numa transação que só
+    // confirma se a troca deu certo; o arquivo não volta atrás: se a troca falhar depois de o antigo ter sido apagado
+    // (só no caminho do "apaga e repete"), a linha antiga fica sem arquivo e sai do retrato até a página mandar de novo.
     private void concluirRemessa(String id, File parte, Remessa remessa) {
         String nome = sha1(remessa.chave) + ".bin";
         File destino = new File(pastaIdb, nome);
@@ -303,17 +321,28 @@ public class EspelhoSqlite implements ArmazemEspelho {
         try {
             db.execSQL("INSERT OR REPLACE INTO idb (chave, tipo, texto, arquivo, mime) VALUES (?, 'blob', NULL, ?, ?)",
                 new Object[] {remessa.chave, nome, remessa.mime});
-            // Fora do Android (o JVM do teste no Windows) o renameTo não troca um arquivo que já existe.
-            if (destino.exists() && !destino.delete()) {
-                throw new IllegalStateException("não foi possível trocar o arquivo do blob");
-            }
-            if (!parte.renameTo(destino)) throw new IllegalStateException("não foi possível mover o blob para o espelho");
+            trocarArquivo(parte, destino, File::renameTo);
             db.setTransactionSuccessful();
         } finally {
             db.endTransaction();
             emAndamento.remove(id);
             parte.delete(); // sobra só se algo falhou; depois do rename não há mais o que apagar
         }
+    }
+
+    /**
+     * Põe a parte no lugar do arquivo do blob. Primeiro o rename direto: no Android ele é o rename(2), que troca o
+     * arquivo antigo de uma vez, e o processo que morre no meio deixa o antigo ou o novo, nunca nenhum. Só se ele falhar
+     * (o JVM do Windows, no teste, não troca um arquivo que já existe) o antigo é apagado e o rename repetido. Apagar
+     * antes, como era, abria a janela em que o espelho não tinha cópia nenhuma daquele blob. O mover é o File::renameTo;
+     * o teste passa outro.
+     */
+    static void trocarArquivo(File parte, File destino, BiPredicate<File, File> mover) {
+        if (mover.test(parte, destino)) return;
+        if (destino.exists() && !destino.delete()) {
+            throw new IllegalStateException("não foi possível trocar o arquivo do blob");
+        }
+        if (!mover.test(parte, destino)) throw new IllegalStateException("não foi possível mover o blob para o espelho");
     }
 
     private void descartarRemessa(String id) {

@@ -21,7 +21,9 @@ O `lint` sai sem erro (os avisos que restam são do template e das versões). O 
 `:` escapado (`C\:/Users/...`): sem o escape o lint falha com PropertyEscape, mesmo o Gradle lendo o caminho certo.
 
 O APK de depuração sai em `android/app/build/outputs/apk/debug/app-debug.apk`. Não há emulador nesta máquina, e
-nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por link ou arquivo, pelo próprio dono.
+nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por link ou arquivo, pelo próprio dono. O
+roteiro da prova no aparelho é o `docs/prova-no-aparelho.md` (caixas de seleção; quase tudo se faz sem o cabo). O APK de
+depuração nunca vai a técnico: no campo, só o da Release.
 
 O que o GitHub Actions roda (`.github/workflows/`): em todo push e PR, o `npm test`, o `testDebugUnitTest assembleDebug lint`
 e o APK de depuração como artifact (`montar.yml`); em tag `v*`, a Release assinada; todo dia às 11h UTC, o contrato com o
@@ -73,6 +75,12 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   `br.com.gridco.campo.arquivos` (classe `ArquivosProvider`, caminhos em `caminhos_arquivos.xml`) é só do instalador da
   atualização e expõe apenas `cache/atualizacao/`. A subclasse é prevenção: o AGP 8.13.0 aceitou os dois com a mesma
   classe no mesmo arquivo (medido em 16/10/2026), mas para o sistema o `android:name` repetido é o mesmo componente.
+- **As fotos da reserva da câmera têm faxina** (`FaxinaDaCamera`, chamada uma vez por processo pelo `CascaPlugin`, na
+  thread do espelho): o `BridgeWebChromeClient` grava cada foto do `<input capture>` num `JPEG_*.jpg` em
+  `getExternalFilesDir(Pictures)` (ou no cache, sem armazenamento externo) e nunca apaga. Eram MB por foto para sempre,
+  legíveis por outro app no Android 7 a 10, e o disco cheio é o que faz o Chromium despejar o armazenamento da WebView.
+  Sai o que tem mais de 48 h (a página já copiou a foto para o IndexedDB): na pasta das fotos, todo arquivo; no cache,
+  só o `JPEG_*.jpg` da raiz (lá moram a WebView e o instalador). O arquivo "do futuro" (a hora voltou) fica.
 - **`regras_dados.xml` exclui todos os domínios** nos dois blocos, porque a exclusão vale só para o domínio citado.
 - **Ícone:** gerado do `icon-512.png` do site (`/api/icon-512.png`). O adaptativo tem fundo `#191528`, e o logo ocupa 60%
   da tela de 108dp (a zona segura do sistema é 66dp); os `ic_launcher*.png` antigos são o quadrado e o redondo do
@@ -92,10 +100,21 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   - Blob só vira entrada no último pedaço (`i == n-1`) com todos na ordem; sequência quebrada é descartada. O `id` vira
     nome de arquivo e só aceita `[A-Za-z0-9_-]`. O arquivo do blob é `idb/<sha1 da chave>.bin`, nunca a chave. Parte com
     mais de 24 h é apagada na abertura. Blob sem o arquivo no disco não aparece em `idbChaves()` nem em `paraCadaIdb`.
+  - A parte vira o arquivo do blob pelo rename direto (`trocarArquivo`): no Android é o rename(2), que troca o antigo de
+    uma vez, e o processo que morre no meio deixa o antigo ou o novo. Só se ele falhar (o JVM do Windows, no teste, não
+    troca arquivo que existe) o antigo é apagado e o rename repetido. Apagar antes, como era, abria a janela em que o
+    espelho não tinha cópia nenhuma do blob. O arquivo não volta atrás com a transação da linha.
   - `gc_campo_ident` vai cifrada (`CifraKeystore`: `[tamanho do IV][IV][texto + etiqueta]`, AES/GCM, alias
-    `gc_casca_ident`); se a cifra falhar, a identidade NÃO é gravada em claro. O AndroidKeyStore não roda no JVM do teste:
-    o formato é provado com chave de software (`CifraKeystoreTest`) e o resto dos testes usa a `CifraFalsa`. Gerar a chave
-    no Keystore de verdade só se vê no aparelho.
+    `gc_casca_ident`); se a cifra falhar, a identidade NÃO é gravada em claro, e a versão anterior sai do banco antes de
+    a exceção subir (uma restauração devolveria a identidade velha com a fila nova: no aparelho dividido entre técnicos,
+    troca a autoria). O que a chave de agora nunca vai ler (`Cifra.Ilegivel`: etiqueta que não confere, formato torto)
+    sai do banco na primeira leitura; o Keystore que não respondeu agora (`IllegalStateException` comum) deixa a linha
+    para o próximo retrato. A chave que o Keystore passa a recusar no init (`InvalidKeyException`, `ProviderException`:
+    o defeito pós-atualização de sistema de alguns fabricantes) é apagada do cofre e refeita UMA vez por processo; o
+    que a velha cifrou fica ilegível e sai, e a página regrava a identidade no próximo login. O AndroidKeyStore não roda
+    no JVM do teste: o formato e a chave refeita são provados com chave de software (`CifraKeystoreTest`; a chave AES
+    de 5 bytes faz o papel da recusada) e o resto dos testes usa a `CifraFalsa` (`falharAoCifrar`, `falharAoDecifrar`,
+    `keystoreFora`). Gerar e refazer a chave no Keystore de verdade só se vê no aparelho.
   - `Retrato.completo(armazem, motivo)` só aceita `'perda'` ou `'fila'` e lança nos outros: quem chama valida o pedido.
 - **O plugin e o canal** (`CascaPlugin`, `Mensageiro`; `MainActivity` registra o plugin antes do `super.onCreate`):
   - No Capacitor 8.5.3 o `load()` dos plugins roda no construtor do `Bridge`, antes do `loadWebView` (o primeiro
@@ -103,7 +122,14 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     `WebViewListener` logo depois do construtor, e o que um plugin puser nela dentro do `load()` some sem aviso. Por isso
     o ouvinte (renderer que morre, histórico depois do login) entra por um `post` na thread de UI.
   - Tudo que mexe no espelho roda numa thread só (`GcCasca-espelho`), na ordem em que a página mandou; o que mexe na
-    WebView volta para a de UI. O `EspelhoSqlite` é um por processo: a tela recriada (renderer que morreu) reaproveita.
+    WebView volta para a de UI. O `EspelhoSqlite` e a thread são um por processo (estáticos no plugin), e a thread não é
+    desligada quando a tela sai: com uma por plugin, a da tela velha ainda esvaziava a fila dela enquanto a nova começava,
+    e mensagens da página velha caíam depois das da nova. O que a tela que saiu deixou na fila é gravado; o `encerrado`
+    impede que algo novo dela entre ou volte à WebView.
+  - **O renderer que morre** recria a tela (sem isso o Android derruba o app), no máximo 3 vezes em 60 s por processo
+    (`TetoDeRecriacao`, no `elapsedRealtime`; a recusada não ocupa a janela). Passado o teto, a tela recriada carrega a
+    página de erro local (`bridge.getErrorUrl()`, o `www/erro.html`) logo depois do `load()`, e o "Tentar de novo" dela
+    abre o App pela mão do técnico: o renderer que morria sempre na carga fazia a tela piscar para sempre, sem mensagem.
   - Todo `precisoRetrato` recarrega a página (ela parou e espera): com motivo `perda` ou `fila`, um retrato completo de
     id novo; com motivo torto, o sem conferência (o `tratar` devolve false, mas recarrega). O disjuntor deixa 2
     completos em 60 s POR PROCESSO (`Mensageiro.Disjuntor`, estático no plugin, como o espelho): o renderer que morre na
@@ -138,8 +164,9 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     liga ANTES dos plugins, e o `loadWebView` não mexe mais nele) e mostra o aviso, que não fecha. Sem a primeira
     abertura (permissões) nesse caso.
   - Do `CascaPlugin` e do `MainActivity` só as regras puras têm teste de JVM (`navegacaoParaOLog`, o endereço no log de
-    depuração; `avisoDepoisDoPedido`; `configSemOApp`). O resto (WebView de verdade, diálogos) é conferido pela
-    montagem e pela prova no aparelho.
+    depuração; `avisoDepoisDoPedido`; `configSemOApp`; a thread do espelho única; e as classes separadas para isso:
+    `Voltar`, `TetoDeRecriacao`, `FaxinaDaCamera`). O resto (WebView de verdade, o gesto do voltar, diálogos, a ligação
+    de cada regra no plugin) é conferido pela montagem e pela prova no aparelho.
   - O AGP 8 não gera o `BuildConfig` sem `buildFeatures.buildConfig` (o user agent e o `DEBUG` vêm dele), e o
     `androidx.webkit` entra no app de novo porque o `capacitor-android` o tem só como `implementation`.
 - **O script de início e a restauração** (`www/casca/inicio.js`; os testes são `testes/restaurar-ls.test.mjs` e
@@ -184,6 +211,15 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   camada de baixo no lugar da de cima. O `sheetTask` é um `let` de topo do site, que não vira propriedade da janela: é
   lido pelo nome (o teste prova num jsdom que roda o script e a página como scripts de verdade). Se o site adotar o
   histórico (pushState ao abrir camada), a seção sai e o nativo passa ao `goBack()`.
+- **O voltar do Android, do lado nativo** (`Voltar`, ligado pelo `CascaPlugin` no começo do `load()`, também com a
+  WebView antiga): um `OnBackPressedCallback` do androidx.activity, que cobre o voltar preditivo do targetSdk 36
+  (sobrescrever o `onBackPressed` não cobriria). Com a página do App aberta (a URL na origem do `server.url` e o caminho
+  `/api/app` inteiro: `/api/appx` não é o App) pergunta à página por `evaluateJavascript` (a `PERGUNTA`, que devolve
+  true só se `__gcCascaVoltar` existe e respondeu true; erro vira false) e só `"true"` consome; o resto, e toda página
+  fora do App (o `erro.html`, o login da Microsoft), faz `moveTaskToBack(true)`. A tela nunca é fechada: volta-se ao
+  app onde estava, sem recarregar. Uma pergunta por vez (o segundo toque enquanto a página pensa não fecha duas
+  camadas), com 1,5 s de prazo: o renderer travado não segura o voltar, e a resposta que chega depois do prazo não decide
+  nada.
 - **A atualização da casca** (`Atualizador`, `VersaoRemota`; o `CascaPlugin` a chama no `load()` e no `handleOnResume()`):
   - Lê o `versao.json` de `releases/latest/download/` (não conta no limite da API do GitHub), com as chaves `versionCode`
     (inteiro), `versionName`, `apk`, `sha256` (64 dígitos hex) e `novidades` (lista de textos). O `ferramentas/versao-json.mjs`
@@ -191,34 +227,64 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     `https://github.com/Grid-Co-CODE/app-campo-android/releases/download/<pedaços simples>` (sem `..`, `?`, `%`) é recusado:
     o SHA que o próprio JSON traz não protegeria de um link para outro lugar.
   - A hora da checagem vai ao SharedPreferences ANTES da rede: falhar também conta as 6 h, senão o campo sem sinal esperaria
-    15 s a cada volta ao app. Rede, JSON torto e download cortado são silêncio (só o log, sem endereço nem nome de arquivo);
-    só o SHA errado avisa, num toast. Sem nova tentativa em laço.
+    15 s a cada volta ao app. A checagem é silêncio: rede e JSON torto vão só ao log, sem endereço nem nome de arquivo.
+    Depois do "Atualizar agora" a pessoa pediu: um toast diz que está baixando (`casca_atualizacao_baixando`; sem retorno
+    nenhum por vários MB de dados móveis, o técnico ia a outro app), e o download que não termina, o SHA errado e o erro
+    antes do instalador avisam no toast de sempre (`casca_atualizacao_sha_toast`). Sem nova tentativa em laço.
   - Um fluxo por vez em todo o processo (`DONO_DO_PROCESSO`; a tela recriada do renderer que morreu é outra instância, e dois
     downloads para `cache/atualizacao/app-campo.apk` o corromperiam). O `load()` e o resume que vem logo depois caem aí.
-  - **A permissão de instalar:** o Android pode matar o processo quando o técnico a libera nos ajustes, e o resume seguinte
-    seria de um processo novo. Por isso o "falta só instalar" (versionCode e SHA do APK que ficou no cache) vai ao
-    SharedPreferences quando ele toca em "Abrir ajustes" (e só aí: o diálogo fechado não deixa pendência), e a retomada
-    confere o arquivo de novo. É UMA tentativa: voltar sem liberar, ou a câmera trazendo outro resume, não repete o diálogo
-    nem reabre o instalador.
+  - **A pendência ("falta só instalar": versionCode, SHA e a hora do download do APK que ficou no cache)** vai ao
+    SharedPreferences, porque o Android pode matar o processo e o resume seguinte seria de um processo novo. Nasce em dois
+    casos: o toque em "Abrir ajustes" da permissão de instalar (o diálogo fechado sem o toque não deixa nada), e o
+    download que termina com a tela fora da frente (o técnico foi a outro app: o Android 10+ bloqueia em silêncio a
+    activity aberta do fundo, e a próxima checagem, 6 h depois, apagaria e baixaria tudo de novo). A tela confere o
+    `Lifecycle` em RESUMED antes de abrir o instalador. A pendência vale 6 h desde o download (a retomada que cai no fundo
+    de novo regrava com a hora da primeira, sem esticar); sem hora (de uma versão anterior) ou "do futuro" (a hora do
+    aparelho voltou) não vale, e a checagem normal decide. É UMA tentativa e a retomada confere o arquivo de novo: voltar
+    sem liberar, ou a câmera trazendo outro resume, não repete o diálogo nem reabre o instalador.
+  - **O build de depuração não oferece a Release** (`verificar()` sai com o `BuildConfig.DEBUG`, antes até de gravar a
+    hora): a assinatura dele é outra, o instalador recusaria a versão por cima a cada 6 h, e o reflexo de desinstalar
+    apagaria o espelho.
   - O `cache/atualizacao/` é limpo a cada checagem de 6 h (sobra da versão instalada, diálogo fechado) e, antes do
     instalador, fica só o APK novo. O `confere` lê em pedaços de 64 KB.
   - Os textos estão no `strings.xml` (`casca_atualizacao_*`, `casca_instalar_*`), PENDENTES de aprovação do
-    Levi na prévia. O `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) não estava no brief original.
-  - Não há aviso durante o download (o brief não prevê texto para isso).
-  - Do `Atualizador` testa-se em JVM o fluxo inteiro com rede, telas e relógio falsos (`AtualizadorTest`); os diálogos de
-    verdade e o instalador do sistema só se veem no aparelho. **Os dois testes que passam pelo `FileProvider` são pulados no
-    Windows** (ele compara caminhos com `/`; medido em 17/10/2026) e rodam no Linux do CI; a configuração do provider
-    (autoridade, uma pasta só, não exportado) é conferida em Node, no `testes/configuracao.test.mjs`.
+    Levi na prévia. O `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) e o
+    `casca_atualizacao_baixando` (17/10/2026) não estavam no brief original.
+  - Do `Atualizador` testa-se em JVM o fluxo inteiro com rede, telas e relógio falsos (`AtualizadorTest`; a tela falsa
+    também diz "fora da frente"); os diálogos de verdade, o toast e o instalador do sistema só se veem no aparelho. **Os
+    dois testes que passam pelo `FileProvider` são pulados no Windows** (ele compara caminhos com `/`; medido em
+    17/10/2026) e rodam no Linux do CI; a configuração do provider (autoridade, uma pasta só, não exportado) é conferida
+    em Node, no `testes/configuracao.test.mjs`.
+- **A prova da restauração só existe no build de depuração** (spec 10.3: apagar o armazenamento da WebView e ver o
+  espelho devolver a fila e as fotos; "Limpar armazenamento" nos ajustes apaga o espelho junto). A `Depuracao` tem duas
+  versões com os mesmos métodos: a de `src/debug` e a de `src/release`, vazia (nunca pede, não faz nada), para o
+  `MainActivity` ser um só. Com o extra booleano `gc_apagar_webview` e sem estado salvo (a tela recriada traz o mesmo
+  intent, e apagar de novo ali faria a restauração nunca terminar), o `MainActivity` abre sem o App (`configSemOApp`),
+  e a `Depuracao` chama o `WebStorage.deleteAllData()` (localStorage, IndexedDB, Web SQL e File System de todas as
+  origens; os cookies ficam), mostra um toast, espera 3 s e recria a tela, que abre o App como sempre e cai na perda.
+  O espelho nativo não é tocado. O extra chega pelo **atalho do ícone** (tocar e segurar: "Prova: apagar WebView",
+  `src/debug/res/xml/atalhos_depuracao.xml`, posto pelo `src/debug/AndroidManifest.xml`), para a prova sem o cabo e
+  sem o shell do adb, que a regra do celular pessoal não permite; ou pelo `am start ... --ez gc_apagar_webview true`
+  num aparelho de prova. Com a tela aberta o atalho só a traz para a frente (`singleTask`): tire o App dos recentes
+  antes. Os textos dela ficam em `src/debug/res/values/depuracao.xml`, sem o prefixo `casca_` e fora da prévia (quem
+  os vê é quem faz a prova). Quem prova: o `testes/depuracao.test.mjs` (nada do caminho, nem o nome do extra nem o
+  atalho, no `src/main` ou no `src/release`; a do release vazia; a do debug sem tocar no espelho; a ordem no
+  `MainActivity`; o `targetPackage` do atalho igual ao `applicationId`, que muda junto com ele) e o `DepuracaoTest`
+  (em `src/testDebug`, porque o release nem tem a classe; lê o XML do atalho pelo `Intent.parseIntent`, como o
+  launcher, e confere que o `android:value="true"` chega como booleano). Medido em 17/10/2026: o
+  `app-release-unsigned.apk` não tem o atalho no manifesto nem `gc_apagar_webview`/`deleteAllData` no dex, e o
+  `aapt2 dump xmltree` do de depuração mostra o `value` compilado como booleano.
 - **A prévia das telas novas** (`docs/previas/telas.html`, fora do APK): uma página só, autocontida, com os diálogos do
-  `strings.xml`, o toast, o `www/erro.html` num iframe e a camada do Fracttal, cada um numa moldura de 360 px, para o Levi
+  `strings.xml`, os toasts, o `www/erro.html` num iframe e a camada do Fracttal, cada um numa moldura de 360 px, para o Levi
   aprovar texto e visual antes de ir ao campo. **Os textos estão PENDENTES de aprovação do Levi** (a página é publicada
   como Artifact privado do claude.ai e ele aprova por lá); quando ele aprovar, esta frase e os cabeçalhos do
   `strings.xml` passam a dizer "aprovados", com a data. O texto vive no arquivo-fonte, não na prévia: pedido de mudança
   se faz no `strings.xml`, no `erro.html` ou no `inicio.js` e a prévia acompanha.
   - O `testes/previas.test.mjs` falha se um diálogo da prévia não for um grupo do `strings.xml` (título, texto e botões
     no conjunto e na ordem do aplicativo: negativo à esquerda, positivo à direita, como a `MainActivity`, o `CascaPlugin`
-    e o `Atualizador` os montam; o teste lê os `AlertDialog.Builder` do Java), se uma string da casca ficar sem quadro, se
-    as novidades não forem uma linha `- item` cada, se o `srcdoc` do erro não for o `erro.html` inteiro (copie o arquivo
+    e o `Atualizador` os montam; o teste lê os `AlertDialog.Builder` do Java), se os toasts da prévia não forem, no
+    conjunto, os `Toast.makeText(..., R.string.x, ...)` do Java (o teste os lê do código), se uma string da casca ficar
+    sem quadro, se as novidades não forem uma linha `- item` cada, se o `srcdoc` do erro não for o `erro.html` inteiro (copie o arquivo
     escapando `&` como `&amp;` e `"` como `&quot;`, nessa ordem) ou se a camada do Fracttal não for igual à que o
     `inicio.js` monta (o estilo inline é o do aparelho; a moldura tem `transform` para a `position:fixed` da camada
     cobrir só o celular). A única diferença aceita é o `aria-modal="false"` da prévia: numa página estática um

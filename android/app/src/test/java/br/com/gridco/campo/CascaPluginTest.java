@@ -2,6 +2,7 @@ package br.com.gridco.campo;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 
 import android.net.Uri;
 
@@ -54,5 +55,18 @@ public class CascaPluginTest {
         // Endereço opaco (mailto:, data:, javascript:): o que vem depois do esquema é dado.
         assertEquals("mailto:…", log("mailto:tecnico.ficticio@exemplo.com.br"));
         assertEquals("(sem endereço)", CascaPlugin.navegacaoParaOLog(null));
+    }
+
+    // A tela recriada (o renderer que morreu) faz um plugin novo. Com uma thread do espelho por plugin, a velha ainda
+    // esvaziava a fila dela enquanto a nova começava, e mensagens da página velha caíam depois das da nova no mesmo
+    // espelho. A thread é uma por processo, como o espelho e os disjuntores, e não é desligada quando a tela sai.
+    @Test
+    public void aThreadDoEspelhoEUmaPorProcessoESegueDepoisDaTelaSair() throws Exception {
+        java.util.concurrent.ExecutorService a = CascaPlugin.threadDoEspelho();
+        java.util.concurrent.ExecutorService b = CascaPlugin.threadDoEspelho();
+        assertSame(a, b);
+        assertFalse(a.isShutdown());
+        java.util.concurrent.Future<String> nome = a.submit(() -> Thread.currentThread().getName());
+        assertEquals("GcCasca-espelho", nome.get(5, java.util.concurrent.TimeUnit.SECONDS));
     }
 }

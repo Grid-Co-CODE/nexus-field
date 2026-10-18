@@ -16,12 +16,22 @@ final class CifraFalsa implements Cifra {
     int cifradas = 0;
     int decifradas = 0;
 
-    /** Quando ligado, decifrar falha como falharia uma chave do Keystore que o aparelho perdeu. */
+    /**
+     * Quando ligado, decifrar falha como falharia o dado que a chave de agora nunca mais lerá (a chave do Keystore que o
+     * aparelho perdeu e foi refeita, ou o dado corrompido): {@link Cifra.Ilegivel}.
+     */
     boolean falharAoDecifrar = false;
+
+    /** Quando ligado, cifrar falha (o Keystore recusou a chave, ou não respondeu). */
+    boolean falharAoCifrar = false;
+
+    /** Quando ligado, as duas falham como o Keystore que não respondeu agora: erro comum, que não diz nada do dado. */
+    boolean keystoreFora = false;
 
     @Override
     public byte[] cifrar(String texto) {
         cifradas++;
+        if (falharAoCifrar || keystoreFora) throw new IllegalStateException("falha ao cifrar");
         byte[] puro = texto.getBytes(StandardCharsets.UTF_8);
         byte[] saida = new byte[PREFIXO.length + puro.length];
         System.arraycopy(PREFIXO, 0, saida, 0, PREFIXO.length);
@@ -32,9 +42,10 @@ final class CifraFalsa implements Cifra {
     @Override
     public String decifrar(byte[] dados) {
         decifradas++;
-        if (falharAoDecifrar) throw new IllegalStateException("chave perdida");
+        if (keystoreFora) throw new IllegalStateException("Keystore indisponível");
+        if (falharAoDecifrar) throw new Cifra.Ilegivel("chave perdida");
         if (dados.length < PREFIXO.length || !Arrays.equals(Arrays.copyOf(dados, PREFIXO.length), PREFIXO)) {
-            throw new IllegalStateException("não foi cifrado pela cifra falsa");
+            throw new Cifra.Ilegivel("não foi cifrado pela cifra falsa");
         }
         byte[] puro = new byte[dados.length - PREFIXO.length];
         for (int i = 0; i < puro.length; i++) puro[i] = (byte) (dados[PREFIXO.length + i] ^ MASCARA);

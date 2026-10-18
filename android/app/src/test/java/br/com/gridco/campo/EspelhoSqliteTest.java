@@ -245,6 +245,70 @@ public class EspelhoSqliteTest {
         assertNenhumLogComSegredo();
     }
 
+    // A cifra que falha ao gravar (o Keystore fora do ar, a chave recusada) nunca leva a identidade em claro para o banco,
+    // e a versão anterior sai: uma restauração devolveria a identidade velha com a fila nova (no aparelho dividido entre
+    // técnicos, isso troca a autoria). A página regrava a identidade no próximo login.
+    @Test
+    public void cifraQueFalhaAoGravarAIdentidadeNaoGravaEmClaroEApagaAVelha() throws IOException {
+        espelho.gravarLs("gc_campo_ident", IDENT);
+        espelho.gravarLs("gc_fech_draft", "rascunho");
+        String nova = "{\"email\":\"outro.tecnico@exemplo.com.br\",\"nome\":\"Outro Ficticio\"}";
+        cifra.falharAoCifrar = true;
+        try {
+            espelho.gravarLs("gc_campo_ident", nova);
+            fail("a cifra que falha devia subir, não virar gravação em claro");
+        } catch (IllegalStateException esperado) {
+            assertFalse(String.valueOf(esperado.getMessage()).contains("exemplo"));
+        }
+        cifra.falharAoCifrar = false;
+
+        Map<String, String> tudo = espelho.lsTudo();
+        assertFalse("a identidade velha não volta numa restauração", tudo.containsKey("gc_campo_ident"));
+        assertEquals("o resto fica", "rascunho", tudo.get("gc_fech_draft"));
+        try (SQLiteDatabase db = bancoCru();
+             Cursor c = db.rawQuery("SELECT chave, valor FROM ls", null)) {
+            while (c.moveToNext()) {
+                assertFalse("linha da identidade no banco", "gc_campo_ident".equals(c.getString(0)));
+                byte[] valor = c.getBlob(1);
+                assertFalse(contem(valor, "outro.tecnico".getBytes(StandardCharsets.UTF_8)));
+            }
+        }
+        byte[] arquivoDoBanco = Files.readAllBytes(ctx.getDatabasePath("espelho.db").toPath());
+        assertFalse("nem em página livre do arquivo", contem(arquivoDoBanco, "outro.tecnico".getBytes(StandardCharsets.UTF_8)));
+        assertNenhumLogComSegredo();
+    }
+
+    // A identidade que a chave de agora não lê (a chave refeita depois que o Keystore passou a recusar a velha, ou o dado
+    // corrompido) nunca mais será lida: sai do banco na primeira leitura, e a página a regrava no próximo login.
+    @Test
+    public void identidadeQueAChaveDeAgoraNaoLeEApagada() {
+        espelho.gravarLs("gc_campo_ident", IDENT);
+        espelho.gravarLs("gc_fech_draft", "rascunho");
+        cifra.falharAoDecifrar = true;
+        assertFalse(espelho.lsTudo().containsKey("gc_campo_ident"));
+        cifra.falharAoDecifrar = false;
+
+        assertFalse("apagada, não só pulada", espelho.lsTudo().containsKey("gc_campo_ident"));
+        try (SQLiteDatabase db = bancoCru();
+             Cursor c = db.rawQuery("SELECT COUNT(*) FROM ls WHERE chave = ?", new String[] {"gc_campo_ident"})) {
+            assertTrue(c.moveToFirst());
+            assertEquals(0, c.getInt(0));
+        }
+        assertEquals("rascunho", espelho.lsTudo().get("gc_fech_draft"));
+        assertNenhumLogComSegredo();
+    }
+
+    // O Keystore que não respondeu agora (o cofre ainda trancado logo depois de ligar o aparelho) não diz nada sobre o
+    // dado: a identidade fica fora deste retrato e continua guardada para o próximo.
+    @Test
+    public void keystoreForaDoArNaoApagaAIdentidade() {
+        espelho.gravarLs("gc_campo_ident", IDENT);
+        cifra.keystoreFora = true;
+        assertFalse(espelho.lsTudo().containsKey("gc_campo_ident"));
+        cifra.keystoreFora = false;
+        assertEquals(IDENT, espelho.lsTudo().get("gc_campo_ident"));
+    }
+
     @Test
     public void msalNuncaEntra() {
         espelho.gravarLs("msal.x", "y");
@@ -444,6 +508,68 @@ public class EspelhoSqliteTest {
         assertEquals("image/png", item.mime);
         assertArrayEquals(bytes(2, 2), Files.readAllBytes(item.arquivo.toPath()));
         assertEquals(1, pasta("espelho/idb").listFiles().length);
+    }
+
+    // No Android o rename troca o arquivo de uma vez (rename(2)): se o processo morre no meio, fica o blob antigo ou o
+    // novo, nunca nenhum. Apagar o antigo antes do rename abria a janela em que nenhum dos dois existe.
+    @Test
+    public void aTrocaDoArquivoDoBlobTentaORenameAntesDeApagarOAntigo() throws IOException {
+        File pastaTroca = new File(ctx.getCacheDir(), "troca");
+        assertTrue(pastaTroca.mkdirs() || pastaTroca.isDirectory());
+        File parte = new File(pastaTroca, "p.parte");
+        File destino = new File(pastaTroca, "d.bin");
+        Files.write(parte.toPath(), bytes(2, 2));
+        Files.write(destino.toPath(), bytes(1, 1, 1));
+        List<Boolean> oAntigoExistiaAoMover = new ArrayList<>();
+
+        EspelhoSqlite.trocarArquivo(parte, destino, (de, para) -> {
+            oAntigoExistiaAoMover.add(para.exists());
+            try {
+                // O rename(2) do Android: substitui o destino.
+                Files.move(de.toPath(), para.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                return true;
+            } catch (IOException e) {
+                return false;
+            }
+        });
+
+        assertEquals("um rename só, com o antigo ainda no lugar", Arrays.asList(true), oAntigoExistiaAoMover);
+        assertArrayEquals(bytes(2, 2), Files.readAllBytes(destino.toPath()));
+        assertFalse(parte.exists());
+    }
+
+    @Test
+    public void oRenameQueNaoSubstituiApagaOAntigoERepete() throws IOException {
+        // O JVM do Windows (o deste teste) não troca um arquivo que já existe: só aí o antigo é apagado.
+        File pastaTroca = new File(ctx.getCacheDir(), "troca2");
+        assertTrue(pastaTroca.mkdirs() || pastaTroca.isDirectory());
+        File parte = new File(pastaTroca, "p.parte");
+        File destino = new File(pastaTroca, "d.bin");
+        Files.write(parte.toPath(), bytes(2, 2));
+        Files.write(destino.toPath(), bytes(1, 1, 1));
+        int[] tentativas = {0};
+
+        EspelhoSqlite.trocarArquivo(parte, destino, (de, para) -> {
+            tentativas[0]++;
+            return !para.exists() && de.renameTo(para);
+        });
+
+        assertEquals(2, tentativas[0]);
+        assertArrayEquals(bytes(2, 2), Files.readAllBytes(destino.toPath()));
+    }
+
+    @Test
+    public void aTrocaQueNaoAconteceLanca() throws IOException {
+        File pastaTroca = new File(ctx.getCacheDir(), "troca3");
+        assertTrue(pastaTroca.mkdirs() || pastaTroca.isDirectory());
+        File parte = new File(pastaTroca, "p.parte");
+        Files.write(parte.toPath(), bytes(2));
+        try {
+            EspelhoSqlite.trocarArquivo(parte, new File(pastaTroca, "d.bin"), (de, para) -> false);
+            fail("a troca que não aconteceu devia lançar");
+        } catch (IllegalStateException esperado) {
+            // ok: a transação da linha desfaz
+        }
     }
 
     @Test

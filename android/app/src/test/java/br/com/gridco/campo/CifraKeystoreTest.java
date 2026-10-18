@@ -6,10 +6,13 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.fail;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Deque;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -134,6 +137,154 @@ public class CifraKeystoreTest {
         byte[] dados = new CifraKeystore(() -> chave).cifrar(TEXTO);
 
         assertEquals(TEXTO, new CifraKeystore(() -> chave).decifrar(dados));
+    }
+
+    // O que não se lê nunca mais (adulterado, outra chave) é Cifra.Ilegivel: o espelho apaga a linha. O Keystore que não
+    // respondeu agora é erro comum: a linha fica para o próximo retrato.
+    @Test
+    public void adulteradoEOutraChaveSaoIlegiveis() {
+        byte[] dados = cifra.cifrar(TEXTO);
+        dados[dados.length - 1] ^= 0x01;
+        try {
+            cifra.decifrar(dados);
+            fail("adulterado aceito");
+        } catch (Cifra.Ilegivel esperado) {
+            // ok
+        }
+        try {
+            new CifraKeystore(CifraKeystoreTest::novaChave).decifrar(cifra.cifrar(TEXTO));
+            fail("outra chave decifrou");
+        } catch (Cifra.Ilegivel esperado) {
+            // ok
+        }
+        try {
+            cifra.decifrar(new byte[] {0, 1, 2});
+            fail("formato inválido aceito");
+        } catch (Cifra.Ilegivel esperado) {
+            // ok
+        }
+    }
+
+    @Test
+    public void keystoreForaDoArNaoEIlegivel() {
+        CifraKeystore fora = new CifraKeystore(() -> {
+            throw new IllegalStateException("Keystore indisponível");
+        }, () -> fail("o Keystore fora do ar não é motivo para apagar a chave"));
+        byte[] dados = cifra.cifrar(TEXTO);
+        try {
+            fora.decifrar(dados);
+            fail("decifrou sem chave");
+        } catch (Cifra.Ilegivel errado) {
+            fail("o Keystore fora do ar não diz que o dado é ilegível");
+        } catch (IllegalStateException esperado) {
+            // ok
+        }
+    }
+
+    // A chave que o Keystore passa a recusar (o defeito pós-atualização de sistema de alguns fabricantes: InvalidKey ou
+    // ProviderException no init, não a etiqueta) nunca mais funcionaria: sem refazer, a identidade deixaria de ser
+    // espelhada naquele aparelho para sempre. É apagada e refeita UMA vez; o que a velha cifrou fica ilegível.
+    @Test
+    public void chaveQueOKeystorePassaARecusarERefeitaUmaVez() {
+        SecretKey boa = novaChave();
+        Deque<SecretKey> chaves = new ArrayDeque<>(Arrays.asList(CHAVE_RECUSADA, boa));
+        int[] apagadas = {0};
+        CifraKeystore c = new CifraKeystore(chaves::pop, () -> apagadas[0]++);
+
+        byte[] dados = c.cifrar(TEXTO);
+
+        assertEquals(1, apagadas[0]);
+        assertEquals(TEXTO, c.decifrar(dados));
+        assertEquals(TEXTO, new CifraKeystore(() -> boa).decifrar(dados));
+        c.cifrar(TEXTO);
+        assertEquals("a chave nova vale daí em diante", 1, apagadas[0]);
+    }
+
+    @Test
+    public void aChaveRecusadaAoDecifrarERefeitaEOVelhoFicaIlegivel() {
+        byte[] daVelha = cifra.cifrar(TEXTO);
+        Deque<SecretKey> chaves = new ArrayDeque<>(Arrays.asList(CHAVE_RECUSADA, novaChave()));
+        int[] apagadas = {0};
+        CifraKeystore c = new CifraKeystore(chaves::pop, () -> apagadas[0]++);
+        try {
+            c.decifrar(daVelha);
+            fail("a chave nova não lê o que a velha cifrou");
+        } catch (Cifra.Ilegivel esperado) {
+            // ok: o espelho apaga a linha, e a página regrava a identidade no próximo login
+        }
+        assertEquals(1, apagadas[0]);
+        assertEquals(TEXTO, c.decifrar(c.cifrar(TEXTO)));
+    }
+
+    @Test
+    public void aProviderExceptionNoInitTambemRefazAChave() {
+        SecretKey quebrada = new SecretKey() {
+            @Override
+            public String getAlgorithm() {
+                return "AES";
+            }
+
+            @Override
+            public String getFormat() {
+                return "RAW";
+            }
+
+            @Override
+            public byte[] getEncoded() {
+                throw new java.security.ProviderException("defeito do fabricante");
+            }
+        };
+        Deque<SecretKey> chaves = new ArrayDeque<>(Arrays.asList(quebrada, novaChave()));
+        int[] apagadas = {0};
+        CifraKeystore c = new CifraKeystore(chaves::pop, () -> apagadas[0]++);
+        assertEquals(TEXTO, c.decifrar(c.cifrar(TEXTO)));
+        assertEquals(1, apagadas[0]);
+    }
+
+    @Test
+    public void soUmaVezPorProcesso() {
+        Deque<SecretKey> chaves = new ArrayDeque<>(Arrays.asList(CHAVE_RECUSADA, CHAVE_RECUSADA, CHAVE_RECUSADA));
+        int[] apagadas = {0};
+        CifraKeystore c = new CifraKeystore(chaves::pop, () -> apagadas[0]++);
+        for (int i = 0; i < 2; i++) {
+            try {
+                c.cifrar(TEXTO);
+                fail("a chave refeita também recusada");
+            } catch (IllegalStateException esperado) {
+                assertFalse(String.valueOf(esperado.getMessage()).contains("exemplo"));
+            }
+        }
+        assertEquals("sem laço de chaves novas", 1, apagadas[0]);
+    }
+
+    @Test
+    public void aEtiquetaQueNaoConfereNaoRefazAChave() {
+        int[] apagadas = {0};
+        SecretKey chave = novaChave();
+        CifraKeystore c = new CifraKeystore(() -> chave, () -> apagadas[0]++);
+        byte[] dados = c.cifrar(TEXTO);
+        dados[5] ^= 0x01;
+        try {
+            c.decifrar(dados);
+            fail("adulterado aceito");
+        } catch (Cifra.Ilegivel esperado) {
+            // ok
+        }
+        assertEquals("o dado errado não é a chave errada", 0, apagadas[0]);
+        assertEquals(TEXTO, c.decifrar(c.cifrar(TEXTO)));
+    }
+
+    // Uma chave AES de 5 bytes: o init do GCM a recusa com InvalidKeyException, como o Keystore recusa a chave invalidada.
+    private static final SecretKey CHAVE_RECUSADA = new SecretKeySpec(new byte[5], "AES");
+
+    private static SecretKey novaChave() {
+        try {
+            KeyGenerator gerador = KeyGenerator.getInstance("AES");
+            gerador.init(256);
+            return gerador.generateKey();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new AssertionError(e);
+        }
     }
 
     private static boolean contem(byte[] palheiro, byte[] agulha) {

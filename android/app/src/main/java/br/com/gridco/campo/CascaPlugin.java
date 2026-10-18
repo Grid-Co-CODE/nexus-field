@@ -7,14 +7,17 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.webkit.JavaScriptReplyProxy;
@@ -46,7 +49,9 @@ import org.json.JSONObject;
  * O plugin da casca (spec, seção 6.2): liga o www/casca/inicio.js ao espelho nativo. Injeta o script de início antes
  * de qualquer script da página, abre o canal gcCasca só para a origem do App, liga os cookies de terceiros e o user
  * agent, recria a tela quando o renderer morre, limpa o histórico depois do login e abre os endereços de fora numa
- * Custom Tab. Também dispara a checagem de atualização da casca ({@link Atualizador}) ao abrir e a cada volta ao app.
+ * Custom Tab. Também dispara a checagem de atualização da casca ({@link Atualizador}) ao abrir e a cada volta ao app,
+ * trata o voltar do Android ({@link Voltar}) e, uma vez por processo, apaga as fotos velhas da reserva da câmera
+ * ({@link FaxinaDaCamera}).
  *
  * Ordem no Capacitor 8.5.3 (conferida no código dele): o construtor do Bridge roda initWebView, registerAllPlugins (o
  * PluginHandle chama o load() de cada plugin) e só então loadWebView, que faz o primeiro webView.loadUrl(appUrl). Por
@@ -74,6 +79,16 @@ public class CascaPlugin extends Plugin {
     // Um espelho por processo: a recriação da tela (renderer que morreu) faz um plugin novo, e dois EspelhoSqlite no
     // mesmo banco perderiam o blob que chegava pela metade (a remessa em andamento é da instância).
     private static ArmazemEspelho espelhoDoProcesso;
+    // E uma thread do espelho por processo, que não é desligada quando a tela sai: com uma por plugin, a velha ainda
+    // esvaziava a fila dela enquanto a nova começava, e mensagens da página velha caíam depois das da nova no mesmo
+    // espelho. O que a tela que saiu ainda tinha na fila é gravado (é o que a página mandou), na ordem.
+    private static ExecutorService threadDoEspelhoDoProcesso;
+    // As recriações por renderer morto: 3 em 60 s. Passado o teto, a tela recriada carrega a página de erro local em vez
+    // do App (ERRO_NA_PROXIMA_CARGA), para o renderer que morre sempre na carga não virar uma tela que pisca para sempre.
+    private static final TetoDeRecriacao RECRIACOES_DO_PROCESSO = new TetoDeRecriacao(SystemClock::elapsedRealtime);
+    private static final AtomicBoolean ERRO_NA_PROXIMA_CARGA = new AtomicBoolean(false);
+    // A faxina das fotos da reserva da câmera roda uma vez por processo (a tela recriada não repete).
+    private static final AtomicBoolean FAXINA_FEITA = new AtomicBoolean(false);
     // E um disjuntor por processo: o renderer que morre na recarga com o retrato completo recria a tela (plugin e
     // Mensageiro novos), e a contagem dos completos tem de atravessar a recriação, senão o laço não para.
     private static final Mensageiro.Disjuntor DISJUNTOR_DO_PROCESSO = new Mensageiro.Disjuntor();
@@ -86,7 +101,6 @@ public class CascaPlugin extends Plugin {
     // Ligado quando a tela sai (onDestroy) ou o renderer morre: nada mais toca nesta WebView.
     private volatile boolean encerrado = false;
     private Handler ui;
-    private ExecutorService threadDoEspelho;
     private Mensageiro mensageiro;
     private String inicioJs;
     private Atualizador atualizador;              // null com a WebView antiga (o load() nem chega a criar)
@@ -100,6 +114,12 @@ public class CascaPlugin extends Plugin {
 
         // 1. A origem do App é o server.url do capacitor.config.json (só a origem, sem caminho nem barra no fim).
         origem = bridge.getServerUrl();
+
+        // O voltar do Android, antes de tudo: vale também com a WebView antiga e sem o espelho. O OnBackPressedCallback
+        // do androidx.activity cobre o voltar preditivo do targetSdk 36 (sobrescrever o onBackPressed não cobriria), e
+        // sai junto com a tela (o dono do ciclo de vida é ela).
+        ligarVoltar();
+        faxinaDaCamera();
 
         // 2. Sem o script de início antes da página não há espelho, e sem o canal por regra de origem a ponte cairia no
         // addJavascriptInterface, exposto a todo frame. A WebView antiga para aqui, com o aviso, e a página do App não
@@ -124,6 +144,16 @@ public class CascaPlugin extends Plugin {
             Log.e(TAG, "sem server.url: a casca fica sem espelho nesta partida");
         } else {
             ligarEspelho(webView); // 5 e 6
+        }
+
+        // A tela recriada depois do teto das recriações: o Bridge carrega o App logo depois deste load(), e esta carga,
+        // postada, vem antes de qualquer resposta da rede e a substitui pela página de erro local. O "Tentar de novo"
+        // dela abre o App outra vez, pela mão do técnico.
+        if (ERRO_NA_PROXIMA_CARGA.getAndSet(false)) {
+            ui.post(() -> {
+                String erro = bridge.getErrorUrl();
+                if (!encerrado && erro != null) bridge.getWebView().loadUrl(erro);
+            });
         }
 
         // 7. O ouvinte NÃO entra direto no load(): o Bridge.Builder.create() chama bridge.setWebViewListeners(...)
@@ -170,7 +200,6 @@ public class CascaPlugin extends Plugin {
             Log.e(TAG, "a casca ficou sem espelho nesta partida (" + e.getClass().getSimpleName() + ")");
             return;
         }
-        threadDoEspelho = Executors.newSingleThreadExecutor(tarefa -> new Thread(tarefa, "GcCasca-espelho"));
         mensageiro = new Mensageiro(armazem, new AcoesDaCasca(), DISJUNTOR_DO_PROCESSO, perdas(getContext()));
 
         try {
@@ -188,6 +217,54 @@ public class CascaPlugin extends Plugin {
             leve = Mensageiro.semConferencia(armazem);
         }
         trocarScript(Retrato.script(leve, inicioJs));
+    }
+
+    /** A thread do espelho, uma por processo (ver threadDoEspelhoDoProcesso). */
+    static synchronized ExecutorService threadDoEspelho() {
+        if (threadDoEspelhoDoProcesso == null) {
+            threadDoEspelhoDoProcesso =
+                Executors.newSingleThreadExecutor(tarefa -> new Thread(tarefa, "GcCasca-espelho"));
+        }
+        return threadDoEspelhoDoProcesso;
+    }
+
+    private void ligarVoltar() {
+        Voltar voltar = new Voltar(origem, new Voltar.Pagina() {
+            @Override
+            public String url() {
+                return encerrado ? null : bridge.getWebView().getUrl();
+            }
+
+            @Override
+            public void perguntar(String js, java.util.function.Consumer<String> resposta) {
+                bridge.getWebView().evaluateJavascript(js, resposta::accept);
+            }
+        }, (ms, tarefa) -> ui.postDelayed(tarefa, ms), () -> getActivity().moveTaskToBack(true));
+        getActivity().getOnBackPressedDispatcher().addCallback(getActivity(), new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                voltar.aoVoltar();
+            }
+        });
+    }
+
+    // Na thread do espelho (o getExternalFilesDir cria a pasta, e listar é disco): nada disso pode ir à de UI.
+    private void faxinaDaCamera() {
+        if (!FAXINA_FEITA.compareAndSet(false, true)) return;
+        Context app = getContext().getApplicationContext();
+        try {
+            threadDoEspelho().execute(() -> {
+                try {
+                    int apagadas = FaxinaDaCamera.apagarVelhas(app.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
+                        app.getCacheDir(), System.currentTimeMillis());
+                    if (apagadas > 0) Log.i(TAG, apagadas + " foto(s) da reserva da câmera com mais de 48 h apagada(s)");
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "a faxina das fotos da câmera falhou (" + e.getClass().getSimpleName() + ")");
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            // nunca: a thread do processo não é desligada
+        }
     }
 
     private static synchronized ArmazemEspelho espelho(Context contexto) {
@@ -228,7 +305,7 @@ public class CascaPlugin extends Plugin {
         }
         if (dado == null || encerrado) return;
         try {
-            threadDoEspelho.execute(() -> {
+            threadDoEspelho().execute(() -> {
                 ponteDaMensagem = ponte;
                 try {
                     mensageiro.tratar(dado);
@@ -380,8 +457,8 @@ public class CascaPlugin extends Plugin {
     protected void handleOnDestroy() {
         encerrado = true;
         if (atualizador != null) atualizador.encerrar(); // fecha o diálogo aberto; o download em curso termina sozinho
-        // O que já está na fila ainda é gravado (é o que a página mandou); nada novo entra.
-        if (threadDoEspelho != null) threadDoEspelho.shutdown();
+        // A thread do espelho é do processo e fica: o que já está na fila dela ainda é gravado (é o que a página
+        // mandou), e o encerrado impede que algo novo desta tela entre (aoReceber) ou volte à WebView (naUi).
         super.handleOnDestroy();
     }
 
@@ -437,11 +514,17 @@ public class CascaPlugin extends Plugin {
 
         // A falta de memória num aparelho de 4 GB mata o renderer; sem tratar, o Android derruba o app inteiro. Esta
         // WebView não serve mais: a activity é recriada, e o onCreate novo infla outra WebView, monta outro Bridge
-        // (este plugin carrega de novo, com script e canal na WebView nova) e carrega o App.
+        // (este plugin carrega de novo, com script e canal na WebView nova) e carrega o App. Até 3 vezes em 60 s; daí
+        // em diante a tela recriada mostra a página de erro local (ver ERRO_NA_PROXIMA_CARGA).
         @Override
         public boolean onRenderProcessGone(WebView webView, RenderProcessGoneDetail detalhe) {
             encerrado = true;
-            Log.w(TAG, "o renderer da WebView morreu; recriando a tela");
+            if (RECRIACOES_DO_PROCESSO.cabe()) {
+                Log.w(TAG, "o renderer da WebView morreu; recriando a tela");
+            } else {
+                ERRO_NA_PROXIMA_CARGA.set(true);
+                Log.w(TAG, "o renderer da WebView morreu de novo (teto de recriações); a tela recriada mostra o erro");
+            }
             getActivity().recreate();
             return true;
         }

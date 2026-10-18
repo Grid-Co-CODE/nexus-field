@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SÓ NO BUILD DE DEPURAÇÃO (src/debug). Textos da prova da restauração no aparelho (docs/prova-no-aparelho.md): quem os vê
+  é quem faz a prova, nunca o técnico (o APK de depuração não vai a técnico). Por isso não têm o prefixo casca_, não
+  passam pela prévia das telas e não esperam aprovação.
+-->
+<resources>
+    <string name="depuracao_atalho_apagar">Prova: apagar WebView</string>
+    <string name="depuracao_atalho_apagar_longo">Prova: apagar o armazenamento da WebView</string>
+    <string name="depuracao_webview_apagada">Depuração: armazenamento da WebView apagado. O espelho fica, e o App abre em 3 s.</string>
+</resources>

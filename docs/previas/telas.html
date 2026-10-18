@@ -171,7 +171,8 @@
       <li><input type="checkbox" id="ok-webview"><label for="ok-webview"><b class="cita">Atualize o Android System WebView</b>: o texto e o botão <b class="cita">Abrir a Play Store</b>.</label><a class="ver" href="#t-webview">Ver</a></li>
       <li><input type="checkbox" id="ok-nova"><label for="ok-nova"><b class="cita">Nova versão do App de Campo</b>: o texto, com e sem novidades, e os botões <b class="cita">Atualizar agora</b> e <b class="cita">Depois</b>.</label><a class="ver" href="#t-nova-com">Ver</a></li>
       <li><input type="checkbox" id="ok-instalar"><label for="ok-instalar"><b class="cita">Permitir a atualização</b>: o texto e o botão <b class="cita">Abrir ajustes</b>.</label><a class="ver" href="#t-instalar">Ver</a></li>
-      <li><input type="checkbox" id="ok-sha"><label for="ok-sha">O aviso rápido (toast) de quando o arquivo da atualização não confere: o texto.</label><a class="ver" href="#t-sha">Ver</a></li>
+      <li><input type="checkbox" id="ok-baixando"><label for="ok-baixando">Novo: o aviso rápido (toast) de quando o download da versão nova começa: o texto <b class="cita">Baixando a versão nova…</b>.</label><a class="ver" href="#t-baixando">Ver</a></li>
+      <li><input type="checkbox" id="ok-sha"><label for="ok-sha">O aviso rápido (toast) de quando a atualização não deu certo (o download não terminou ou o arquivo não confere): o texto.</label><a class="ver" href="#t-sha">Ver</a></li>
       <li><input type="checkbox" id="ok-erro"><label for="ok-erro"><b class="cita">Sem internet</b>: o título, os dois textos e o botão <b class="cita">Tentar de novo</b>.</label><a class="ver" href="#t-erro">Ver</a></li>
       <li><input type="checkbox" id="ok-fracttal"><label for="ok-fracttal">O aviso do Fracttal: o botão <b class="cita">Fechar</b> e o visual da camada. O texto da explicação vem da página do App.</label><a class="ver" href="#t-fracttal">Ver</a></li>
       <li><input type="checkbox" id="ok-visual"><label for="ok-visual">O visual: os diálogos seguem o tema claro ou escuro do aparelho, e os botões usam a cor de destaque padrão do Android (verde-azulado), porque a casca não define uma cor própria.</label></li>
@@ -294,7 +295,15 @@
             </div>
           </div>
         </div>
-        <figcaption><strong>Depois do Atualizar agora.</strong> Aparece se o Android ainda não deixa o App instalar apps desconhecidos. Abrir ajustes leva à tela do Android para este App; ao voltar, a atualização segue de onde parou.</figcaption>
+        <figcaption><strong>Depois do Atualizar agora.</strong> Aparece se o Android ainda não deixa o App instalar apps desconhecidos. Abrir ajustes leva à tela do Android para este App; ao voltar, a atualização segue de onde parou (por até 6 horas depois do download; depois disso, o App oferece a versão de novo).</figcaption>
+      </figure>
+
+      <figure class="item" id="t-baixando">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o aviso rápido do download que começou">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="toast" role="status" aria-labelledby="baixando-nome">Baixando a versão nova…</div>
+        </div>
+        <figcaption><strong id="baixando-nome">Aviso rápido (toast), novo.</strong> Aparece logo depois do Atualizar agora, enquanto o arquivo baixa. Se o técnico sair do App durante o download, o instalador abre quando ele voltar.</figcaption>
       </figure>
 
       <figure class="item" id="t-sha">
@@ -302,7 +311,7 @@
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="toast" role="status" aria-labelledby="sha-nome">Não consegui conferir o arquivo da atualização. Tento de novo mais tarde.</div>
         </div>
-        <figcaption><strong id="sha-nome">Aviso rápido (toast).</strong> Aparece embaixo da tela por alguns segundos, sem botão, quando o arquivo baixado não bate com o SHA-256 da Release. O arquivo é apagado e não é instalado.</figcaption>
+        <figcaption><strong id="sha-nome">Aviso rápido (toast).</strong> Aparece embaixo da tela por alguns segundos, sem botão, quando o download pedido não termina (sem sinal, por exemplo) ou o arquivo baixado não bate com o SHA-256 da Release. O arquivo é apagado e não é instalado.</figcaption>
       </figure>
 
     </div>

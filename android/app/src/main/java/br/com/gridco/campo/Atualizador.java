@@ -13,6 +13,8 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.FileProvider;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleOwner;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -46,11 +48,22 @@ import java.util.function.LongSupplier;
  *      o URL_VERSAO. A hora é gravada ANTES da rede, porque falhar também conta: sem sinal, o campo não pode gerar uma
  *      espera de 15 s a cada volta ao app. Falha de rede é silêncio, e a próxima tentativa é daí a 6 h.
  *   2. Com versionCode maior que o instalado, oferece "Atualizar agora / Depois".
- *   3. Baixa para cache/atualizacao/app-campo.apk, confere o SHA-256 (se não bate, apaga e avisa num toast).
+ *   3. No "Atualizar agora", um toast diz que está baixando (sem ele o técnico, sem retorno nenhum por vários MB de
+ *      dados móveis, ia a outro app). Baixa para cache/atualizacao/app-campo.apk e confere o SHA-256. O download que
+ *      não termina e o SHA que não bate apagam o arquivo e avisam num toast: a pessoa pediu, não pode ficar em silêncio.
  *   4. Sem a permissão "Instalar apps desconhecidos", o diálogo manda para os ajustes, e a volta ao app (o resume)
- *      segue dali, sem baixar de novo. O Android pode matar o processo ao liberar a permissão, então o que falta
- *      (versão e SHA do APK que ficou no cache) vai para o SharedPreferences, e a retomada confere o arquivo outra vez.
- *   5. Abre o instalador: ACTION_VIEW com o URI do FileProvider br.com.gridco.campo.arquivos.
+ *      segue dali, sem baixar de novo.
+ *   5. Abre o instalador: ACTION_VIEW com o URI do FileProvider br.com.gridco.campo.arquivos. Com a tela no fundo (o
+ *      técnico saiu do app durante o download), o Android 10+ bloquearia em silêncio o instalador, e a próxima
+ *      checagem, 6 h depois, apagaria e baixaria tudo de novo: o instalador fica para o próximo resume.
+ *
+ * "Falta só instalar" (4 e 5) é a pendência: versão, SHA e a hora do download no SharedPreferences, porque o Android
+ * pode matar o processo nos ajustes ou com o app no fundo, e o resume seguinte seria de um processo novo. Ela vale 6 h a
+ * partir do download, e é UMA tentativa: a retomada confere o arquivo de novo, e o resume seguinte (a câmera, o
+ * instalador que a pessoa cancelou) não reabre nada.
+ *
+ * O build de depuração não oferece a Release: a assinatura dele é outra, o instalador recusaria a versão por cima, e o
+ * reflexo de desinstalar apagaria o espelho.
  *
  * Um fluxo por vez em todo o processo (a tela recriada depois do renderer que morreu faz outra instância, e dois
  * downloads para o mesmo arquivo o corromperiam). O log não leva endereço, nome de arquivo nem e-mail: só o que
@@ -70,6 +83,9 @@ public final class Atualizador {
     private static final String ULTIMA = "ultima_checagem_ms";
     private static final String PENDENTE_CODIGO = "pendente_codigo";
     private static final String PENDENTE_SHA = "pendente_sha256";
+    private static final String PENDENTE_DESDE = "pendente_desde_ms";
+    /** Quanto vale a pendência, a partir do download: 6 h (21 600 000 ms). */
+    static final long PRAZO_DA_PENDENCIA_MS = 21_600_000L;
     private static final String PASTA_NO_CACHE = "atualizacao"; // a única que o ArquivosProvider expõe
     private static final String NOME_DO_APK = "app-campo.apk";
 
@@ -95,8 +111,11 @@ public final class Atualizador {
         /** Mostra a versão nova. Chama exatamente um dos dois: aceitou ("Atualizar agora") ou adiou (o resto). */
         void oferecer(VersaoRemota v, Runnable aceitou, Runnable adiou);
 
-        /** O toast do arquivo que não bateu com o SHA-256. */
-        void avisarSha();
+        /** O toast de que o download começou (no "Atualizar agora"). */
+        void avisarBaixando();
+
+        /** O toast de quando a atualização pedida não deu certo: o download não terminou ou o arquivo não bateu. */
+        void avisarFalha();
 
         /** O diálogo da permissão; aoTocar roda (na UI) quando a pessoa toca em "Abrir ajustes". */
         void pedirPermissao(Runnable aoTocar);
@@ -104,7 +123,11 @@ public final class Atualizador {
         /** Abre os ajustes de "Instalar apps desconhecidos" deste app. Falso se não abriram. */
         boolean abrirAjustes();
 
-        void instalar(File apk);
+        /**
+         * Abre o instalador do sistema. Com a tela fora da frente (o Android 10+ bloqueia em silêncio a activity aberta
+         * do fundo), não abre e chama foraDaFrente (na UI), para o próximo resume retomar.
+         */
+        void instalar(File apk, Runnable foraDaFrente);
 
         /** A tela está saindo: fecha o diálogo aberto, o que conta como "Depois". */
         void encerrar();
@@ -118,17 +141,19 @@ public final class Atualizador {
     private final Telas telas;
     private final Executor executor;
     private final AtomicReference<Object> dono;
+    private final boolean depuracao;
     private volatile boolean encerrado = false;
 
     /** A de verdade, para a tela do App. */
     public Atualizador(Activity activity) {
         this(activity.getSharedPreferences(PREFERENCIAS, Context.MODE_PRIVATE),
             new File(activity.getCacheDir(), PASTA_NO_CACHE), BuildConfig.VERSION_CODE, System::currentTimeMillis,
-            new RedeHttp(), new TelasDaActivity(activity), novoExecutor(), DONO_DO_PROCESSO);
+            new RedeHttp(), new TelasDaActivity(activity), novoExecutor(), DONO_DO_PROCESSO, BuildConfig.DEBUG);
     }
 
     Atualizador(SharedPreferences prefs, File pasta, int versaoAtual, LongSupplier relogio, Rede rede, Telas telas,
-            Executor executor, AtomicReference<Object> dono) {
+            Executor executor, AtomicReference<Object> dono, boolean depuracao) {
+        this.depuracao = depuracao;
         this.prefs = prefs;
         this.pasta = pasta;
         this.versaoAtual = versaoAtual;
@@ -150,7 +175,21 @@ public final class Atualizador {
         return e;
     }
 
+    /** Este é o build de depuração (nada é oferecido)? */
+    boolean depuracao() {
+        return depuracao;
+    }
+
     // ------------------------------------------------------------------ regras puras
+
+    /**
+     * A pendência baixada em desdeMs ainda vale agora? Vale menos de 6 h. A sem hora (0) não vale, e a "do futuro" (a
+     * hora do aparelho voltou) também não: não há como saber a idade, e na dúvida o instalador não abre sozinho (a
+     * checagem normal oferece a versão de novo).
+     */
+    static boolean pendenciaValida(long agoraMs, long desdeMs) {
+        return desdeMs > 0 && agoraMs >= desdeMs && agoraMs - desdeMs < PRAZO_DA_PENDENCIA_MS;
+    }
 
     /** Verdadeiro se a última checagem foi há 6 h (21 600 000 ms) ou mais. */
     static boolean devoChecar(long agoraMs, long ultimaMs) {
@@ -218,7 +257,7 @@ public final class Atualizador {
      * já há um fluxo no ar (o diálogo aberto, o download correndo) esta chamada não faz nada.
      */
     public void verificar() {
-        if (encerrado || !dono.compareAndSet(null, this)) return;
+        if (depuracao || encerrado || !dono.compareAndSet(null, this)) return;
         try {
             executor.execute(this::trabalhar);
         } catch (RejectedExecutionException e) {
@@ -249,13 +288,20 @@ public final class Atualizador {
         }
     }
 
-    // A pessoa tocou em "Abrir ajustes" e voltou: o APK está no cache, falta abrir o instalador. É UMA tentativa só: o
-    // próximo resume (a câmera, o GPS) não pode reabrir o instalador nem repetir o diálogo.
+    // A pessoa tocou em "Abrir ajustes" e voltou, ou a tela estava no fundo quando o download terminou: o APK está no
+    // cache, falta abrir o instalador. É UMA tentativa só: o próximo resume (a câmera, o GPS) não pode reabrir o
+    // instalador nem repetir o diálogo. Devolve falso se não havia pendência valendo (segue a checagem normal).
     private boolean retomarInstalacaoPendente() {
         int codigo = prefs.getInt(PENDENTE_CODIGO, 0);
         String sha = prefs.getString(PENDENTE_SHA, null);
+        long desde = prefs.getLong(PENDENTE_DESDE, 0L);
         if (codigo == 0 && sha == null) return false;
         limparPendencia();
+        if (!pendenciaValida(relogio.getAsLong(), desde)) {
+            // Passou das 6 h: a checagem normal decide (e limpa o cache, se for o caso).
+            Log.i(TAG, "atualização: a pendência passou do prazo");
+            return false;
+        }
 
         File apk = new File(pasta, NOME_DO_APK);
         if (codigo <= versaoAtual) {
@@ -268,7 +314,7 @@ public final class Atualizador {
         } else if (!telas.podeInstalar()) {
             Log.i(TAG, "atualização: voltou dos ajustes sem liberar a instalação");
         } else {
-            abrirInstalador(apk);
+            abrirInstalador(apk, codigo, sha, desde);
         }
         return true;
     }
@@ -309,13 +355,16 @@ public final class Atualizador {
         }
     }
 
-    // "Atualizar agora": na thread de trabalho. Termina sempre soltando o fluxo (a permissão pendente se retoma pelo
-    // resume seguinte, que é outro fluxo).
+    // "Atualizar agora": na thread de trabalho. Termina sempre soltando o fluxo (a pendência se retoma pelo resume
+    // seguinte, que é outro fluxo).
     private void baixarEInstalar(VersaoRemota v) {
         File apk = new File(pasta, NOME_DO_APK);
+        boolean seguiu = false; // o diálogo da permissão ou o instalador já foram pedidos: daí em diante não é falha
         try {
+            telas.avisarBaixando();
             if (!pasta.isDirectory() && !pasta.mkdirs()) {
                 Log.w(TAG, "atualização: a pasta do download não foi criada");
+                telas.avisarFalha();
                 return;
             }
             try {
@@ -323,42 +372,55 @@ public final class Atualizador {
             } catch (IOException e) {
                 apk.delete();
                 Log.i(TAG, "atualização: o download não terminou (" + e.getClass().getSimpleName() + ")");
+                telas.avisarFalha();
                 return;
             }
             if (!confere(apk, v.sha256)) {
                 long bytes = apk.length();
                 apk.delete();
                 Log.w(TAG, "atualização: o arquivo baixado não bate com o SHA-256 (" + bytes + " bytes)");
-                telas.avisarSha();
+                telas.avisarFalha();
                 return;
             }
+            long desde = relogio.getAsLong(); // o prazo da pendência conta daqui
+            seguiu = true;
             if (!telas.podeInstalar()) {
-                telas.pedirPermissao(() -> aoAbrirOsAjustes(v));
+                telas.pedirPermissao(() -> aoAbrirOsAjustes(v, desde));
                 return;
             }
-            abrirInstalador(apk);
+            abrirInstalador(apk, v.versionCode, v.sha256, desde);
         } catch (RuntimeException e) {
             // O que ficou no cache não vai ao instalador sem o SHA-256 conferido, e a próxima checagem apaga: não se
             // apaga aqui porque o erro pode ter vindo depois de o instalador já ter sido pedido.
             Log.w(TAG, "atualização: falhou (" + e.getClass().getSimpleName() + ")");
+            if (!seguiu) telas.avisarFalha();
         } finally {
             liberar();
         }
     }
 
-    // Na UI, no toque em "Abrir ajustes". A pendência só nasce aqui: o diálogo fechado sem o toque não deixa nada.
-    private void aoAbrirOsAjustes(VersaoRemota v) {
-        prefs.edit().putInt(PENDENTE_CODIGO, v.versionCode).putString(PENDENTE_SHA, v.sha256).apply();
+    // Na UI, no toque em "Abrir ajustes". A pendência da permissão só nasce aqui: o diálogo fechado sem o toque não deixa
+    // nada.
+    private void aoAbrirOsAjustes(VersaoRemota v, long desde) {
+        gravarPendencia(v.versionCode, v.sha256, desde);
         if (!telas.abrirAjustes()) limparPendencia();
     }
 
-    private void limparPendencia() {
-        prefs.edit().remove(PENDENTE_CODIGO).remove(PENDENTE_SHA).apply();
+    // A hora vai junto e é sempre a do download: a retomada que cai no fundo de novo não estica o prazo.
+    private void gravarPendencia(int codigo, String sha, long desde) {
+        prefs.edit().putInt(PENDENTE_CODIGO, codigo).putString(PENDENTE_SHA, sha).putLong(PENDENTE_DESDE, desde).apply();
     }
 
-    private void abrirInstalador(File apk) {
+    private void limparPendencia() {
+        prefs.edit().remove(PENDENTE_CODIGO).remove(PENDENTE_SHA).remove(PENDENTE_DESDE).apply();
+    }
+
+    private void abrirInstalador(File apk, int codigo, String sha, long desde) {
         apagarVelhos(pasta, apk);
-        telas.instalar(apk);
+        telas.instalar(apk, () -> {
+            Log.i(TAG, "atualização: a tela estava no fundo; o instalador fica para a volta ao app");
+            gravarPendencia(codigo, sha, desde);
+        });
     }
 
     // ------------------------------------------------------------------ a rede de verdade
@@ -442,6 +504,12 @@ public final class Atualizador {
             return !activity.isFinishing() && !activity.isDestroyed();
         }
 
+        // RESUMED: a tela está na frente. O instalador aberto de outro jeito (o técnico em outro app) não aparece.
+        private boolean naFrente() {
+            return activity instanceof LifecycleOwner
+                && ((LifecycleOwner) activity).getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED);
+        }
+
         @Override
         public boolean podeInstalar() {
             // Antes do Android 8 não há permissão por app: quem pergunta é o instalador do sistema.
@@ -513,7 +581,14 @@ public final class Atualizador {
         }
 
         @Override
-        public void avisarSha() {
+        public void avisarBaixando() {
+            activity.runOnUiThread(() ->
+                Toast.makeText(activity.getApplicationContext(), R.string.casca_atualizacao_baixando, Toast.LENGTH_LONG)
+                    .show());
+        }
+
+        @Override
+        public void avisarFalha() {
             activity.runOnUiThread(() ->
                 Toast.makeText(activity.getApplicationContext(), R.string.casca_atualizacao_sha_toast, Toast.LENGTH_LONG)
                     .show());
@@ -534,9 +609,13 @@ public final class Atualizador {
         }
 
         @Override
-        public void instalar(File apk) {
+        public void instalar(File apk, Runnable foraDaFrente) {
             activity.runOnUiThread(() -> {
-                if (!ativa()) return; // o APK fica no cache até a próxima checagem apagar
+                // A tela no fundo, ou a que saiu (a recriada do renderer que morreu é outra): o resume seguinte retoma.
+                if (!ativa() || !naFrente()) {
+                    foraDaFrente.run();
+                    return;
+                }
                 try {
                     activity.startActivity(intentDoInstalador(activity, apk));
                 } catch (ActivityNotFoundException | IllegalArgumentException | SecurityException e) {
