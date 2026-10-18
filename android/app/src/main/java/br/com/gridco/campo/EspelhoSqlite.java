@@ -171,7 +171,7 @@ public class EspelhoSqlite implements ArmazemEspelho {
 
     // A fila entra como versão nova, a menos que seja igual à mais nova: a página regrava a fila com o mesmo conteúdo a
     // toda hora, e cada cópia empurraria uma versão de verdade para fora das três (A → B → B → B deixaria só B). Escolha
-    // da Task 5: o brief diz "insere uma versão nova", e um valor igual ao anterior não é versão nova.
+    // da Task 5: o plano diz "insere uma versão nova", e um valor igual ao anterior não é versão nova.
     private void gravarFila(SQLiteDatabase db, String valor) {
         String hash = Fnv.hash(valor);
         db.beginTransaction();

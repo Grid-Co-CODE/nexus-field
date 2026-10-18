@@ -759,7 +759,7 @@ public class AtualizadorTest {
     // ---------------------------------------------------------------- textos e instalador
 
     @Test
-    public void textosExatosDoBrief() {
+    public void textosExatosDoPlano() {
         Context c = RuntimeEnvironment.getApplication();
         assertEquals("Nova versão do App de Campo", c.getString(R.string.casca_atualizacao_titulo));
         assertEquals("Atualizar agora", c.getString(R.string.casca_atualizacao_atualizar));

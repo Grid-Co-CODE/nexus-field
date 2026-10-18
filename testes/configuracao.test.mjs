@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { JSDOM } from 'jsdom';
 
 const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ler = (caminho) => readFileSync(join(raiz, caminho), 'utf8');
@@ -13,13 +14,34 @@ const cfg = JSON.parse(ler('capacitor.config.json'));
 const manifesto = ler('android/app/src/main/AndroidManifest.xml');
 const regras = ler('android/app/src/main/res/xml/regras_dados.xml');
 
+// O XML lido por um parser de verdade (o do jsdom), e não por expressão regular: um `[\s\S]*` atravessa o fim de um bloco
+// e acha no bloco de baixo o que falta no de cima.
+const { DOMParser } = new JSDOM('').window;
+function lerXml(texto) {
+  const doc = new DOMParser().parseFromString(texto, 'application/xml');
+  assert.equal(doc.getElementsByTagName('parsererror').length, 0, 'o XML não abre');
+  return doc;
+}
+
 test('server.url é só a origem, sem caminho nem barra', () => {
   assert.equal(cfg.server.url, 'https://gridco-campo-mw.azurewebsites.net');
   assert.equal(cfg.server.appStartPath, '/api/app');
 });
 
+// O host inteiro: um ou mais rótulos e um ponto ANTES de microsoftonline, live ou windows. Sem a âncora, evil-live.com
+// passava (termina em live.com).
+const HOST_DA_MICROSOFT = /^([a-z0-9-]+\.)+(microsoftonline|live|windows)\.(com|net)$/;
+
+test('a regra dos hosts da Microsoft não deixa passar host parecido', () => {
+  for (const bom of ['login.microsoftonline.com', 'login.live.com', 'login.windows.net']) assert.match(bom, HOST_DA_MICROSOFT);
+  for (const ruim of ['evil-live.com', 'live.com', 'xlive.com', 'login.microsoftonline.com.exemplo.test', 'login.live.com/', 'https://login.live.com', 'LOGIN.LIVE.COM', 'login.live.co', '*.live.com', 'a.b.fracttal.com']) {
+    assert.doesNotMatch(ruim, HOST_DA_MICROSOFT, ruim);
+  }
+});
+
 test('allowNavigation só tem hosts da Microsoft e nunca o Fracttal', () => {
-  for (const h of cfg.server.allowNavigation) assert.match(h, /(microsoftonline|live|windows)\.(com|net)$/);
+  assert.ok(cfg.server.allowNavigation.length >= 1);
+  for (const h of cfg.server.allowNavigation) assert.match(h, HOST_DA_MICROSOFT);
   assert.ok(!cfg.server.allowNavigation.some(h => /fracttal/i.test(h)));
 });
 
@@ -71,7 +93,30 @@ test('manifesto: a câmera e o GPS não são exigidos do aparelho', () => {
   }
 });
 
-test('regras de dados excluem tudo da nuvem e da transferência', () => {
-  assert.match(regras, /<cloud-backup>[\s\S]*<exclude domain="root"/);
-  assert.match(regras, /<device-transfer>[\s\S]*<exclude domain="root"/);
+// Uma exclusão só vale para o domínio que ela cita: o root não cobre o database (o espelho.db, com e-mail nos nomes das
+// chaves) nem o file (os blobs das fotos). No Android 12+ o allowBackup=false não desliga a transferência de aparelho, e
+// só estas regras seguram o espelho.
+const DOMINIOS = ['root', 'file', 'database', 'sharedpref', 'external', 'device_root', 'device_file', 'device_database', 'device_sharedpref'];
+
+test('regras de dados: os dois blocos excluem todos os domínios, um por um, e não incluem nada', () => {
+  const doc = lerXml(regras);
+  assert.equal(doc.documentElement.tagName, 'data-extraction-rules');
+  for (const bloco of ['cloud-backup', 'device-transfer']) {
+    const achados = doc.getElementsByTagName(bloco);
+    assert.equal(achados.length, 1, `um bloco <${bloco}> só`);
+    const filhos = [...achados[0].children];
+    assert.deepEqual(filhos.filter((f) => f.tagName !== 'exclude').map((f) => f.tagName), [], `<${bloco}> só tem <exclude>`);
+    const excluidos = filhos.map((f) => f.getAttribute('domain')).sort();
+    assert.deepEqual(excluidos, [...DOMINIOS].sort(), `<${bloco}> exclui cada domínio`);
+    for (const f of filhos) assert.equal(f.getAttribute('path'), null, `<${bloco}>: exclusão sem path vale para o domínio inteiro`);
+  }
+  assert.equal(doc.getElementsByTagName('include').length, 0, 'nenhum <include>');
+});
+
+test('manifesto: o backup antigo (Android 11 e anteriores) também desligado', () => {
+  const app = lerXml(manifesto).getElementsByTagName('application')[0];
+  assert.ok(app, 'o manifesto tem <application>');
+  assert.equal(app.getAttribute('android:allowBackup'), 'false');
+  assert.equal(app.getAttribute('android:fullBackupContent'), 'false');
+  assert.equal(app.getAttribute('android:dataExtractionRules'), '@xml/regras_dados');
 });

@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { montarVersaoJson, apkValidoParaOApp, PREFIXO_DO_APK, PADRAO_RESTO_DO_APK, PADRAO_SHA256 } from '../ferramentas/versao-json.mjs';
+import { montarVersaoJson, apkValidoParaOApp, tipoDaVersao, conferirCrescimento, PREFIXO_DO_APK, PADRAO_RESTO_DO_APK, PADRAO_SHA256 } from '../ferramentas/versao-json.mjs';
 
 const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FERRAMENTA = join(raiz, 'ferramentas', 'versao-json.mjs');
@@ -228,5 +228,80 @@ test('linha de comando: o que falta ou está torto para com erro e não deixa ve
       assert.match(r.stderr, esperado);
       assert.ok(!existsSync(join(dir, 'versao.json')), 'não deixa versao.json pela metade');
     }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// A versão da tag (o semver vive num lugar só: o PADRAO_VERSAO daqui, que o montar.yml chama)
+// ---------------------------------------------------------------------------------------------------------------
+
+test('tipoDaVersao: final ou pré-lançamento, com o hífen do metadado de build fora da conta', () => {
+  assert.equal(tipoDaVersao('1.0.0'), 'final');
+  assert.equal(tipoDaVersao('2.10.3'), 'final');
+  assert.equal(tipoDaVersao('1.0.0-rc.1'), 'pre-lancamento');
+  assert.equal(tipoDaVersao('0.0.0-dev'), 'pre-lancamento');
+  // O caso que o `case *-*` do bash errava: o hífen está no metadado (depois do +), e a versão é final. Saindo como
+  // pré-lançamento, ela ficaria fora da releases/latest/ e o app nunca a veria.
+  assert.equal(tipoDaVersao('1.0.0+ci-7'), 'final');
+  assert.equal(tipoDaVersao('1.0.0+7'), 'final');
+  assert.equal(tipoDaVersao('1.0.0-rc.1+b-2'), 'pre-lancamento');
+});
+
+test('tipoDaVersao aceita exatamente o que o versao.json aceita como versionName', () => {
+  for (const nome of ['1.0.0', '1.0.0-rc.1', '1.0.0+7', '', ' 1.0.0', 'v1.0.0', '1.0', '1.0.0-', '../1', '1.0.0\n', '1/2', 'a b']) {
+    let noJson = true;
+    try { montarVersaoJson({ ...base, versionName: nome }); } catch { noJson = false; }
+    let naTag = true;
+    try { tipoDaVersao(nome); } catch { naTag = false; }
+    assert.equal(naTag, noJson, `divergiu em ${JSON.stringify(nome)}`);
+  }
+  for (const ruim of [undefined, null, 7]) assert.throws(() => tipoDaVersao(ruim), /semver/);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// O versionCode só cresce
+// ---------------------------------------------------------------------------------------------------------------
+
+const anterior = (codigo) => JSON.stringify({ ...montarVersaoJson({ ...base, versionCode: 7 }), versionCode: codigo });
+
+test('conferirCrescimento: o número novo tem de ser maior que o da última Release', () => {
+  assert.doesNotThrow(() => conferirCrescimento(8, anterior(7)));
+  assert.doesNotThrow(() => conferirCrescimento(100, anterior(7)));
+  // Igual ou menor: o app compara `v.versionCode <= versaoAtual` e não oferece nada, em silêncio.
+  assert.throws(() => conferirCrescimento(7, anterior(7)), /não é maior/);
+  assert.throws(() => conferirCrescimento(1, anterior(7)), /não é maior/);
+});
+
+test('conferirCrescimento: o versao.json anterior torto não deixa passar (não dá para conferir)', () => {
+  for (const ruim of ['', '{', 'null', '[]', '{}', JSON.stringify({ versionCode: '7' }), JSON.stringify({ versionCode: 0 }), JSON.stringify({ versionCode: 7.5 })]) {
+    assert.throws(() => conferirCrescimento(8, ruim), /última Release/, `devia recusar ${ruim}`);
+  }
+  for (const ruim of [0, -1, 1.5, '8', null, undefined]) assert.throws(() => conferirCrescimento(ruim, anterior(7)), /versionCode/);
+});
+
+test('linha de comando: tipo-da-versao imprime final ou pre-lancamento, e falha com o que não é semver', () => {
+  const final = rodar(['tipo-da-versao', '1.0.0+ci-7'], {});
+  assert.equal(final.status, 0, final.stderr);
+  assert.equal(final.stdout, 'final\n');
+  const pre = rodar(['tipo-da-versao', '1.1.0-rc.1'], {});
+  assert.equal(pre.stdout, 'pre-lancamento\n');
+  for (const args of [['tipo-da-versao', '1.0'], ['tipo-da-versao', '../1'], ['tipo-da-versao'], ['tipo-da-versao', '1.0.0', 'x']]) {
+    const r = rodar(args, {});
+    assert.notEqual(r.status, 0, args.join(' '));
+    assert.equal(r.stdout, '', 'nada no stdout: o montar.yml guarda o stdout numa variável');
+  }
+});
+
+test('linha de comando: conferir-crescimento lê o versao.json anterior e o GITHUB_RUN_NUMBER', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'versao-json-'));
+  try {
+    writeFileSync(join(dir, 'anterior.json'), anterior(40));
+    assert.equal(rodar(['conferir-crescimento', 'anterior.json'], { GITHUB_RUN_NUMBER: '41' }, dir).status, 0);
+    const igual = rodar(['conferir-crescimento', 'anterior.json'], { GITHUB_RUN_NUMBER: '40' }, dir);
+    assert.equal(igual.status, 1);
+    assert.match(igual.stderr, /não é maior/);
+    assert.equal(rodar(['conferir-crescimento', 'anterior.json'], {}, dir).status, 1, 'sem o GITHUB_RUN_NUMBER');
+    assert.equal(rodar(['conferir-crescimento', 'nao-existe.json'], { GITHUB_RUN_NUMBER: '41' }, dir).status, 1);
+    assert.equal(rodar(['conferir-crescimento'], { GITHUB_RUN_NUMBER: '41' }, dir).status, 1);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

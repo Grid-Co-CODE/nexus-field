@@ -63,7 +63,7 @@ public class MensageiroTest {
         m = new Mensageiro(fake, acoes, new Mensageiro.Disjuntor(), () -> agora);
     }
 
-    // --- o que o brief pede ------------------------------------------------------------------------------------------
+    // --- o que o plano pede ------------------------------------------------------------------------------------------
 
     @Test
     public void lsVaiAoArmazem() {

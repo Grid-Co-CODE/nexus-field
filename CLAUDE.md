@@ -12,7 +12,7 @@ contrato.
 
 ```
 npm install
-npm test                                   # testes de Node (configuração, manifesto e regras de dados)
+npm test                                   # testes de Node (script de início, configuração, workflows, contrato, governança)
 source ferramentas/ambiente.sh             # JAVA_HOME, ANDROID_HOME, PATH e android/local.properties (JDK 21, SDK API 36)
 npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug lint)
 ```
@@ -20,10 +20,14 @@ npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug
 O `lint` sai sem erro (os avisos que restam são do template e das versões). O `ambiente.sh` escreve o `sdk.dir` com o
 `:` escapado (`C\:/Users/...`): sem o escape o lint falha com PropertyEscape, mesmo o Gradle lendo o caminho certo.
 
-O APK de depuração sai em `android/app/build/outputs/apk/debug/app-debug.apk`. Não há emulador nesta máquina, e
-nenhum comando daqui toca em celular ligado por USB: instalar no aparelho é por link ou arquivo, pelo próprio dono. O
-roteiro da prova no aparelho é o `docs/prova-no-aparelho.md` (caixas de seleção; quase tudo se faz sem o cabo). O APK de
-depuração nunca vai a técnico: no campo, só o da Release.
+No Windows, rode o `npm test` pelo Git Bash: o `testes/workflows.test.mjs` roda os scripts dos passos da Release num
+bash de verdade e PULA esses testes fora do Git Bash (o `bash.exe` do System32 é o do WSL, outro sistema de arquivos).
+
+O APK de depuração sai em `android/app/build/outputs/apk/debug/app-debug.apk`. Não há emulador nesta máquina. O adb, num
+aparelho de prova ligado por USB, só instala ou desinstala `br.com.gridco.campo` e lê o logcat filtrado ao app: nada de
+shell, `run-as`, `pull`, print de tela, outro app ou configuração do sistema. Sem o cabo, a prova inteira se faz com o APK
+instalado por arquivo ou link: o roteiro é o `docs/prova-no-aparelho.md` (caixas de seleção). O APK de depuração nunca vai
+a técnico: no campo, só o da Release.
 
 O que o GitHub Actions roda (`.github/workflows/`): em todo push e PR, o `npm test`, o `testDebugUnitTest assembleDebug lint`
 e o APK de depuração como artifact (`montar.yml`); em tag `v*`, a Release assinada; todo dia às 11h UTC, o contrato com o
@@ -42,7 +46,14 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
 - O espelho nunca guarda `msal.*`, o `sessionStorage` nem token. `gc_campo_ident` fica cifrado em repouso (Android Keystore).
 - `allowBackup=false` e `dataExtractionRules` excluindo tudo em `<cloud-backup>` e `<device-transfer>`.
 - Sem serviço pago, sem segredo no repositório ou no APK, sem nome de colega em arquivo versionado. pt-BR, sem emoji.
+  O `testes/dados-pessoais.test.mjs` varre o `git ls-files` e falha com `caminho:linha (tipo)`, nunca o valor, em
+  e-mail de pessoa (passam o de "não responda" e os de domínio fictício: `exemplo.com.br`, `example.com`, `*.test`),
+  telefone, CPF e nome na pasta do usuário (`C:/Users/<nome>`). Nome de colega solto ele não acha: isso segue na revisão.
 - A chave de assinatura e as senhas nunca são impressas em terminal, log ou commit.
+- O repositório continua PÚBLICO e em `Grid-Co-CODE/app-campo-android`: o app lê a `releases/latest/download/` sem
+  autenticação, e o `VersaoRemota` só aceita APK desse endereço. Privado ou movido, o app fica sem atualização em silêncio.
+- Suporte no campo: nunca mandar "Limpar armazenamento" nem desinstalar (os dois apagam o espelho, a última cópia do
+  trabalho que não subiu). Para destravar o login, o "limpar só o login" do próprio App.
 
 ## O que o código não diz sozinho
 
@@ -169,6 +180,34 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     de cada regra no plugin) é conferido pela montagem e pela prova no aparelho.
   - O AGP 8 não gera o `BuildConfig` sem `buildFeatures.buildConfig` (o user agent e o `DEBUG` vêm dele), e o
     `androidx.webkit` entra no app de novo porque o `capacitor-android` o tem só como `implementation`.
+- **O script de início, por cima** (`www/casca/inicio.js`): o plugin o injeta com `addDocumentStartJavaScript`, só na
+  origem do App, antes de qualquer script da página (venha o HTML da rede ou do cache do service worker). É script
+  clássico (no Node dos testes vira CommonJS) e nunca pode quebrar a página: todo erro vira `{t:'erro', onde}`, e o
+  `onde` é de uma lista fechada (`Mensageiro.ONDES_DA_PAGINA`, que o `testes/canal.test.mjs` compara com o script). Faz,
+  na ordem das seções: (1) a classificação das chaves (`CLASSES`: fila, trabalho, cache; o resto não vai ao nativo) e os
+  nomes do voltar (`VOLTAR`), as duas listas que o contrato com o site lê; (2) o canal ao nativo; (3) o espelho de
+  escrita do localStorage, que embrulha só `setItem` e `removeItem` (a fila vai na hora; trabalho e cache em lote de
+  400 ms); (4) a sentinela, as versões da fila e a restauração do localStorage; (5) o espelho e a restauração do
+  IndexedDB das fotos (`gc_campo_fotos`, store `fotos`); (6) o `window.open` do login e do Fracttal; (7) o voltar.
+  - **As marcas no localStorage**, gravadas pelo `setItem` original (fora do espelho; o `classificar` as deixa de fora):
+    `gc_casca_sentinela` (presente = o armazenamento não foi perdido) e `gc_casca_perda_pendente` (a perda começou e
+    ainda não terminou). **O banco `gc_casca`** no IndexedDB: "a última restauração do IndexedDB terminou".
+  - **É perda** quando a marca está de pé, ou quando a sentinela falta E o localStorage está vazio no começo do
+    documento. Sentinela ausente com chaves é a faxina por tamanho do próprio site (o despejo do `lsS` não protege a
+    sentinela): a casca a regrava e segue, porque parar justo com o disco cheio deixaria a página em branco.
+  - **As chaves de sessão** (sessionStorage, que o "limpar só o login" apaga): `gc_casca_fila_sessao` (o `fnv1a32` da
+    última fila espelhada ou restaurada nesta sessão: vale como "em dia"); `gc_casca_parou` (a trava: a carga só para
+    uma vez por sessão para pedir o retrato); `gc_casca_retrato_aplicado` (o id do retrato completo já aplicado, para
+    não aplicar o mesmo duas vezes); `gc_casca_ls_reenviado` (o reenvio do localStorage ao espelho recriado, uma vez);
+    `gc_casca_idb_reconciliado` (a reconciliação do IndexedDB, uma vez).
+  - **O retrato completo** (o que o nativo manda quando a carga para) é o leve mais `modo: 'restaurar'`, `motivo`
+    (`'perda'` ou `'fila'`), um `id` novo e não vazio, o `ls` e a `fila`.
+  - **O espelho do trabalho e do cache é de melhor esforço:** a mensagem que o canal recusa descarta aquela chave até a
+    próxima gravação dela (a fila não espera lote; o reenvio ao espelho recriado e a reconciliação do IndexedDB cobrem o
+    caso do banco nativo perdido). Não há lixeira: o espelho repete as exclusões da página.
+  - **Pedidos que ficam com a sessão "App de campo"** (o site não muda daqui): proteger `gc_casca_*` no `_lsProtegida`
+    do despejo por tamanho (numa carga travada ele pode levar a marca da perda); revisar os textos pensados para o
+    navegador que aparecem dentro do app (o "Pode fechar esta aba" na camada do Fracttal).
 - **O script de início e a restauração** (`www/casca/inicio.js`; os testes são `testes/restaurar-ls.test.mjs` e
   `testes/espelho-idb.test.mjs`). O que não aparece no código sem ler os comentários longos:
   - **A reconciliação nunca manda apagar no nativo** (nem `idbDel` nem `lsDel`): só reenvia o que falta lá. O nativo só
@@ -249,7 +288,7 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     instalador, fica só o APK novo. O `confere` lê em pedaços de 64 KB.
   - Os textos estão no `strings.xml` (`casca_atualizacao_*`, `casca_instalar_*`), PENDENTES de aprovação do
     Levi na prévia. O `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) e o
-    `casca_atualizacao_baixando` (17/10/2026) não estavam no brief original.
+    `casca_atualizacao_baixando` (17/10/2026) não estavam no plano.
   - Do `Atualizador` testa-se em JVM o fluxo inteiro com rede, telas e relógio falsos (`AtualizadorTest`; a tela falsa
     também diz "fora da frente"); os diálogos de verdade, o toast e o instalador do sistema só se veem no aparelho. **Os
     dois testes que passam pelo `FileProvider` são pulados no Windows** (ele compara caminhos com `/`; medido em
@@ -264,7 +303,7 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   origens; os cookies ficam), mostra um toast, espera 3 s e recria a tela, que abre o App como sempre e cai na perda.
   O espelho nativo não é tocado. O extra chega pelo **atalho do ícone** (tocar e segurar: "Prova: apagar WebView",
   `src/debug/res/xml/atalhos_depuracao.xml`, posto pelo `src/debug/AndroidManifest.xml`), para a prova sem o cabo e
-  sem o shell do adb, que a regra do celular pessoal não permite; ou pelo `am start ... --ez gc_apagar_webview true`
+  sem o shell do adb, que a regra do aparelho de prova não permite; ou pelo `am start ... --ez gc_apagar_webview true`
   num aparelho de prova. Com a tela aberta o atalho só a traz para a frente (`singleTask`): tire o App dos recentes
   antes. Os textos dela ficam em `src/debug/res/values/depuracao.xml`, sem o prefixo `casca_` e fora da prévia (quem
   os vê é quem faz a prova). Quem prova: o `testes/depuracao.test.mjs` (nada do caminho, nem o nome do extra nem o
@@ -301,46 +340,136 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     confere tudo isso, e que nenhuma regra da folha alcança o iframe da camada (só o `#erro-html` é dimensionado por ela).
   - O desenho dos diálogos (AppCompat DayNight: fundo branco ou `#424242`, canto de 2 dp, botão verde-azulado) é
     aproximação: o que se aprova é texto, botão e quando cada aviso aparece.
-- **A Release e o CI** (`.github/workflows/montar.yml` e `contrato.yml`; escritos em 17/10/2026, ainda sem repositório no
-  GitHub: a primeira execução real é a da Task 10, e o `testes/workflows.test.mjs` guarda as regras abaixo no texto dos
-  arquivos, porque o Actions não roda daqui):
+- **A Release e o CI** (`.github/workflows/montar.yml` e `contrato.yml`; ainda sem repositório no GitHub: a primeira
+  execução real é a da Task 10). O Actions não roda daqui, então o `testes/workflows.test.mjs` lê os dois arquivos com um
+  parser de YAML (o pacote `yaml`, dependência de desenvolvimento) e confere as regras abaixo na estrutura (jobs, passos,
+  o `env` de cada passo), e RODA os scripts dos passos que decidem a Release num bash com `curl`, `gh` e `apksigner`
+  falsos (o commit na main num repositório git de verdade, a versão da tag, o versionCode, o certificado, a publicação e
+  o agendamento). A pasta tem exatamente os dois arquivos: um terceiro escaparia das regras.
   - **Montagem (`montar`):** Node `22.x` (o jsdom 30 pede `^22.22.2`; o `package.json` declara `engines`), `npm ci` e
     `npm test`, depois Java 21 (Temurin), `npx cap sync android` e `./gradlew testDebugUnitTest assembleDebug lint`, e o
-    APK de depuração sobe como artifact. As actions estão fixadas por versão maior (`actions/checkout@v7`,
-    `setup-node@v7`, `setup-java@v6`, `upload-artifact@v7`, `gradle/actions/setup-gradle@v6`; conferidas em 17/10/2026 com
-    `gh api repos/<action>/releases/latest`). O `setup-gradle` usa `cache-provider: basic` (o `enhanced`, padrão, é um
-    serviço comercial; regra de "sem serviço pago").
+    APK de depuração sobe como artifact. Neste job e no contrato as actions vão por versão maior (`actions/checkout@v7`,
+    `setup-node@v7`, `setup-java@v6`, `upload-artifact@v7`, `gradle/actions/setup-gradle@v6`): não há segredo nem escrita
+    em conteúdo. O `setup-gradle` usa `cache-provider: basic` (o `enhanced`, padrão, é um serviço comercial; regra de
+    "sem serviço pago").
   - **Os dois testes do FileProvider têm de rodar no Linux.** `instaladorRecebeOUriDoProviderParaOApkDaPasta` e
     `oProviderDoInstaladorNaoExpoeNadaAlemDeCacheAtualizacao` são pulados no Windows e o Gradle conta pulado como sucesso:
     o `ferramentas/testes-pulados.mjs` lê o XML de resultado e derruba o CI se um deles aparecer pulado, falho ou sumido
     (renomeado). Esta é a primeira vez que eles rodam fora do Windows: se falharem no Linux, o problema é do teste ou do
     `FileProvider`, não do conferidor.
-  - **A Release (`release`, só em tag `v*`, depois do `montar`, no ambiente `release`).** `contents: write` é só deste job. A
-    tag tem de ser `vX.Y.Z` (semver; `vX.Y.Z-rc.1` sai como pré-lançamento, que a `releases/latest/` do app não enxerga) e
-    tem de existir `novidades/<versão>.md` (as linhas `- ` viram as novidades do aviso e o arquivo inteiro é o texto da
-    Release). `VERSAO_CASCA` é a tag sem o `v`; o `versionCode` é o `GITHUB_RUN_NUMBER` **do workflow `montar`: não renomeie
-    nem apague o arquivo**, senão a contagem recomeça em 1 e o Android recusa a atualização.
-  - **A chave:** o secret `CASCA_KEYSTORE_B64` é decodificado para `$RUNNER_TEMP/casca.jks` (permissão só do dono, `printf`
-    direto no `base64 -d`, sem `echo`) e apagado no último passo (`if: always()`). As quatro `CASCA_*` entram só no `env:`
-    do passo do `assembleRelease` (nunca no `GITHUB_ENV`, que as passaria a todos os passos). Depois do build, o
-    `apksigner verify --print-certs` (o build-tools do runner) tem de passar, senão nada é publicado: o SHA-256 do
-    certificado que ele imprime é público e dá para comparar com o da chave guardada. A Release leva `app-campo.apk`,
-    `app-campo.apk.sha256` e `versao.json`.
+  - **A Release (`release`, só em tag `v*`, depois do `montar`, no ambiente `release`).** `contents: write` é só deste job.
+    Ela vai aos ~50 aparelhos e não tem volta (o versionCode não desce, a chave não muda), e o GitHub roda o `montar.yml`
+    do COMMIT da tag: uma tag num ramo com o arquivo mexido leva junto as conferências. A guarda de verdade é a
+    configuração do repositório (abaixo, "O que a Task 10 configura no GitHub"); as conferências do job pegam o engano,
+    nesta ordem, todas antes de a chave sair do secret:
+    1. **o commit da tag está na `main`** (`fetch-depth: 0` e `git merge-base --is-ancestor`): a tag posta por engano num
+       ramo de worktree publicaria código que nunca passou pela `main`;
+    2. **a versão da tag** pelo `node ferramentas/versao-json.mjs tipo-da-versao`: o semver mora só no `PADRAO_VERSAO` de
+       lá (o mesmo do `versionName`), sem regex no bash; tem de existir `novidades/<versão>.md` (as linhas `- ` viram as
+       novidades do aviso e o arquivo inteiro é o texto da Release). Sai `final` ou `pre-lancamento` (no
+       `TIPO_DA_VERSAO`): `1.1.0-rc.1` vira pré-lançamento, que a `releases/latest/` do app não enxerga; o hífen do
+       metadado de build (`1.0.0+ci-7`) não conta (o `case *-*` antigo soltava essa versão final como pré-lançamento);
+    3. **o versionCode cresce**: o `versao.json` da `releases/latest/download/` é lido e o `conferir-crescimento` exige o
+       `GITHUB_RUN_NUMBER` maior; o 404 só vale sem nenhuma Release publicada. O número é o `GITHUB_RUN_NUMBER` **do
+       workflow `montar`: não renomeie, não divida nem apague o arquivo**, senão a contagem recomeça em 1 e o app deixaria
+       de oferecer a atualização, em silêncio.
+  - **A chave:** no job release, toda action é fixada por SHA de commit, com a tag num comentário (conferidos com
+    `gh api repos/<action>/commits/<tag>` em 17/10/2026, cada versão com ao menos duas semanas): uma tag móvel sequestrada
+    (o caso tj-actions/changed-files, 03/2025) rodaria ali com o token de escrita e perto das senhas. O `npm ci` e o
+    `npx cap sync android` rodam ANTES de a chave sair do secret, sem as senhas; sem cache nenhum (npm e Gradle). O secret
+    `CASCA_KEYSTORE_B64` é decodificado para `$RUNNER_TEMP/casca.jks` (permissão só do dono, `printf` direto no
+    `base64 -d`, sem `echo`); as `CASCA_*` entram só no `env:` do passo do `./gradlew assembleRelease` (nunca no
+    `GITHUB_ENV`), e a chave sai do disco quando o Gradle termina (`trap`) e de novo no último passo (`if: always()`). O
+    alias vem de `vars.CASCA_CHAVE_ALIAS`: não é segredo, e como secret o GitHub mascarava "campo" em todo log do job
+    (`app-***.apk`). Resta o Gradle (o AGP, o `capacitor-android`) rodando com as senhas, que a assinatura pelo AGP pede;
+    o passo seguinte, se um dia valer, é montar sem assinar e assinar com o `apksigner` num passo só.
+  - **O pino do certificado:** depois do build, o `apksigner verify --print-certs` (o build-tools do runner) tem de passar
+    e o `ferramentas/certificado.mjs` exige exatamente um signatário e o SHA-256 dele igual ao da variável do repositório
+    `CASCA_CERT_SHA256` (aceita o formato do `keytool`, maiúsculo e com `:`); sem a variável, nada é publicado. Os
+    aparelhos confiam para sempre na chave da primeira versão: um APK com outra chave (a de teste, uma regerada) seria
+    oferecido a cada 6 h e recusado pelo instalador, e o "desinstale" apagaria o espelho. A Release leva
+    `app-campo.apk`, `app-campo.apk.sha256` e `versao.json`.
   - **O `ferramentas/versao-json.mjs`** gera o `versao.json` com as MESMAS regras do `VersaoRemota.java` (o
     `testes/versao-json.test.mjs` lê o `.java` e compara o prefixo, o padrão do link e o SHA; o SHA tem 64 hex minúsculos,
     o `versionName` é o semver, o `apk` sai de `v<versão>/app-campo.apk`). O SHA-256 vem do próprio APK; o workflow ainda
     confere com o `sha256sum`. Sem nenhuma linha `- ` nas novidades o arquivo sai com a lista vazia (o app mostra só
-    "Versão X.").
-  - **O contrato com o site (`testes/contrato.mjs`):** um GET do `/api/app`, só leitura. Importa as chaves e os prefixos
-    da `CLASSES` do `www/casca/inicio.js` (a lista existe num lugar só) e exige no HTML cada chave exata entre aspas e cada
-    prefixo; mais o banco `gc_campo_fotos` com a store `fotos` por perto, a `conectarFracttal` com o
-    `window.open('','_blank')`, o `loginRedirect`, o `'/api/app'` e o `msal-browser` na 2.38.1 (no mesmo endereço). Falha
-    também se o site passar a usar o que o espelho não enxerga (`localStorage.clear(`, atribuição por índice,
-    `delete localStorage`): o espelho só embrulha `setItem` e `removeItem`. A mensagem diz o NOME do que sumiu, nunca um
-    trecho do HTML. Sai com 0 (ok), 1 (o site mudou) ou 2 (não deu para ler o site). Limite: a chave citada num comentário
-    entre aspas simples ainda conta como presente (entre crases não conta). Medido em 17/10/2026: passa no site vivo, e
-    cada mudança de uma peça no HTML real (versão do MSAL, store, `window.open`, prefixo...) é pega.
-  - **A issue diária (`contrato`)**: se o contrato falhar, abre UMA issue com o rótulo `contrato` (não abre outra
-    enquanto houver uma aberta) e deixa o job vermelho. O GitHub desliga os workflows agendados de um repositório sem
-    atividade por 60 dias: se a issue nunca vem, confira que o workflow continua ligado.
-- A splash e o resto do nativo vêm nas tarefas seguintes do plano.
+    "Versão X."). Os subcomandos `tipo-da-versao` e `conferir-crescimento` são os dos passos 2 e 3 acima.
+  - **O contrato com o site (`testes/contrato.mjs`):** um GET do `/api/app`, só leitura. Importa do `www/casca/inicio.js`
+    a `CLASSES`, o `classificar` e o `VOLTAR` (as listas existem num lugar só). Falha, dizendo o NOME (nunca um trecho do
+    HTML), se:
+    - **sumir** do site uma chave exata (entre aspas) ou um prefixo da `CLASSES`, o banco `gc_campo_fotos` com a store
+      `fotos` por perto, a `conectarFracttal` com o `window.open('','_blank')`, o `loginRedirect`, o `'/api/app'`, o
+      `msal-browser` na 2.38.1 (no mesmo endereço), ou um id, classe, função de topo, o `let sheetTask` ou o
+      `setTab('tarefas')` do `VOLTAR` (nome trocado no site só faz o voltar daquela camada minimizar o app);
+    - **aparecer** no site uma chave `gc_` (entre aspas, em qualquer uso: `setItem`, o `lsS`/`lsG` do site, constante,
+      lista; ou começo de template com `${`) que o `classificar` não classifique e que não esteja na `IGNORAR` do próprio
+      contrato (cada entrada com o motivo: o que a spec manda nunca espelhar, preferências, contadores, cópias do que o
+      servidor manda; as `gc_casca*` e o `gc_campo_fotos` passam). Chave nova de TRABALHO vai para a `CLASSES`, e isso
+      pede uma Release (o `inicio.js` vai dentro do APK); só o que se refaz sozinho entra na `IGNORAR`. Caso que criou a
+      regra: um rascunho novo que o site passasse a gravar ficaria fora do espelho em silêncio até a primeira perda;
+    - **aparecer** outro `indexedDB.open` que não o do `gc_campo_fotos`, o `gc_campo_fotos` noutra versão que não a 1, uma
+      store que não a `fotos`, ou `createObjectStore` com opções (keyPath, autoIncrement): a restauração cria o banco na
+      versão 1 e grava `put(valor, chave)`, que numa store com keyPath lança;
+    - o site passar a usar o que o espelho não enxerga (`localStorage.clear(`, atribuição por índice, `delete
+      localStorage`): o espelho só embrulha `setItem` e `removeItem`.
+
+    Sai com 0 (ok), 1 (o site mudou), 2 (não deu para ler o site) ou 3 (o próprio contrato falhou). A resposta
+    descartada (5xx, 4xx, outro host, não HTML) tem o corpo cancelado. Limites: a chave citada entre aspas simples num
+    comentário conta (como presente e como nova; entre crases não conta); chave com caractere fora de `[A-Za-z0-9_.:-]`
+    não é vista. Medido em 17/10/2026: passa no site vivo e na cópia v282, e cada mudança de uma peça no HTML real (versão
+    do MSAL, store, `window.open`, prefixo, chave nova, versão do banco, keyPath, um id ou função do voltar) é pega. Nota
+    para quem classifica: o `gc_campo_status_meta` está na `IGNORAR` porque o "limpar só o login" do próprio site o apaga,
+    mas sem ele o `reconciliar` do site descarta os estados locais sem item na fila.
+  - **A issue diária (`contrato`, `ferramentas/issue-do-contrato.mjs`):** uma issue por TIPO, com rótulo e título
+    próprios: `contrato` (o site mudou; não fecha sozinha, ganha um comentário quando a saída muda e outro, uma vez, quando
+    volta a passar), `contrato-leitura` (não deu para ler o site; fecha sozinha quando o site for lido de novo) e
+    `contrato-erro` (o próprio teste quebrou: código 3, ou a saída sem a linha do contrato, como o erro de sintaxe ao
+    carregar o `inicio.js`, que sai com 1; fecha sozinha quando o contrato voltar a rodar). Com uma issue só para tudo,
+    um site fora do ar passageiro escondia a quebra de verdade do dia seguinte. O corpo vai pelo stdin do `gh`, e sem
+    conseguir listar as abertas nada é criado. O job fica vermelho quando o contrato falha.
+  - **O contrato não morre calado:** o GitHub desliga o agendamento de repositório público sem atividade por 60 dias, e
+    esta casca passa meses sem commit. A cada execução o passo "Manter o agendamento ligado" faz
+    `gh api --method PUT repos/<repo>/actions/workflows/contrato.yml/enable` (por isso o `actions: write`). Não é
+    documentado pelo GitHub; é o observado em 2026 (relato de 15/10/2026 na discussão #184653 da comunidade do GitHub: um
+    repositório público seguiu rodando mais de 120 dias depois do último commit assim). Commit automático para "fazer
+    atividade" não: o projeto mais usado que fazia isso foi desativado pelo GitHub por violar os termos. A primeira prova
+    de que o PUT segura é nossa: conferir na aba Actions, uns 70 dias depois do último commit, que o contrato ainda roda
+    (e não ignorar o e-mail "The workflow will be disabled soon", se ele vier).
+- **A splash** ainda é a do template do Capacitor (os `splash.png`): trocar por cor sólida ou pelo ícone fica pendente, e
+  se confere no aparelho.
+
+## Distribuição
+
+- **Primeira instalação:** o link fixo `https://github.com/Grid-Co-CODE/app-campo-android/releases/latest/download/app-campo.apk`,
+  mandado pelo supervisor (mensagem ou QR). Na primeira vez o técnico autoriza "instalar apps desconhecidos" para o
+  navegador. Depois, o próprio app se atualiza pelo `versao.json` (seção "A atualização da casca").
+- **Verificação de desenvolvedor do Android:** no Brasil, desde 30/09/2026, vale para instalações vindas das lojas; o
+  APK baixado por fora passa a ser cobrado na expansão global de 2027 (ainda sem mês). Antes disso, a Grid registra o
+  pacote como organização no Android Developer Console: US$ 25 uma vez só, D-U-N-S, e-mail e site da empresa, e o
+  SHA-256 da chave (o mesmo da `CASCA_CERT_SHA256`). Sem o registro, cada técnico teria de ligar o modo desenvolvedor e
+  esperar 24 h, e as atualizações falhariam. O D-U-N-S é grátis e só demora: pedir já, e pagar os US$ 25 no dia em que
+  for preciso. Se o aparelho do piloto pedir o fluxo avançado antes disso, o piloto usa a distribuição limitada (grátis,
+  sem documento, até 20 aparelhos). Não é preciso publicar nada na Play.
+
+## O que a Task 10 configura no GitHub
+
+As conferências do `montar.yml` pegam o engano; quem segura a Release é esta configuração, que só se faz pela tela (ou
+pela API) do GitHub e não aparece no código. Antes da primeira tag:
+
+1. **A chave**, gerada uma vez, fora do repositório e do OneDrive: `keytool -genkeypair` com RSA 4096 e validade de 30
+   anos. O `keytool` do JDK 21 cria PKCS12, que tem UMA senha: o `-keypass` diferente do `-storepass` é ignorado, e o
+   `CASCA_CHAVE_SENHA` tem de ser a senha do keystore (senão a primeira tag cai em "Cannot recover key"). As senhas vão
+   para um gerenciador de senhas, nunca para um arquivo ao lado do `.jks`. A cópia da chave fica fora do GitHub e do
+   SharePoint, sob guarda do responsável; este arquivo não diz onde.
+2. **O ambiente `release`** (Settings > Environments): regra de implantação "Selected branches and tags" só com a tag
+   `v*` (nenhum ramo); revisor obrigatório (o dono da casca); os secrets `CASCA_KEYSTORE_B64`, `CASCA_KEYSTORE_SENHA` e
+   `CASCA_CHAVE_SENHA` como secrets DESTE ambiente, nunca do repositório (o `montar` roda em todo push e PR).
+3. **As variáveis do repositório** (Settings > Secrets and variables > Actions > Variables): `CASCA_CERT_SHA256` (o
+   SHA-256 do certificado, do `keytool -list -v`; é público) e `CASCA_CHAVE_ALIAS`.
+4. **Um ruleset de tag** para `v*`: criar, mover e apagar só pelos administradores (o papel de administrador na lista de
+   exceções), e sem force push.
+5. **Actions:** permissão padrão do token só de leitura (os workflows pedem o que precisam). O agente do GitHub
+   (Copilot) não enxerga os secrets (moram só no ambiente `release`, com revisor) nem solta versão (o ruleset de tag).
+6. **Primeira execução:** rodar o `contrato` à mão (`workflow_dispatch`) e ver o passo "Manter o agendamento ligado"
+   passar (o PUT precisa do `actions: write`); depois da `v1.0.0`, conferir que a `releases/latest/download/versao.json`
+   tem o `versionName` 1.0.0 e que o SHA-256 do APK baixado bate.

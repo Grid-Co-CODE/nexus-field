@@ -14,11 +14,55 @@ import { createRequire } from 'node:module';
 import { executadoDireto } from '../ferramentas/executado-direto.mjs';
 
 const require = createRequire(import.meta.url);
-// A lista do que se espelha existe no script de início e em mais lugar nenhum; o contrato lê dela.
-const { CLASSES, CHAVE_FILA } = require('../www/casca/inicio.js');
+// A lista do que se espelha existe no script de início e em mais lugar nenhum; o contrato lê dela. O VOLTAR são os nomes
+// que o voltar do Android usa do campo.html, e o `classificar` decide, como na WebView, se uma chave é espelhada.
+const { CLASSES, CHAVE_FILA, VOLTAR, classificar } = require('../www/casca/inicio.js');
 
 // Origem + appStartPath do capacitor.config.json (o testes/contrato.test.mjs confere que continuam iguais).
 export const URL_DO_APP = 'https://gridco-campo-mw.azurewebsites.net/api/app';
+
+// As chaves gc_ que o campo.html usa e que a casca NÃO espelha de propósito, cada uma com o motivo (lidas no campo.html
+// v282, 17/10/2026). O contrato falha com qualquer outra chave gc_ que apareça no site fora daqui e da CLASSES do
+// inicio.js: um rascunho novo que o site passasse a gravar ficaria fora do espelho em silêncio, e a perda do
+// armazenamento da WebView (a razão de ser da casca) o levaria. Chave nova de TRABALHO vai para a CLASSES (e a casca
+// precisa de uma versão nova, porque o inicio.js vai dentro do APK); só o que se refaz sozinho entra aqui.
+export const IGNORAR = Object.freeze({
+  // O que a spec (6.4) manda nunca espelhar.
+  gc_erros_js: 'o registro de erros da página, só diagnóstico',
+  gc_vivo: 'a caixa-preta da carga (o último ato), só diagnóstico',
+  gc_tela: 'a tela aberta por último, para reabrir nela',
+  // Preferências: perder só volta ao padrão.
+  gc_cam_pref: 'preferência: a câmera escolhida no menu',
+  gc_campo_tema: 'preferência: o tema claro ou escuro',
+  gc_campo_cab: 'preferência: o cabeçalho recolhido',
+  gc_campo_semana: 'preferência: a semana escolhida na lista',
+  gc_campo_fx_off: 'preferência: os efeitos desligados',
+  // Contadores e marcas de tempo: perder só recomeça a conta.
+  gc_cam_stats: 'contador de uso da câmera, só diagnóstico',
+  gc_campo_xp: 'o placar do aparelho, que o servidor refaz',
+  gc_v1_limite_fx: 'a espera entre tentativas no Fracttal',
+  gc_v1_subs_tentado: 'quando as subtarefas foram pedidas (vale 6 h)',
+  gc_campo_relatos_vistos: 'os relatos já lidos; perder só os mostra como novos',
+  // Cópias do que o servidor manda: voltam da rede.
+  gc_campo_notas: 'as notas que o servidor manda (as últimas da pessoa)',
+  gc_campo_rd_apr: 'as OS de ronda que esperam a APR, que o servidor manda',
+  gc_campo_rd_conta: 'a situação da conta no Fracttal que o servidor mandou (vale 72 h)',
+  gc_campo_rd_sem_os: 'a contagem de rondas sem OS, que o servidor manda',
+  gc_campo_bd_cache: 'a cópia antiga da programação (hoje no IndexedDB, que o espelho cobre)',
+  gc_campo_status_meta: 'a hora dos eventos locais; o "limpar só o login" do site a apaga',
+  // Não é chave: é o prefixo da lista de proteção contra o despejo do próprio site (_LS_TRABALHO).
+  gc_ronda: 'prefixo da proteção contra o despejo do site, não uma chave',
+});
+
+// A linha de comando: o erro do PRÓPRIO contrato (um defeito aqui, não no site) sai com 3, para não virar a issue de
+// "o site mudou", que é o 1.
+export async function rodarLinhaDeComando(executar = executarContrato) {
+  try {
+    return await executar();
+  } catch (e) {
+    return { codigo: 3, linhas: [`Contrato: o próprio teste falhou (${e?.name || 'erro'}). Nada foi conferido.`] };
+  }
+}
 
 // Texto entre aspas simples ou duplas, que é como o site escreve as chaves. A crase NÃO vale para a chave exata nem para o
 // nome do banco: nos comentários do site a chave aparece entre crases (`gc_ronda_*`), e isso não prova que o código ainda
@@ -95,6 +139,105 @@ const PROIBIDOS = [
   ['proibido: delete localStorage', /\bdelete\s+(?:window\.)?localStorage\b/],
 ];
 
+// --- O que APARECE no site -------------------------------------------------------------------------------------
+// Toda chave gc_ do site, do jeito que o código a escreve: entre aspas (no setItem, no auxiliar lsS/lsG, numa constante,
+// numa lista) ou como começo de um template com interpolação (`gc_subs_${os}`). A crase sem interpolação não conta: é o
+// jeito dos comentários do site. Limite conhecido: a chave citada entre aspas simples num comentário conta (falso alarme,
+// que custa uma issue); e a chave escrita com caractere fora de [A-Za-z0-9_.:-] não é vista.
+const LITERAL_GC = /(['"])(gc_[A-Za-z0-9_.:-]*)\1/g;
+const TEMPLATE_GC = /`(gc_[A-Za-z0-9_.:-]*)\$\{/g;
+const BANCO_DAS_FOTOS = 'gc_campo_fotos';
+const STORE_DAS_FOTOS = 'fotos';
+// As chaves da própria casca (a sentinela, a marca da perda, as de sessão): o site pode protegê-las do despejo dele.
+const PREFIXO_DA_CASCA = 'gc_casca';
+// O nome vem do HTML, mas só com [A-Za-z0-9_.:-]; o teto o mantém um nome curto na issue.
+const TETO_DO_NOME = 32;
+
+function chavesNovas(html) {
+  const vistas = new Set();
+  for (const m of html.matchAll(LITERAL_GC)) vistas.add(m[2]);
+  for (const m of html.matchAll(TEMPLATE_GC)) vistas.add(m[1]);
+  return [...vistas].filter((nome) => classificar(nome) === null && nome !== BANCO_DAS_FOTOS &&
+    !nome.startsWith(PREFIXO_DA_CASCA) && !Object.hasOwn(IGNORAR, nome));
+}
+
+const curto = (nome) => (nome.length > TETO_DO_NOME ? `${nome.slice(0, TETO_DO_NOME)}…` : nome);
+
+// O valor de um argumento: texto entre aspas, número, ou o nome de uma constante do site (const IDB_NAME='...'). Sem
+// conseguir ler, undefined.
+function valorDe(html, expressao) {
+  const e = String(expressao ?? '').trim();
+  let m = /^(['"])([^'"\n]*)\1$/.exec(e);
+  if (m) return m[2];
+  if (/^\d+$/.test(e)) return Number(e);
+  if (!/^[A-Za-z_$][\w$]*$/.test(e)) return undefined;
+  const nome = escapar(e);
+  m = new RegExp(`(?<![\\w$.])${nome}\\s*=\\s*(['"])([^'"\\n]*)\\1`).exec(html);
+  if (m) return m[2];
+  m = new RegExp(`(?<![\\w$.])${nome}\\s*=\\s*(\\d+)\\b`).exec(html);
+  return m ? Number(m[1]) : undefined;
+}
+
+// Argumentos de uma chamada sem parêntese dentro: o primeiro e o resto (depois da primeira vírgula).
+function argumentos(texto) {
+  const virgula = texto.indexOf(',');
+  return virgula < 0 ? [texto, ''] : [texto.slice(0, virgula), texto.slice(virgula + 1)];
+}
+
+// O banco das fotos é o único que a casca espelha e restaura, e a restauração o cria na versão 1 com a store sem keyPath
+// (as chaves vão fora da linha: put(valor, chave)). Outro banco ficaria sem espelho; outra versão, ou keyPath, faria a
+// restauração falhar em silêncio (o put com chave fora da linha numa store com keyPath lança DataError).
+function conferirIndexedDB(html, falta) {
+  const aberturas = [...html.matchAll(/\bindexedDB\s*\.\s*open\s*\(/g)].length;
+  if (aberturas === 0) falta('IndexedDB: o gc_campo_fotos não é aberto');
+  const lidas = [...html.matchAll(/\bindexedDB\s*\.\s*open\s*\(([^()]*)\)/g)].map((m) => argumentos(m[1]));
+  if (lidas.length < aberturas && aberturas > 1) falta('IndexedDB: outro banco além do gc_campo_fotos');
+  for (const [nomeExpr, versaoExpr] of lidas) {
+    const nome = valorDe(html, nomeExpr);
+    if (typeof nome === 'string' && nome !== BANCO_DAS_FOTOS) { falta('IndexedDB: outro banco além do gc_campo_fotos'); continue; }
+    // O nome que não se lê só é tomado pelo das fotos se for o único open da página.
+    if (nome === undefined && aberturas > 1) { falta('IndexedDB: outro banco além do gc_campo_fotos'); continue; }
+    if (versaoExpr.trim() !== '' && valorDe(html, versaoExpr) !== 1) falta('IndexedDB: gc_campo_fotos noutra versão (a casca usa a 1)');
+  }
+  for (const m of html.matchAll(/\bcreateObjectStore\s*\(([^()]*)\)/g)) {
+    const [nomeExpr, opcoes] = argumentos(m[1]);
+    const nome = valorDe(html, nomeExpr);
+    if (typeof nome === 'string' && nome !== STORE_DAS_FOTOS) falta(`IndexedDB: outra store além de '${STORE_DAS_FOTOS}'`);
+    if (opcoes.trim() !== '') falta('IndexedDB: store com keyPath ou autoIncrement');
+  }
+}
+
+// --- Os nomes do voltar do Android -----------------------------------------------------------------------------
+// O id num atributo ou numa propriedade (a câmera e as esperas só existem criadas pelo script: d.id='cham-wait'); a
+// classe como palavra inteira dentro de um texto entre aspas (atributo, classList, o auxiliar que cria o botão) ou num
+// seletor do CSS; a função como declaração de topo (é o que vira propriedade da janela); o `let` de topo; e a aba
+// inicial chamada pela função das abas. Nome trocado no site só faz o voltar daquela camada minimizar o app: o aviso
+// vem daqui, antes de o técnico sentir.
+function temId(html, id) {
+  return new RegExp(`(?<![\\w$-])id\\s*=\\s*\\\\?(['"])${escapar(id)}\\\\?\\1`).test(html);
+}
+function temClasse(html, classe) {
+  const c = escapar(classe);
+  return new RegExp(`(['"])(?:[^'"\\n]*\\s)?${c}(?=[\\s'"\\\\])`).test(html) ||
+    new RegExp(`(?<![\\w$-])\\.${c}(?![\\w-])`).test(html);
+}
+function temFuncaoDeTopo(html, nome) {
+  const n = escapar(nome);
+  return new RegExp(`\\bfunction\\s+${n}\\s*\\(`).test(html) || new RegExp(`\\bwindow\\.${n}\\s*=`).test(html);
+}
+function temDeclaracao(html, nome) {
+  return new RegExp(`\\b(?:let|var|const)\\s+(?:[\\w$]+\\s*=[^,;\\n]*,\\s*)*${escapar(nome)}\\b`).test(html);
+}
+
+function conferirVoltar(html, falta) {
+  for (const id of Object.values(VOLTAR.id)) if (!temId(html, id)) falta(`voltar: id '${id}'`);
+  for (const classe of Object.values(VOLTAR.classe)) if (!temClasse(html, classe)) falta(`voltar: classe '${classe}'`);
+  for (const funcao of Object.values(VOLTAR.funcao)) if (!temFuncaoDeTopo(html, funcao)) falta(`voltar: função ${funcao}`);
+  for (const global of Object.values(VOLTAR.global)) if (!temDeclaracao(html, global)) falta(`voltar: global ${global}`);
+  const aba = new RegExp(`\\b${escapar(VOLTAR.funcao.aba)}\\s*\\(\\s*\\\\?(['"])${escapar(VOLTAR.abaInicial)}\\\\?\\1\\s*\\)`);
+  if (!aba.test(html)) falta(`voltar: aba '${VOLTAR.abaInicial}'`);
+}
+
 /**
  * Confere o campo.html contra o que a casca supõe. Devolve a lista do que faltou (ou do que apareceu e é proibido);
  * vazia = tudo no lugar. Cada item é o NOME do que falta, nunca um trecho do HTML.
@@ -104,9 +247,10 @@ export function conferirContrato(html) {
   const faltou = [];
   const falta = (item) => { if (!faltou.includes(item)) faltou.push(item); };
 
-  // O IndexedDB das fotos que o espelho copia.
-  if (!temLiteral(html, 'gc_campo_fotos')) falta("'gc_campo_fotos'");
-  if (!temStoreDasFotos(html)) falta("'fotos'");
+  // O IndexedDB das fotos que o espelho copia: o nome, a store, e nenhum outro banco, versão ou store.
+  if (!temLiteral(html, BANCO_DAS_FOTOS)) falta(`'${BANCO_DAS_FOTOS}'`);
+  if (!temStoreDasFotos(html)) falta(`'${STORE_DAS_FOTOS}'`);
+  conferirIndexedDB(html, falta);
 
   // As chaves e os prefixos da classificação (www/casca/inicio.js): a fila, o trabalho e o cache.
   const exatas = [...new Set([CHAVE_FILA, ...CLASSES.trabalho.exatas, ...CLASSES.trabalho.excecoes, ...CLASSES.cache.exatas])];
@@ -115,6 +259,8 @@ export function conferirContrato(html) {
   for (const prefixo of [...CLASSES.trabalho.prefixos, ...CLASSES.cache.prefixos]) {
     if (!temPrefixo(html, prefixo, conhecidas)) falta(`prefixo '${prefixo}'`);
   }
+  // E o contrário: chave gc_ do site que a casca não classifica nem ignora de propósito.
+  for (const nome of chavesNovas(html)) falta(`chave nova sem classe: '${curto(nome)}'`);
 
   // O login, a trava do /api/app e o MSAL fixo.
   if (!/\bloginRedirect\s*\(/.test(html)) falta('loginRedirect');
@@ -126,6 +272,8 @@ export function conferirContrato(html) {
   if (corpo === null) falta('função conectarFracttal');
   else if (!WINDOW_OPEN_EM_BRANCO.test(corpo)) falta("window.open('','_blank') em conectarFracttal");
 
+  conferirVoltar(html, falta);
+
   for (const [item, padrao] of PROIBIDOS) if (padrao.test(html)) falta(item);
 
   return faltou;
@@ -135,6 +283,15 @@ const ESPERAS_PADRAO_MS = [3000, 8000];
 const TEMPO_LIMITE_MS = 30000;
 
 const dorme = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
+
+// A resposta que não vai ser lida tem o corpo cancelado: o fetch do Node segura a conexão até o corpo ser lido ou
+// cancelado, e as três tentativas num 5xx deixavam três abertas. O cancelamento que falha não muda nada.
+function descartar(res) {
+  try {
+    const p = res?.body?.cancel?.();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch { /* já fechado */ }
+}
 
 // Um GET, com 2 novas tentativas se a rede cair ou o servidor responder 5xx (o site é um Azure App Service e dorme). 4xx e
 // resposta que não é a página do App não se repetem. Devolve { html } ou { erro }.
@@ -154,12 +311,13 @@ async function lerOSite({ buscar, url, esperasMs }) {
       erro = `a rede falhou (${e?.name || 'erro'})`;
       continue;
     }
-    if (res.status >= 500) { erro = `o site respondeu ${res.status}`; continue; }
-    if (!res.ok) return { erro: `o site respondeu ${res.status}` };
+    if (res.status >= 500) { descartar(res); erro = `o site respondeu ${res.status}`; continue; }
+    if (!res.ok) { descartar(res); return { erro: `o site respondeu ${res.status}` }; }
     if (res.url && new URL(res.url).origin !== new URL(url).origin) {
+      descartar(res);
       return { erro: `a resposta parou em outro endereço (${new URL(res.url).host}), não no App` };
     }
-    if (!/text\/html/i.test(res.headers.get('content-type') || '')) return { erro: 'a resposta não é uma página HTML' };
+    if (!/text\/html/i.test(res.headers.get('content-type') || '')) { descartar(res); return { erro: 'a resposta não é uma página HTML' }; }
     try {
       return { html: await res.text() };
     } catch (e) {
@@ -185,13 +343,14 @@ export async function executarContrato({ buscar = fetch, url = URL_DO_APP, esper
     linhas: [
       `Contrato quebrado: ${faltou.length} item(ns) do campo.html que a casca supõe não estão como antes.`,
       ...faltou.map((item) => `- ${item}`),
-      'Confira a classificação em www/casca/inicio.js (CLASSES) e a janela do Fracttal com a sessão "App de campo".',
+      'Confira com a sessão "App de campo" a classificação em www/casca/inicio.js (CLASSES), a IGNORAR daqui, os nomes ' +
+        'do voltar (VOLTAR) e a janela do Fracttal.',
     ],
   };
 }
 
 if (executadoDireto(import.meta.url)) {
-  const { codigo, linhas } = await executarContrato();
+  const { codigo, linhas } = await rodarLinhaDeComando();
   console[codigo === 0 ? 'log' : 'error'](linhas.join('\n'));
   process.exitCode = codigo;
 }

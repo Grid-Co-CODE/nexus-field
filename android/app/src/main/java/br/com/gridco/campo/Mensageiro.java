@@ -459,7 +459,7 @@ public final class Mensageiro {
     }
 
     // A página devolveu o retrato completo: o script volta ao leve, com as versões da fila e as chaves do IndexedDB
-    // de agora (as do começo da partida já estão velhas). Do que não coube, só a contagem (R15: são nomes de chave).
+    // de agora (as do começo da partida já estão velhas). Do que não coube, só a contagem (são nomes de chave, com e-mail).
     // A troca sai mesmo que o espelho falhe ao ler: o completo de pé pela partida volta a ser aplicado na carga em que
     // o sessionStorage não tiver o id dele (o "limpar só o login" o apaga), e grava o `ls` e a fila do momento do pedido
     // por cima do trabalho novo. No lugar, o leve sem as versões da fila, como no precisoRetrato.

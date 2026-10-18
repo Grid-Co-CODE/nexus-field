@@ -2,7 +2,8 @@
 # assinada, com o APK, o SHA-256 e o versao.json que o app lê para se atualizar (spec 2026-10-16, seções 7 e 8).
 #
 # O versionCode da Release é o GITHUB_RUN_NUMBER deste workflow, que o GitHub conta por arquivo de workflow: NÃO renomeie
-# nem apague este arquivo, senão a contagem recomeça em 1 e o Android recusa a atualização (versionCode menor).
+# nem apague este arquivo, senão a contagem recomeça em 1 e o Android recusa a atualização (versionCode menor). O job
+# release confere isso contra a última Release antes de assinar.
 name: montar
 
 on:
@@ -82,6 +83,11 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # A Release vai para os ~50 aparelhos e não tem volta (o versionCode não desce; a chave não muda). O GitHub roda o
+  # montar.yml do COMMIT da tag: uma tag posta num ramo com este arquivo mexido leva junto as conferências daqui. A guarda
+  # de verdade é a configuração do repositório (CLAUDE.md, "O que a Task 10 configura no GitHub"): o ambiente release só
+  # para tags v*, com revisor obrigatório, e as tags v* que só os administradores criam. As conferências abaixo pegam o
+  # engano (a tag num ramo em andamento, a contagem que recomeçou, a chave trocada) antes de a chave sair do secret.
   release:
     name: Release assinada
     needs: montar
@@ -93,42 +99,95 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      # Neste job, toda action é fixada por SHA de commit, com a tag no comentário: uma tag móvel sequestrada rodaria aqui
+      # com o token de escrita e perto das senhas da chave. SHAs conferidos com `gh api repos/<action>/commits/<tag>` em
+      # 17/10/2026; cada versão tinha ao menos duas semanas.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # O histórico inteiro, para conferir que o commit da tag está na main.
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v7
+      # Só sai Release do que passou pela main: uma tag posta por engano num ramo de worktree publicaria código que nunca
+      # foi revisado, e o versionCode não volta atrás.
+      - name: O commit da tag está na main
+        run: |
+          set -euo pipefail
+          alvo="$(git rev-parse "refs/tags/${GITHUB_REF_NAME}^{commit}")"
+          if [ "$alvo" != "$(git rev-parse HEAD)" ]; then
+            echo "O checkout não é o commit da tag ${GITHUB_REF_NAME}." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$alvo" origin/main; then
+            echo "A tag ${GITHUB_REF_NAME} aponta para um commit que não está na main: a Release só sai do que passou pela main." >&2
+            exit 1
+          fi
+
+      # Sem o cache do npm: o APK que vai ao campo sai de dependências baixadas agora.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.x
-          cache: npm
 
-      - run: npm ci
-
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      # Sem cache: o APK que vai ao campo sai de dependências baixadas agora, não de um cache de outro build.
-      - uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-disabled: true
-
-      # VERSAO_CASCA é a tag sem o v. A tag é conferida ANTES de virar variável e de virar nome de arquivo: só o semver
-      # X.Y.Z (com pré-versão ou metadado) passa, e há de existir o novidades/<versão>.md.
+      # VERSAO_CASCA é a tag sem o v. A tag é conferida ANTES de virar variável e nome de arquivo, pela MESMA regra do
+      # versionName (o semver mora só no ferramentas/versao-json.mjs, que só usa o Node: não precisa do npm ci). O tipo
+      # (final ou pre-lancamento) decide se a Release sai como pré-lançamento.
       - name: Versão da tag
         run: |
           set -euo pipefail
           versao="${GITHUB_REF_NAME#v}"
-          if ! [[ "$versao" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "A tag ${GITHUB_REF_NAME} não é vX.Y.Z (semver)." >&2
-            exit 1
-          fi
+          tipo="$(node ferramentas/versao-json.mjs tipo-da-versao "$versao")"
           if [ ! -f "novidades/${versao}.md" ]; then
             echo "Falta o arquivo novidades/${versao}.md (as novidades desta versão)." >&2
             exit 1
           fi
           echo "VERSAO_CASCA=${versao}" >> "$GITHUB_ENV"
+          echo "TIPO_DA_VERSAO=${tipo}" >> "$GITHUB_ENV"
+
+      # O app ignora em silêncio um versionCode que não cresce. Conferido contra o versao.json da última Release, antes de a
+      # chave sair do secret. O 404 só vale quando ainda não há Release nenhuma.
+      - name: O versionCode cresce
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          anterior="$RUNNER_TEMP/versao-anterior.json"
+          codigo="$(curl -sSL --retry 3 -o "$anterior" -w '%{http_code}' "${GITHUB_SERVER_URL}/${GH_REPO}/releases/latest/download/versao.json")"
+          case "$codigo" in
+            200)
+              node ferramentas/versao-json.mjs conferir-crescimento "$anterior"
+              ;;
+            404)
+              publicadas="$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq length)"
+              if [ "$publicadas" != "0" ]; then
+                echo "Há Release publicada, mas a última não tem versao.json: não dá para conferir o versionCode." >&2
+                exit 1
+              fi
+              echo "Nenhuma Release publicada ainda: esta é a primeira."
+              ;;
+            *)
+              echo "Não consegui ler o versao.json da última Release (HTTP ${codigo})." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Dependências do npm
+        run: npm ci
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Sem cache: o APK que vai ao campo sai de dependências baixadas agora, não de um cache de outro build.
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-disabled: true
+
+      # A parte web vai ao projeto Android ANTES de a chave sair do secret: o CLI do Capacitor e as dependências npm dele
+      # rodam sem as senhas no ambiente e sem a chave no disco.
+      - name: Copiar a parte web para o Android
+        run: npx cap sync android
 
       # A chave vem em base64 num secret e é gravada na pasta temporária do runner, só com permissão do dono. Nada aqui
       # imprime o secret: o printf é embutido no shell (não aparece nos argumentos de nenhum processo) e vai direto ao base64.
@@ -142,24 +201,30 @@ jobs:
           printf '%s' "$CASCA_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/casca.jks"
           test -s "$RUNNER_TEMP/casca.jks"
 
-      # As quatro CASCA_* só existem neste passo (e não no GITHUB_ENV, que passaria os secrets a todos os passos seguintes).
-      # Se alguma estiver vazia, o android/app/build.gradle derruba o build dizendo o NOME das que faltam.
+      # As quatro CASCA_* só existem neste passo (e não no GITHUB_ENV, que as passaria a todos os passos seguintes). O alias
+      # vem de vars (não é segredo, e como secret o GitHub mascarava "campo" em todo log do job). Se alguma estiver vazia, o
+      # android/app/build.gradle derruba o build dizendo o NOME das que faltam. O Gradle e o que ele carrega (o AGP, o
+      # capacitor-android) ainda rodam com as senhas: é o que a assinatura do AGP pede. A chave sai do disco assim que o
+      # Gradle termina (trap); o último passo do job a apaga de novo, se algo cair antes.
       - name: APK assinado
         env:
           CASCA_KEYSTORE: ${{ runner.temp }}/casca.jks
           CASCA_KEYSTORE_SENHA: ${{ secrets.CASCA_KEYSTORE_SENHA }}
-          CASCA_CHAVE_ALIAS: ${{ secrets.CASCA_CHAVE_ALIAS }}
+          CASCA_CHAVE_ALIAS: ${{ vars.CASCA_CHAVE_ALIAS }}
           CASCA_CHAVE_SENHA: ${{ secrets.CASCA_CHAVE_SENHA }}
         run: |
           set -euo pipefail
-          npx cap sync android
+          trap 'rm -f "$CASCA_KEYSTORE"' EXIT
           cd android
           ./gradlew assembleRelease
 
-      # Sem assinatura o AGP escreve app-release-unsigned.apk, e o app-release.apk nem existe. O apksigner confere a
-      # assinatura de verdade (o build-tools do próprio runner) e imprime o certificado (SHA-256 público), que dá para
-      # comparar com o da chave guardada.
-      - name: Conferir a assinatura
+      # Sem assinatura o AGP escreve app-release-unsigned.apk, e o app-release.apk nem existe. O apksigner (o build-tools do
+      # próprio runner) confere a assinatura e imprime o certificado; o ferramentas/certificado.mjs exige que ele seja o da
+      # variável CASCA_CERT_SHA256 do repositório (o pino). Os aparelhos confiam para sempre na chave da primeira versão:
+      # um APK com outra chave seria oferecido a cada 6 h e recusado pelo instalador, e o "desinstale" apagaria o espelho.
+      - name: Conferir a assinatura e o certificado
+        env:
+          CERT_ESPERADO: ${{ vars.CASCA_CERT_SHA256 }}
         run: |
           set -euo pipefail
           apk=android/app/build/outputs/apk/release/app-release.apk
@@ -169,7 +234,8 @@ jobs:
           fi
           cp "$apk" app-campo.apk
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)"
-          "$apksigner" verify --print-certs app-campo.apk
+          "$apksigner" verify --print-certs app-campo.apk > "$RUNNER_TEMP/certificados.txt"
+          node ferramentas/certificado.mjs "$RUNNER_TEMP/certificados.txt"
 
       # O SHA-256 vai em dois lugares (o arquivo .sha256 e o versao.json) calculados por programas diferentes
       # (sha256sum e o node): se divergirem, algo está errado e nada é publicado.
@@ -180,7 +246,8 @@ jobs:
           node ferramentas/versao-json.mjs --apk app-campo.apk --novidades "novidades/${VERSAO_CASCA}.md" --saida versao.json
           test "$(cut -d' ' -f1 app-campo.apk.sha256)" = "$(node -p "require('./versao.json').sha256")"
 
-      # Versão com pré-versão (1.1.0-rc.1) sai como pré-lançamento: a releases/latest/ que o app lê não a enxerga.
+      # Versão com pré-versão (1.1.0-rc.1) sai como pré-lançamento: a releases/latest/ que o app lê não a enxerga. O tipo
+      # veio do passo "Versão da tag" (o hífen do metadado de build, como em 1.0.0+ci-7, não conta).
       - name: Publicar a Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -188,7 +255,14 @@ jobs:
         run: |
           set -euo pipefail
           extras=()
-          case "$VERSAO_CASCA" in *-*) extras+=(--prerelease) ;; esac
+          case "$TIPO_DA_VERSAO" in
+            pre-lancamento) extras+=(--prerelease) ;;
+            final) ;;
+            *)
+              echo "Tipo de versão desconhecido (${TIPO_DA_VERSAO}): nada publicado." >&2
+              exit 1
+              ;;
+          esac
           gh release create "$GITHUB_REF_NAME" app-campo.apk app-campo.apk.sha256 versao.json \
             --verify-tag \
             --title "App de Campo ${VERSAO_CASCA}" \

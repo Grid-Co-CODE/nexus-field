@@ -4,6 +4,8 @@
 //
 //   VERSAO_CASCA=1.0.1 GITHUB_RUN_NUMBER=12 node ferramentas/versao-json.mjs [--apk app-campo.apk]
 //                                            [--novidades novidades/<versão>.md] [--saida versao.json]
+//   node ferramentas/versao-json.mjs tipo-da-versao 1.0.1        imprime "final" ou "pre-lancamento"; falha sem semver
+//   GITHUB_RUN_NUMBER=12 node ferramentas/versao-json.mjs conferir-crescimento <versao.json da última Release>
 //
 // O SHA-256 vem do próprio APK (lido aqui). Quem chama no CI ainda confere com o `sha256sum`: duas contas independentes.
 
@@ -66,6 +68,41 @@ export function montarVersaoJson({ versionCode, versionName, sha256, novidadesMd
   return { versionCode, versionName, apk, sha256, novidades };
 }
 
+/**
+ * A versão da tag, conferida pela MESMA regra do versionName (o semver mora só no PADRAO_VERSAO): o passo "Versão da tag"
+ * do montar.yml chama isto antes de a versão virar variável e nome de arquivo. Devolve 'final' ou 'pre-lancamento'. A
+ * pré-versão é o hífen ANTES do metadado de build: em 1.0.0+ci-7 o hífen é do metadado e a versão é final (o `case *-*`
+ * do bash a soltava como pré-lançamento, fora da releases/latest/ que o app lê).
+ */
+export function tipoDaVersao(versao) {
+  if (typeof versao !== 'string' || !new RegExp(`^${PADRAO_VERSAO}$`).test(versao)) {
+    throw new Error('a versão da tag não é o semver da casca (vX.Y.Z, com pré-versão se houver)');
+  }
+  return versao.split('+')[0].includes('-') ? 'pre-lancamento' : 'final';
+}
+
+/**
+ * O versionCode novo tem de ser MAIOR que o do versao.json da última Release (`anteriorTexto`, o arquivo como veio). O app
+ * ignora em silêncio um número menor ou igual (`v.versionCode <= versaoAtual`), e o número é o GITHUB_RUN_NUMBER do
+ * montar.yml: renomear ou dividir o arquivo, ou recriar o repositório, recomeça a contagem em 1. Lança se não crescer
+ * ou se o anterior não der para ler (sem conferência, nada é publicado).
+ */
+export function conferirCrescimento(versionCode, anteriorTexto) {
+  if (!Number.isInteger(versionCode) || versionCode < 1 || versionCode > INT_MAX_DO_JAVA) {
+    throw new Error('versionCode novo inválido: tem de ser um número inteiro de 1 em diante');
+  }
+  let anterior;
+  try { anterior = JSON.parse(anteriorTexto); } catch { anterior = null; }
+  const codigo = anterior && typeof anterior === 'object' ? anterior.versionCode : undefined;
+  if (!Number.isInteger(codigo) || codigo < 1) {
+    throw new Error('o versao.json da última Release não tem um versionCode legível: não dá para conferir que o número cresce');
+  }
+  if (versionCode <= codigo) {
+    throw new Error(`o versionCode ${versionCode} não é maior que o da última Release (${codigo}): o app não ofereceria a ` +
+      'atualização. A contagem do montar.yml recomeçou? (renomear, dividir ou recriar o workflow zera o GITHUB_RUN_NUMBER)');
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Linha de comando
 // ---------------------------------------------------------------------------------------------------------------
@@ -92,13 +129,36 @@ function sha256DoArquivo(caminho) {
   });
 }
 
+function lerNumeroDaExecucao(env) {
+  const numero = env.GITHUB_RUN_NUMBER;
+  if (!numero || !/^[1-9]\d*$/.test(numero)) throw new Error('GITHUB_RUN_NUMBER tem de ser um número inteiro de 1 em diante');
+  return Number(numero);
+}
+
+// Os dois comandos de conferência do job release. Só o tipo vai ao stdout (o montar.yml o guarda numa variável); o erro
+// vai ao stderr.
+const COMANDOS = {
+  'tipo-da-versao'(args) {
+    if (args.length !== 1) throw new Error('uso: versao-json.mjs tipo-da-versao <versão sem o v>');
+    console.log(tipoDaVersao(args[0]));
+  },
+  'conferir-crescimento'(args, env) {
+    if (args.length !== 1) throw new Error('uso: versao-json.mjs conferir-crescimento <versao.json da última Release>');
+    const versionCode = lerNumeroDaExecucao(env);
+    let texto;
+    try { texto = readFileSync(args[0], 'utf8'); } catch { throw new Error(`não consegui ler o versao.json anterior (${args[0]})`); }
+    conferirCrescimento(versionCode, texto);
+    console.log(`versionCode ${versionCode}: maior que o da última Release`);
+  },
+};
+
 async function principal(argv, env) {
+  if (Object.hasOwn(COMANDOS, argv[0] ?? '')) return COMANDOS[argv[0]](argv.slice(1), env);
   const opcoes = lerArgumentos(argv);
 
   const versionName = env.VERSAO_CASCA;
   if (!versionName) throw new Error('falta a variável VERSAO_CASCA (a versão da tag, sem o v)');
-  const numero = env.GITHUB_RUN_NUMBER;
-  if (!numero || !/^[1-9]\d*$/.test(numero)) throw new Error('GITHUB_RUN_NUMBER tem de ser um número inteiro de 1 em diante');
+  const numero = lerNumeroDaExecucao(env);
 
   const apk = opcoes.apk ?? NOME_DO_APK;
   const caminhoNovidades = opcoes.novidades ?? `novidades/${versionName}.md`;
@@ -108,7 +168,7 @@ async function principal(argv, env) {
   try { novidadesMd = readFileSync(caminhoNovidades, 'utf8'); } catch { throw new Error(`não consegui ler as novidades (${caminhoNovidades})`); }
   const sha256 = await sha256DoArquivo(apk);
 
-  const versao = montarVersaoJson({ versionCode: Number(numero), versionName, sha256, novidadesMd });
+  const versao = montarVersaoJson({ versionCode: numero, versionName, sha256, novidadesMd });
   // Escreve num arquivo ao lado e troca: um erro no meio não deixa um versao.json pela metade para a Release levar.
   const provisorio = `${saida}.tmp`;
   try {

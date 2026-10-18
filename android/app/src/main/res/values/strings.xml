@@ -46,7 +46,7 @@
     <string name="casca_atualizacao_depois">Depois</string>
 
     <!-- O toque em "Atualizar agora": o download começou (toast). PENDENTE de aprovação do Levi na prévia (texto novo de
-         17/10/2026, que o brief original não previa). -->
+         17/10/2026, que o plano não previa). -->
     <string name="casca_atualizacao_baixando">Baixando a versão nova…</string>
 
     <!-- O Android pede a permissão "Instalar apps desconhecidos" para este app antes de abrir o instalador. -->

@@ -1,9 +1,7 @@
 # Contrato diário com o site (spec 2026-10-16, seção 10.2). Um GET de leitura no /api/app: se sumir do campo.html algo de
-# que a casca depende, abre uma issue com o rótulo "contrato", antes de o campo sentir. O que é conferido está no
-# testes/contrato.mjs. O site não é alterado.
-#
-# O GitHub desliga os workflows agendados de um repositório sem atividade por 60 dias: se a issue nunca vier, confira
-# na aba Actions que este workflow continua ligado.
+# que a casca depende, ou aparecer o que ela não cobre (chave gc_ nova, outro banco IndexedDB), abre uma issue antes de
+# o campo sentir. O que é conferido está no testes/contrato.mjs; a issue, no ferramentas/issue-do-contrato.mjs. O site
+# não é alterado.
 name: contrato
 
 on:
@@ -11,9 +9,11 @@ on:
     - cron: '0 11 * * *'
   workflow_dispatch:
 
+# issues: write para a issue; actions: write só para o PUT .../enable do passo "Manter o agendamento ligado".
 permissions:
   contents: read
   issues: write
+  actions: write
 
 jobs:
   contrato:
@@ -25,12 +25,13 @@ jobs:
         with:
           persist-credentials: false
 
-      # O contrato só lê o inicio.js (CommonJS, sem dependências) e usa o fetch do Node: não precisa de npm ci.
+      # O contrato e a issue só leem o inicio.js (CommonJS, sem dependências) e usam o fetch e o gh: não precisa de npm ci.
       - uses: actions/setup-node@v7
         with:
           node-version: 22.x
 
-      # O código de saída vai para a saída do passo (e não derruba o passo) para a issue poder ser aberta antes de o job cair.
+      # O código de saída vai para a saída do passo (e não derruba o passo) para a issue poder ser tratada antes de o job
+      # cair: 0 ok, 1 o site mudou, 2 não deu para ler o site, 3 o próprio contrato falhou.
       - name: Conferir o contrato
         id: conferir
         run: |
@@ -38,35 +39,30 @@ jobs:
           node testes/contrato.mjs 2>&1 | tee "$RUNNER_TEMP/contrato.txt"
           echo "codigo=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
-      # Uma issue só: enquanto houver uma aberta com o rótulo, não abre outra (o contrato falha todo dia até alguém consertar).
-      # O corpo é a saída do contrato, que diz o NOME do que sumiu e nunca copia trecho do campo.html.
-      - name: Abrir a issue se o contrato falhou
-        if: steps.conferir.outputs.codigo != '0'
+      # Uma issue por TIPO de falha (o site mudou, não deu para ler o site, o próprio teste quebrou), cada uma com rótulo e
+      # título próprios: um site fora do ar não esconde a quebra de verdade do dia seguinte. Roda também com o contrato ok,
+      # para fechar as de leitura e de erro e avisar na de quebra que voltou a passar. O corpo é a saída do contrato, que
+      # diz o NOME do que mudou e nunca copia trecho do campo.html.
+      - name: A issue do contrato
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           CODIGO: ${{ steps.conferir.outputs.codigo }}
-        run: |
-          set -euo pipefail
-          gh label create contrato --color B60205 --description "O campo.html mudou e a casca depende do que mudou" 2>/dev/null || true
-          abertas="$(gh issue list --label contrato --state open --json number --jq length)"
-          if [ "$abertas" != "0" ]; then
-            echo "Já há uma issue aberta com o rótulo contrato; não abro outra."
-            exit 0
-          fi
-          {
-            echo "O teste de contrato diário com o site falhou (código ${CODIGO}: 1 = o campo.html mudou, 2 = não deu para ler o site). Saída:"
-            echo
-            echo '```'
-            cat "$RUNNER_TEMP/contrato.txt"
-            echo '```'
-            echo
-            echo "Execução: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo
-            echo "O que fazer: avisar a sessão \"App de campo\", conferir a classificação das chaves em www/casca/inicio.js (CLASSES) e a janela do Fracttal, e só então atualizar o testes/contrato.mjs se a mudança no site for de propósito."
-          } > "$RUNNER_TEMP/issue.md"
-          gh issue create --label contrato --title "Contrato com o site quebrado" --body-file "$RUNNER_TEMP/issue.md"
+        run: node ferramentas/issue-do-contrato.mjs "$RUNNER_TEMP/contrato.txt"
+
+      # O GitHub desliga o agendamento de repositório PÚBLICO sem atividade por 60 dias, e esta casca passa meses sem commit
+      # (a parte web chega pelo servidor): sem isto, o contrato morreria calado, e a falta de issue pareceria "tudo certo".
+      # Ligar o workflow de novo pela API a cada execução o mantém vivo. Não é documentado pelo GitHub; é o observado em
+      # 2026 (um repositório público seguiu rodando mais de 120 dias depois do último commit assim). Commit automático
+      # para "fazer atividade" não: o projeto mais usado que fazia isso foi desativado pelo GitHub por violar os termos.
+      - name: Manter o agendamento ligado
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh api --method PUT "repos/${GH_REPO}/actions/workflows/contrato.yml/enable"
 
       - name: Derrubar o job se o contrato falhou
-        if: steps.conferir.outputs.codigo != '0'
+        if: always() && steps.conferir.outputs.codigo != '0'
         run: exit 1
