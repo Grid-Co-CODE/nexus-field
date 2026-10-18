@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { conferirContrato, executarContrato, rodarLinhaDeComando, URL_DO_APP, IGNORAR } from './contrato.mjs';
 
 const require = createRequire(import.meta.url);
-const { CLASSES, CHAVE_FILA, VOLTAR, PUSH, classificar } = require('../www/casca/inicio.js');
+const { CLASSES, CHAVE_FILA, VOLTAR, PUSH, ABRIR_OS, classificar } = require('../www/casca/inicio.js');
 const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const EXATAS = [...new Set([CHAVE_FILA, ...CLASSES.trabalho.exatas, ...CLASSES.trabalho.excecoes, ...CLASSES.cache.exatas])];
@@ -43,6 +43,15 @@ function pushFicticio({ semBearer = false, semSair = false, semMiddleware = fals
   ].join('\n');
 }
 
+// O que a abertura da OS pelo toque na notificação usa do campo.html: o campo de busca (`<input id="busca-os">`) e a função
+// de topo setBusca, e cada parte pode faltar.
+function abrirOsFicticio({ semCampo = false, semFuncao = false } = {}) {
+  return {
+    busca: semCampo ? '' : `<input id="${ABRIR_OS.id.busca}" class="busca-inp" type="search" oninput="${ABRIR_OS.funcao.buscar}(this.value)">`,
+    script: semFuncao ? '' : `function ${ABRIR_OS.funcao.buscar}(v){ BUSCA=String(v||'').trim(); }`,
+  };
+}
+
 // O HTML fictício que tem tudo. Cada peça pode ser trocada ou tirada pelo teste que quer ver aquela falta.
 function htmlFicticio(pecas = {}) {
   const voltar = voltarFicticio();
@@ -64,9 +73,12 @@ function htmlFicticio(pecas = {}) {
     // O que o registro do aparelho usa (o PUSH do inicio.js), como o campo.html v284 o escreve: a const de topo do
     // servidor, a função do Bearer e o sair assíncrono.
     push: pushFicticio(),
+    // O campo de busca e o setBusca (o ABRIR_OS do inicio.js), como o campo.html v284 os escreve.
+    busca: abrirOsFicticio().busca,
+    abrirOs: abrirOsFicticio().script,
     ...pecas,
   };
-  return `<html><head>${p.msal}</head><body>\n${p.marcacao}\n<script>\n${p.banco}\n${p.abrir}\nconst LSK=[${p.chaves}];\nconst FORA=[${p.ignoradas}];\n${p.prefixos}\n${p.rota}\n${p.fracttal}\n${p.login}\n${p.resto}\n${p.voltar}\n${p.push}\n</script></body></html>`;
+  return `<html><head>${p.msal}</head><body>\n${p.marcacao}\n${p.busca}\n<script>\n${p.banco}\n${p.abrir}\nconst LSK=[${p.chaves}];\nconst FORA=[${p.ignoradas}];\n${p.prefixos}\n${p.rota}\n${p.fracttal}\n${p.login}\n${p.resto}\n${p.voltar}\n${p.push}\n${p.abrirOs}\n</script></body></html>`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -376,6 +388,38 @@ test('push: o sair que deixou de ser async, um nome só dentro de outro e o nome
   // O var e o let também declaram o endereço (o script o lê pelo nome).
   assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\nvar MIDDLEWARE_URL='x';` })), []);
   assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\nlet MIDDLEWARE_URL='x';` })), []);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// A abertura da OS pelo toque na notificação (o ABRIR_OS do inicio.js)
+// ---------------------------------------------------------------------------------------------------------------
+
+test('o contrato exige a function setBusca e o id busca-os, e diz qual sumiu', () => {
+  assert.deepEqual(conferirContrato(htmlFicticio({ abrirOs: abrirOsFicticio({ semFuncao: true }).script })),
+    ['abrir-os: função setBusca']);
+  assert.deepEqual(conferirContrato(htmlFicticio({ busca: abrirOsFicticio({ semCampo: true }).busca })),
+    ["abrir-os: id 'busca-os'"]);
+  assert.deepEqual(conferirContrato(htmlFicticio({ busca: '', abrirOs: '' })),
+    ['abrir-os: função setBusca', "abrir-os: id 'busca-os'"]);
+});
+
+test('abrir-os: o nome só dentro de outro, só citado ou noutro atributo não vale', () => {
+  const semFuncao = abrirOsFicticio({ semFuncao: true }).script;
+  // setBuscaRapida não é setBusca, e a chamada (o oninput do campo) não é a declaração de topo.
+  assert.deepEqual(conferirContrato(htmlFicticio({ abrirOs: `${semFuncao}\nfunction setBuscaRapida(v){}\nsetBusca('1');` })),
+    ['abrir-os: função setBusca']);
+  // A função como propriedade da janela também é de topo.
+  assert.deepEqual(conferirContrato(htmlFicticio({ abrirOs: `${semFuncao}\nwindow.setBusca = function(v){};` })), []);
+  // O id só vale no atributo id: o nome num class, num for ou dentro de outro id não é o campo.
+  const semCampo = abrirOsFicticio({ semCampo: true }).busca;
+  assert.deepEqual(conferirContrato(htmlFicticio({ busca: `${semCampo}<input class="busca-os">` })), ["abrir-os: id 'busca-os'"]);
+  assert.deepEqual(conferirContrato(htmlFicticio({ busca: `${semCampo}<input id="xbusca-os">` })), ["abrir-os: id 'busca-os'"]);
+  assert.deepEqual(conferirContrato(htmlFicticio({ busca: `${semCampo}<input id='busca-os'>` })), []);
+});
+
+test('abrir-os: o ABRIR_OS do inicio.js tem as partes que o contrato lê', () => {
+  assert.equal(typeof ABRIR_OS.funcao.buscar, 'string');
+  assert.equal(typeof ABRIR_OS.id.busca, 'string');
 });
 
 // ---------------------------------------------------------------------------------------------------------------

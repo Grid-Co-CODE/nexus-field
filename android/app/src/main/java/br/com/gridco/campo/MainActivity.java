@@ -20,6 +20,8 @@ import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginHandle;
 
 import java.util.Map;
 
@@ -29,7 +31,9 @@ import java.util.Map;
  * erro de quilômetros e o "esquentar" do GPS do App não termina: por isso o aviso próprio desse caso. No Android 13+ o
  * pedido leva também a notificação (spec das notificações, 4.2): na instalação nova junto com os outros dois, e, para
  * quem já tinha o app e só ganhou a notificação na atualização, depois de um diálogo próprio que explica o motivo. Com
- * a WebView antiga, nem o App nem o pedido: só o aviso do plugin.
+ * a WebView antiga, nem o App nem o pedido: só o aviso do plugin. O toque numa emergência traz a OS no extra gc_os, e
+ * a tela a leva ao plugin ({@link #osDoToque}, {@link CascaPlugin#abrirOS}): na partida (onCreate) ou com a tela já
+ * aberta (onNewIntent).
  */
 public class MainActivity extends BridgeActivity {
 
@@ -68,6 +72,11 @@ public class MainActivity extends BridgeActivity {
     /** O aviso depois do pedido das permissões. */
     enum Aviso { NENHUM, NEGADAS, APROXIMADA }
 
+    // Ligado enquanto o super.onCreate roda. O BridgeActivity.load() (Capacitor 8.5.3) chama onNewIntent(getIntent()) no
+    // fim do onCreate dele, com ou sem estado salvo, e o intent da partida é tratado no onCreate daqui, uma vez só e só
+    // sem estado salvo: sem esta marca, a tela recriada (o renderer que morreu) abriria a OS do toque de novo.
+    private boolean criando = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // Antes do super: é no super.onCreate que o Bridge nasce e carrega os plugins.
@@ -80,14 +89,65 @@ public class MainActivity extends BridgeActivity {
         // App, apaga o armazenamento da WebView e recria a tela (docs/prova-no-aparelho.md).
         boolean apagarWebView = !webViewAntiga && Depuracao.pedeApagarWebView(getIntent(), savedInstanceState);
         if (webViewAntiga || apagarWebView) config = configSemOApp(this);
-        super.onCreate(savedInstanceState);
+        criando = true;
+        try {
+            super.onCreate(savedInstanceState);
+        } finally {
+            criando = false;
+        }
         if (apagarWebView) {
             Depuracao.apagarWebView(this);
             return;
         }
         // Com estado salvo é a mesma partida voltando (a tela recriada depois do renderer que morreu, ou o processo
-        // restaurado): o técnico já viu o pedido nesta partida, e ele volta na próxima abertura se ainda faltar.
-        if (savedInstanceState == null && !webViewAntiga) primeiraAbertura();
+        // restaurado): o técnico já viu o pedido nesta partida, e ele volta na próxima abertura se ainda faltar. O mesmo
+        // vale para a OS do toque na emergência: o intent da tela recriada é o que a abriu, e a OS já foi aberta.
+        if (savedInstanceState == null && !webViewAntiga) {
+            primeiraAbertura();
+            abrirOsDoToque(getIntent());
+        }
+    }
+
+    /**
+     * O toque numa notificação com a tela já aberta (singleTask entrega o Intent aqui, sem recriar a tela). O Capacitor
+     * repassa aos plugins pelo super; a OS da emergência vai à página.
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (criando) return; // o intent da partida é do onCreate
+        setIntent(intent);
+        abrirOsDoToque(intent);
+    }
+
+    /**
+     * A OS que o toque na emergência pede para abrir (o extra gc_os que {@link Notificacoes#mostrar} põe no Intent), ou
+     * null: sem o extra (o toque no resumo, o ícone do launcher), com o extra que não é um número de OS (a MainActivity
+     * é exportada, e qualquer app pode mandar um Intent com ele) ou no Intent que o Android entrega de novo ao voltar
+     * pelos recentes (FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY: a OS do toque de ontem não é a de agora). O extra é consumido
+     * na leitura, valendo ou não, para o mesmo Intent não abrir a OS duas vezes (o setIntent, a tela recriada).
+     */
+    static String osDoToque(Intent intent) {
+        if (intent == null) return null;
+        String os;
+        try {
+            os = intent.getStringExtra(Notificacoes.EXTRA_OS);
+            intent.removeExtra(Notificacoes.EXTRA_OS);
+        } catch (RuntimeException e) {
+            return null; // o Bundle de um app de fora que não se lê
+        }
+        if ((intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return null;
+        return Notificacoes.osValida(os) ? os : null;
+    }
+
+    // Entrega a OS ao plugin da casca, que a leva à página quando o App estiver pronto. Sem plugin (o Bridge não nasceu)
+    // ou com a WebView antiga, não há o que abrir.
+    private void abrirOsDoToque(Intent intent) {
+        String os = osDoToque(intent);
+        if (os == null || bridge == null) return;
+        PluginHandle handle = bridge.getPlugin(CascaPlugin.NOME);
+        Plugin plugin = handle == null ? null : handle.getInstance();
+        if (plugin instanceof CascaPlugin) ((CascaPlugin) plugin).abrirOS(os);
     }
 
     /**

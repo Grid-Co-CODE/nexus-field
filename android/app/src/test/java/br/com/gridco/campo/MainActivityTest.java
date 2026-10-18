@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 
 import com.getcapacitor.CapConfig;
@@ -84,5 +85,45 @@ public class MainActivityTest {
         // o respondeu.
         MensagensDoFirebase.guardarTokenNovo(app, "token-de-teste");
         assertTrue(MainActivity.jaPediuNotificacao(app));
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // O toque na emergência: a OS que vem no Intent
+    // ---------------------------------------------------------------------------------------------------------------
+
+    @Test
+    public void aOsDoToqueSaiDoExtraEUmaVezSo() {
+        Intent toque = new Intent().putExtra(Notificacoes.EXTRA_OS, "12345");
+        assertEquals("12345", MainActivity.osDoToque(toque));
+        // O extra é consumido: o mesmo Intent relido (a tela recriada, o setIntent) não abre a OS de novo.
+        assertNull(MainActivity.osDoToque(toque));
+        assertFalse(toque.hasExtra(Notificacoes.EXTRA_OS));
+    }
+
+    @Test
+    public void semExtraOuComIntentNuloNaoHaOs() {
+        assertNull(MainActivity.osDoToque(null));
+        assertNull("o toque no resumo não leva OS", MainActivity.osDoToque(new Intent()));
+    }
+
+    @Test
+    public void umExtraQueNaoEOsValidaEDescartadoEConsumido() {
+        // A MainActivity é exportada: qualquer app pode mandar um Intent com o extra. Só passa o número de OS.
+        for (String os : new String[] {"", "12a", "1'); x('", " 12", "1234567890123", "１２"}) {
+            Intent deFora = new Intent().putExtra(Notificacoes.EXTRA_OS, os);
+            assertNull(os, MainActivity.osDoToque(deFora));
+            assertFalse("consumido mesmo recusado: " + os, deFora.hasExtra(Notificacoes.EXTRA_OS));
+        }
+        // E o extra que nem é texto.
+        assertNull(MainActivity.osDoToque(new Intent().putExtra(Notificacoes.EXTRA_OS, 12345)));
+    }
+
+    @Test
+    public void oIntentReentregueDosRecentesNaoAbreAOs() {
+        // Voltar ao app pelos recentes, depois de a tela ter sido destruída, o Android entrega de novo o Intent que a abriu.
+        Intent dosRecentes = new Intent().putExtra(Notificacoes.EXTRA_OS, "12345")
+            .addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY);
+        assertNull(MainActivity.osDoToque(dosRecentes));
+        assertFalse(dosRecentes.hasExtra(Notificacoes.EXTRA_OS));
     }
 }

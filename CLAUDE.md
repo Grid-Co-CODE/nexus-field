@@ -331,6 +331,32 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   app onde estava, sem recarregar. Uma pergunta por vez (o segundo toque enquanto a página pensa não fecha duas
   camadas), com 1,5 s de prazo: o renderer travado não segura o voltar, e a resposta que chega depois do prazo não decide
   nada.
+- **Abrir a OS pelo toque na emergência** (notificações, 18/10/2026; `MainActivity.osDoToque`, `CascaPlugin.AberturaDaOS`
+  e a seção 9 do `inicio.js`; testes `CascaPluginTest`, `MainActivityTest` e `testes/abrir-os.test.mjs`). O Intent do
+  toque traz o extra `gc_os` (o número da OS, só na emergência com OS válida; ver `Notificacoes.mostrar`):
+  - **A `MainActivity` o lê no `onCreate` (só sem estado salvo) e no `onNewIntent`**, confere com `Notificacoes.osValida`
+    (1 a 12 dígitos ASCII: a activity é exportada, qualquer app pode mandar o extra), consome o extra na leitura e
+    ignora o Intent que o Android reentrega ao voltar pelos recentes (`FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`). O
+    `BridgeActivity.load()` do Capacitor 8.5.3 chama `onNewIntent(getIntent())` dentro do próprio `onCreate`, com ou sem
+    estado salvo; por isso o `onNewIntent` daqui ignora a chamada que vem durante o `super.onCreate` (a marca `criando`).
+    Sem isso, a tela recriada pelo renderer que morreu abriria a OS de novo. O `testes/abrir-os.test.mjs` confere essa
+    ligação no texto do Java (a WebView não roda no JVM).
+  - **O `CascaPlugin.abrirOS(os)` só decide QUANDO** (`AberturaDaOS`, regra pura com página e agenda falsas no teste): a
+    cada página do App que termina de carregar (`onPageLoaded` com `Voltar.eDoApp`) abre-se uma folga de 1,5 s, porque o
+    fim do documento vem antes de o App montar a tela; passada a folga a página está "pronta". Pedido com a página pronta
+    vai logo; sem ela, o último pedido fica guardado e vai ao fim da folga (`evaluateJavascript("window.__gcCascaAbrirOS&&
+    window.__gcCascaAbrirOS('<os>')")`). Qualquer página que comece a carregar (`onPageStarted`: o login da Microsoft, o
+    erro) tira o "pronta" e invalida a folga da carga velha: o login silencioso volta ao App em cerca de 1 s, e entregar
+    ali seria entregar a uma tela que não montou. Entregue, a OS não volta numa recarga. O número nunca vai ao log (só
+    "aberta" ou "não aberta", pela resposta da página).
+  - **No script**, `window.__gcCascaAbrirOS(os)` (não enumerável) confere `^[0-9]{1,12}$` de novo, põe o número no
+    `#busca-os` e chama `setBusca(os)`, na ordem do `phTrazer` do site; a busca local e, sem achar, ao vivo no Fracttal é
+    a do próprio site. Devolve false, sem lançar e sem avisar o nativo, se faltar o campo ou o `setBusca`. Os dois nomes
+    são o `ABRIR_OS`, e o contrato diário exige (`abrir-os: função setBusca`, `abrir-os: id 'busca-os'`).
+  - **O que isto não faz** (conhecido, para a prova no aparelho): uma tentativa só, e a busca não troca de aba nem fecha
+    camada. Com o app aberto numa OS, na Ronda ou noutra aba, a busca é posta mas só aparece na aba Tarefas; o toque que
+    cai na tela de login do App perde a busca no redirecionamento do login. Resolver pede decidir com o dono o que a
+    emergência pode fechar (o `VOLTAR` já tem o `setTab` e o fechamento das camadas, com o rascunho salvo).
 - **A atualização da casca** (`Atualizador`, `VersaoRemota`; o `CascaPlugin` a chama no `load()` e no `handleOnResume()`):
   - Lê o `versao.json` de `releases/latest/download/` (não conta no limite da API do GitHub), com as chaves `versionCode`
     (inteiro), `versionName`, `apk`, `sha256` (64 dígitos hex) e `novidades` (lista de textos). O `ferramentas/versao-json.mjs`

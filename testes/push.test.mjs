@@ -436,7 +436,8 @@ test('a carga parada para o retrato não pede o token', async () => {
 
 test('o PUSH do inicio.js tem os nomes que o contrato com o site exige, e a seção 8 só os usa por ele', () => {
   assert.deepEqual(PUSH, { funcao: { bearer: 'getTokenMW', sair: 'sair' }, global: { middleware: 'MIDDLEWARE_URL' } });
-  const secao = CODIGO.slice(CODIGO.indexOf('// 8. O registro do aparelho'), CODIGO.indexOf('// Ponto único de entrada'));
+  // A seção 8 vai até a 9 (a abertura da OS pelo toque, que tem os nomes dela no ABRIR_OS, conferidos no testes/abrir-os.test.mjs).
+  const secao = CODIGO.slice(CODIGO.indexOf('// 8. O registro do aparelho'), CODIGO.indexOf('// 9. Abrir a OS pelo toque'));
   assert.ok(secao.includes('function instalarPush('), 'o corte pega a seção 8');
   const codigo = secao.split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
   for (const [grupo, papeis] of Object.entries(PUSH)) {

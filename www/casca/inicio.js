@@ -17,6 +17,7 @@
  *   6. window.open: o login da Microsoft e o "Conectar Fracttal"  (Task 4)
  *   7. o voltar do Android (window.__gcCascaVoltar)               (onda final)
  *   8. o registro do aparelho para as notificações               (notificações, Task 3)
+ *   9. abrir a OS pelo toque na notificação (__gcCascaAbrirOS)   (notificações, Task 4)
  */
 (function () {
   'use strict';
@@ -104,6 +105,17 @@
   var PUSH = {
     funcao: { bearer: 'getTokenMW', sair: 'sair' },
     global: { middleware: 'MIDDLEWARE_URL' },
+  };
+
+  // O que a ABERTURA DA OS PELO TOQUE na notificação (seção 9) usa do campo.html (v284, lido em 18/10/2026), e só daqui: o
+  // teste de contrato com o site exige cada nome no HTML vivo. Se o site trocar um, o toque na emergência abre o app sem
+  // a busca (o técnico procura a OS à mão), sem quebrar a página.
+  //   funcao.buscar: a função de topo que o campo de busca chama a cada digitação (`oninput="setBusca(this.value)"`);
+  //                  em script clássico ela é propriedade da janela;
+  //   id.busca:      o campo de busca por OS (sem o '#').
+  var ABRIR_OS = {
+    funcao: { buscar: 'setBusca' },
+    id: { busca: 'busca-os' },
   };
 
   // Conjuntos para o teste de pertinência: `Array.includes` serve, mas a chave 'constructor' ou '__proto__' não pode
@@ -2048,6 +2060,50 @@
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+  // 9. Abrir a OS pelo toque na notificação (spec 2026-10-18, seção 4.2, "Ao tocar")
+  // ---------------------------------------------------------------------------------------------------------------
+
+  // O toque numa emergência com OS abre o app com o número no Intent (o extra gc_os da MainActivity), e o nativo, com a
+  // página do App carregada e 1,5 s de folga para ela montar a tela, roda window.__gcCascaAbrirOS('<os>'). A página não
+  // abre OS pelo endereço nem expõe função para isso; o que ela tem é a busca por OS: o campo #busca-os, que a cada
+  // digitação chama setBusca(valor), procura em todas as semanas que o App já baixou e, se o número não está na fila,
+  // pergunta ao Fracttal ao vivo (a OS que é do técnico e está aberta entra como avulsa). É o que o técnico faria à mão,
+  // com os nomes do ABRIR_OS (seção 1), que o contrato diário com o site confere.
+  //
+  // Devolve true quando mandou a busca; false quando não pôde: o número que não é de OS, a página sem o campo ou sem o
+  // setBusca (uma versão do site que trocou os nomes, ou uma página que não é a do App). Isso não é erro da casca, e
+  // nada vai ao nativo; o app só abre sem a busca. O campo é preenchido ANTES do setBusca, na ordem do phTrazer do próprio site (v284, o "Trazer
+  // para a fila"): o setBusca recebe o valor por argumento e não escreve no campo, e sem isso a lista ficaria filtrada
+  // com a caixa de busca vazia. Só um setBusca que lança vai ao nativo, como `abrirOS`, e sem devolver a exceção a quem
+  // chamou (o evaluateJavascript do nativo não a trataria).
+  //
+  // O número é conferido AQUI de novo, mesmo o nativo (Notificacoes.osValida) já o tendo validado: o extra do Intent pode
+  // vir de qualquer app (a MainActivity é exportada), e esta função monta uma busca na tela do técnico. De 1 a 12 dígitos
+  // ASCII, escritos como [0-9] para não depender de como o motor trata o \d, e só texto.
+  var OS_DO_TOQUE = /^[0-9]{1,12}$/;
+
+  function instalarAbrirOS(ctx) {
+    var win = ctx.win;
+    function abrir(os) {
+      try {
+        if (typeof os !== 'string' || !OS_DO_TOQUE.test(os)) return false;
+        var doc = win.document;
+        var campo = doc && typeof doc.getElementById === 'function' ? doc.getElementById(ABRIR_OS.id.busca) : null;
+        var buscar = win[ABRIR_OS.funcao.buscar];
+        if (!campo || typeof buscar !== 'function') return false;
+        campo.value = os;
+        buscar.call(win, os);
+        return true;
+      } catch (e) {
+        ctx.falhou('abrirOS', e);
+        return false;
+      }
+    }
+    // Não enumerável: o que da página varre a janela não a vê.
+    Object.defineProperty(win, '__gcCascaAbrirOS', { value: abrir, enumerable: false, configurable: true, writable: false });
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
   // Ponto único de entrada
   // ---------------------------------------------------------------------------------------------------------------
 
@@ -2084,6 +2140,8 @@
     tentar(ctx, 'janela', function () { instalarJanela(ctx); });
     tentar(ctx, 'voltar', function () { instalarVoltar(ctx); });
     tentar(ctx, 'push', function () { instalarPush(ctx); });
+    // A 9 só define uma função que o nativo chama, e vale em toda carga (a do toque na notificação é uma carga como outra).
+    tentar(ctx, 'abrirOS', function () { instalarAbrirOS(ctx); });
 
     return {
       pronto: Promise.all(ctx.prontos).then(function () { return undefined; }),
@@ -2111,6 +2169,7 @@
       BANCO_SENTINELA: BANCO_SENTINELA,
       VOLTAR: VOLTAR,
       PUSH: PUSH,
+      ABRIR_OS: ABRIR_OS,
     };
   } else if (typeof window !== 'undefined') {
     instalar(window, window.gcCasca, window.__GC_RETRATO__ || {});

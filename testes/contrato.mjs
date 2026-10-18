@@ -15,9 +15,9 @@ import { executadoDireto } from '../ferramentas/executado-direto.mjs';
 
 const require = createRequire(import.meta.url);
 // A lista do que se espelha existe no script de início e em mais lugar nenhum; o contrato lê dela. O VOLTAR são os nomes
-// que o voltar do Android usa do campo.html, o PUSH os do registro do aparelho para as notificações, e o `classificar`
-// decide, como na WebView, se uma chave é espelhada.
-const { CLASSES, CHAVE_FILA, VOLTAR, PUSH, classificar } = require('../www/casca/inicio.js');
+// que o voltar do Android usa do campo.html, o PUSH os do registro do aparelho para as notificações, o ABRIR_OS os da
+// abertura da OS pelo toque na emergência, e o `classificar` decide, como na WebView, se uma chave é espelhada.
+const { CLASSES, CHAVE_FILA, VOLTAR, PUSH, ABRIR_OS, classificar } = require('../www/casca/inicio.js');
 
 // Origem + appStartPath do capacitor.config.json (o testes/contrato.test.mjs confere que continuam iguais).
 export const URL_DO_APP = 'https://gridco-campo-mw.azurewebsites.net/api/app';
@@ -254,6 +254,15 @@ function conferirPush(html, falta) {
   if (!temDeclaracao(html, PUSH.global.middleware)) falta(`push: global ${PUSH.global.middleware}`);
 }
 
+// --- A abertura da OS pelo toque na notificação -----------------------------------------------------------------
+// O toque numa emergência abre o app e o script de início põe o número da OS no campo de busca (`<input id="busca-os">`) e
+// chama a função de topo setBusca, que é o que o técnico faria à mão. Sem um dos dois o app abre normalmente, mas sem a
+// OS na tela, em silêncio: o aviso vem daqui.
+function conferirAbrirOS(html, falta) {
+  if (!temFuncaoDeTopo(html, ABRIR_OS.funcao.buscar)) falta(`abrir-os: função ${ABRIR_OS.funcao.buscar}`);
+  if (!temId(html, ABRIR_OS.id.busca)) falta(`abrir-os: id '${ABRIR_OS.id.busca}'`);
+}
+
 /**
  * Confere o campo.html contra o que a casca supõe. Devolve a lista do que faltou (ou do que apareceu e é proibido);
  * vazia = tudo no lugar. Cada item é o NOME do que falta, nunca um trecho do HTML.
@@ -290,6 +299,7 @@ export function conferirContrato(html) {
 
   conferirVoltar(html, falta);
   conferirPush(html, falta);
+  conferirAbrirOS(html, falta);
 
   for (const [item, padrao] of PROIBIDOS) if (padrao.test(html)) falta(item);
 
@@ -361,7 +371,7 @@ export async function executarContrato({ buscar = fetch, url = URL_DO_APP, esper
       `Contrato quebrado: ${faltou.length} item(ns) do campo.html que a casca supõe não estão como antes.`,
       ...faltou.map((item) => `- ${item}`),
       'Confira com a sessão "App de campo" a classificação em www/casca/inicio.js (CLASSES), a IGNORAR daqui, os nomes ' +
-        'do voltar (VOLTAR), os do registro do aparelho (PUSH) e a janela do Fracttal.',
+        'do voltar (VOLTAR), os do registro do aparelho (PUSH), os da abertura da OS (ABRIR_OS) e a janela do Fracttal.',
     ],
   };
 }

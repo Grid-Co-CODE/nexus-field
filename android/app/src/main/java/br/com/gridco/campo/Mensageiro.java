@@ -93,7 +93,8 @@ public final class Mensageiro {
         "janela", "open", "fora", "camada", "close", "location", "location.assign", "location.replace",
         "location.href", "document.open", "document.write", "document.writeln", "document.close",
         "voltar",
-        "push")));
+        "push",
+        "abrirOS")));
 
     /** O que o canal pede ao plugin. Todas chegam na thread do espelho; quem mexe na WebView passa para a de UI. */
     public interface Acoes {

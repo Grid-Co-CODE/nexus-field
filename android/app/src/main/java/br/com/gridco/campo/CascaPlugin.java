@@ -53,8 +53,8 @@ import org.json.JSONObject;
  * agent, recria a tela quando o renderer morre, limpa o histórico depois do login e abre os endereços de fora numa
  * Custom Tab. Também dispara a checagem de atualização da casca ({@link Atualizador}) ao abrir e a cada volta ao app,
  * trata o voltar do Android ({@link Voltar}), dá à página o token do Firebase para ela registrar o aparelho
- * ({@link Mensageiro#respostaDoPush}) e, uma vez por processo, apaga as fotos velhas da reserva da câmera
- * ({@link FaxinaDaCamera}).
+ * ({@link Mensageiro#respostaDoPush}), leva à página a OS do toque na emergência ({@link #abrirOS}) e, uma vez por
+ * processo, apaga as fotos velhas da reserva da câmera ({@link FaxinaDaCamera}).
  *
  * Ordem no Capacitor 8.5.3 (conferida no código dele): o construtor do Bridge roda initWebView, registerAllPlugins (o
  * PluginHandle chama o load() de cada plugin) e só então loadWebView, que faz o primeiro webView.loadUrl(appUrl). Por
@@ -63,9 +63,11 @@ import org.json.JSONObject;
  * Threads: o canal entrega na thread de UI; o que mexe no espelho (gravar, montar retrato, ler o IndexedDB guardado)
  * vai para UMA thread só, a do espelho, na ordem em que a página mandou, e o que mexe na WebView volta para a de UI.
  */
-@CapacitorPlugin(name = "Casca")
+@CapacitorPlugin(name = CascaPlugin.NOME)
 public class CascaPlugin extends Plugin {
 
+    /** O nome do plugin no Capacitor: a MainActivity acha a instância por ele (bridge.getPlugin) para entregar a OS do toque. */
+    static final String NOME = "Casca";
     static final String TAG = "GcCasca";
     private static final String CANAL = "gcCasca";
     private static final String SCRIPT_DE_INICIO = "public/casca/inicio.js";
@@ -107,6 +109,7 @@ public class CascaPlugin extends Plugin {
     private Mensageiro mensageiro;
     private String inicioJs;
     private Atualizador atualizador;              // null com a WebView antiga (o load() nem chega a criar)
+    private AberturaDaOS aberturaDaOS;            // idem; só na thread de UI
     private ScriptHandler script;                 // só na thread de UI
     private JavaScriptReplyProxy ponteDaMensagem; // só na thread do espelho, durante a mensagem que a trouxe
 
@@ -145,6 +148,16 @@ public class CascaPlugin extends Plugin {
         // 4. Os logs do servidor separam o app do navegador por aqui, sem mudar o site.
         WebSettings ajustes = webView.getSettings();
         ajustes.setUserAgentString(userAgent(ajustes.getUserAgentString(), BuildConfig.VERSION_NAME));
+
+        // A OS do toque na emergência (MainActivity.osDoToque): só com a página do App; com a WebView antiga, que retorna
+        // acima, ela nem abre. O que a página respondeu vai ao log só como "aberta" ou "não aberta": nunca o número.
+        aberturaDaOS = new AberturaDaOS(
+            js -> {
+                if (encerrado) return;
+                bridge.getWebView().evaluateJavascript(js, resposta ->
+                    Log.i(TAG, "a OS do toque na página: " + (AberturaDaOS.abriu(resposta) ? "aberta" : "não aberta")));
+            },
+            (ms, tarefa) -> ui.postDelayed(tarefa, ms));
 
         if (origem == null || origem.isEmpty()) {
             Log.e(TAG, "sem server.url: a casca fica sem espelho nesta partida");
@@ -442,6 +455,105 @@ public class CascaPlugin extends Plugin {
     }
 
     /**
+     * O toque na emergência pediu esta OS (a MainActivity, na thread de UI, ao nascer ou ao receber o Intent). Devolve
+     * false se o número não é de OS ou se a tela não abre o App (a WebView antiga); true se o pedido foi guardado ou
+     * agendado, e a página o recebe quando estiver pronta ({@link AberturaDaOS}).
+     */
+    boolean abrirOS(String os) {
+        AberturaDaOS abertura = aberturaDaOS;
+        return abertura != null && abertura.pedir(os);
+    }
+
+    /**
+     * A OS que o toque na emergência pediu para abrir (spec das notificações, 4.2, "Ao tocar"). O pedido chega da
+     * MainActivity assim que a tela nasce ou recebe o Intent, com a página do App ainda carregando (o toque com o app
+     * fechado) ou já pronta (o toque com ele aberto). Aqui só se decide QUANDO rodar
+     * {@code window.__gcCascaAbrirOS('<os>')} (www/casca/inicio.js, seção 9), que põe o número no campo de busca da
+     * página:
+     * <ul>
+     *   <li>a cada página do App que termina de carregar começa uma folga de 1,5 s, porque o onPageLoaded é o fim do
+     *       documento e o App monta a tela (login silencioso, tarefas) depois; só passada a folga a página está pronta;</li>
+     *   <li>pedido com a página pronta vai logo (no ciclo seguinte da thread de UI); sem ela, o ÚLTIMO pedido fica
+     *       guardado e vai quando a folga terminar (dois toques seguidos: vale o segundo);</li>
+     *   <li>a página que recomeça (o login da Microsoft logo depois da carga) tira o "pronta", e a folga da carga velha
+     *       deixa de valer: o pedido espera a carga seguinte do App. A entrega é uma só: entregue, não volta numa
+     *       recarga.</li>
+     * </ul>
+     * Só OS que passa pela {@link Notificacoes#osValida} (1 a 12 dígitos ASCII) entra, porque o texto vai direto a um
+     * script, e o script a confere de novo (o extra do Intent pode vir de qualquer app). O número nunca vai ao log. Só na
+     * thread de UI (a do onPageStarted, do onPageLoaded, do postDelayed e do evaluateJavascript).
+     */
+    static final class AberturaDaOS {
+
+        /** Quanto esperar, depois do fim do carregamento do App, para ele montar a tela antes da busca. */
+        static final long FOLGA_MS = 1_500L;
+
+        /** A página do App, onde o script roda. */
+        interface Pagina {
+            void executar(String js);
+        }
+
+        /** O postDelayed da thread de UI. */
+        interface Agenda {
+            void depois(long ms, Runnable tarefa);
+        }
+
+        private final Pagina pagina;
+        private final Agenda agenda;
+        private boolean pronta = false;  // o App carregou e a folga passou
+        private int carga = 0;           // conta as cargas: a folga de uma carga que já passou não vale
+        private String pendente = null;  // o último pedido ainda não entregue
+
+        AberturaDaOS(Pagina pagina, Agenda agenda) {
+            this.pagina = pagina;
+            this.agenda = agenda;
+        }
+
+        /** O script que a página roda. A OS tem de ter passado pela {@link Notificacoes#osValida}: só dígitos. */
+        static String script(String os) {
+            if (!Notificacoes.osValida(os)) throw new IllegalArgumentException("OS inválida");
+            return "window.__gcCascaAbrirOS&&window.__gcCascaAbrirOS('" + os + "')";
+        }
+
+        /** O que a página respondeu ao script: só o true do {@code __gcCascaAbrirOS} é "abriu". */
+        static boolean abriu(String resposta) {
+            return "true".equals(resposta);
+        }
+
+        /** Pede a OS. False (e nada acontece) se o número não é de OS. */
+        boolean pedir(String os) {
+            if (!Notificacoes.osValida(os)) return false;
+            pendente = os;
+            if (pronta) agenda.depois(0, this::entregar);
+            return true;
+        }
+
+        /** Uma página começou a carregar (qualquer uma: o App, o login da Microsoft, a tela de erro). */
+        void comecouACarregar() {
+            pronta = false;
+            carga++;
+        }
+
+        /** A página do App terminou de carregar (as outras não chegam aqui): começa a folga. */
+        void carregou() {
+            pronta = false;
+            final int desta = ++carga;
+            agenda.depois(FOLGA_MS, () -> {
+                if (carga != desta) return; // outra página começou a carregar nesse meio-tempo
+                pronta = true;
+                entregar();
+            });
+        }
+
+        private void entregar() {
+            if (!pronta || pendente == null) return;
+            String os = pendente;
+            pendente = null;
+            pagina.executar(script(os));
+        }
+    }
+
+    /**
      * Em debug, registra as navegações que passam pelo Capacitor (a lista do allowNavigation sai da prova no aparelho),
      * sem os parâmetros (ver {@link #navegacaoParaOLog}). Devolve null: a regra do Capacitor continua valendo.
      */
@@ -546,11 +658,19 @@ public class CascaPlugin extends Plugin {
 
     private final class OuvinteDaWebView extends WebViewListener {
 
-        // Depois do login o "voltar" não pode cair nas páginas da Microsoft.
+        // Depois do login o "voltar" não pode cair nas páginas da Microsoft. E a OS do toque na emergência espera o App
+        // terminar de carregar: a folga dela começa aqui, só para a página do App (o login e a tela de erro não contam).
         @Override
         public void onPageLoaded(WebView webView) {
             String url = webView.getUrl();
             if (url != null && url.startsWith(origem + CAMINHO_DO_APP)) webView.clearHistory();
+            if (aberturaDaOS != null && !encerrado && Voltar.eDoApp(url, origem)) aberturaDaOS.carregou();
+        }
+
+        // Qualquer página que começa a carregar tira o "pronta" da OS do toque: o App que estava pronto está sendo trocado.
+        @Override
+        public void onPageStarted(WebView webView) {
+            if (aberturaDaOS != null && !encerrado) aberturaDaOS.comecouACarregar();
         }
 
         // A falta de memória num aparelho de 4 GB mata o renderer; sem tratar, o Android derruba o app inteiro. Esta
