@@ -16,6 +16,7 @@
  *   5. espelho e restauração do IndexedDB das fotos              (Task 4; depois da 3 e da 4)
  *   6. window.open: o login da Microsoft e o "Conectar Fracttal"  (Task 4)
  *   7. o voltar do Android (window.__gcCascaVoltar)               (onda final)
+ *   8. o registro do aparelho para as notificações               (notificações, Task 3)
  */
 (function () {
   'use strict';
@@ -91,6 +92,18 @@
     },
     global: { tarefaDoFechamento: 'sheetTask' },
     abaInicial: 'tarefas',
+  };
+
+  // O que o REGISTRO DO APARELHO (seção 8) usa do campo.html (v284, lido em 18/10/2026), e só daqui: o teste de
+  // contrato com o site exige cada nome no HTML vivo. Se o site trocar um, o aparelho deixa de ser registrado (ou o sair
+  // deixa de esquecê-lo), sem quebrar a página.
+  //   funcao.bearer: a função de topo que dá o token da Microsoft da conta ativa (null sem login; não lança);
+  //   funcao.sair:   a `async function` de topo do "Sair", que a casca embrulha para esquecer o aparelho antes;
+  //   global:        a `const` de topo com o endereço do servidor, que não vira propriedade da janela e é lida pelo nome
+  //                  (ver enderecoDoServidor).
+  var PUSH = {
+    funcao: { bearer: 'getTokenMW', sair: 'sair' },
+    global: { middleware: 'MIDDLEWARE_URL' },
   };
 
   // Conjuntos para o teste de pertinência: `Array.includes` serve, mas a chave 'constructor' ou '__proto__' não pode
@@ -196,22 +209,30 @@
       },
 
       // Passa a `fn` cada mensagem do nativo (o JavaScriptReplyProxy responde pelo `onmessage` do mesmo objeto, com
-      // `event.data` em JSON). Só a restauração das fotos (seção 5) ouve. O texto que não for JSON vira um aviso sem
-      // o conteúdo: a mensagem do JSON.parse cita o texto, e ele pode ter nome de chave.
+      // `event.data` em JSON). Ouvem a restauração das fotos (seção 5) e o registro do aparelho (seção 8), cada uma
+      // pelo `t` dela; o `onmessage` é um só, e cada mensagem vai a todas, na ordem em que se registraram (sem isso, a
+      // segunda a ouvir tirava a primeira). O texto que não for JSON vira um aviso sem o conteúdo: a mensagem do
+      // JSON.parse cita o texto, e ele pode ter nome de chave.
       ouvirNativo: function (fn) {
-        canal.onmessage = function (evento) {
-          var mensagem;
-          try {
-            var dado = evento && evento.data;
-            mensagem = typeof dado === 'string' ? JSON.parse(dado) : dado;
-          } catch (e) {
-            ctx.falhou('canal', new Error('mensagem do nativo que não é JSON'));
-            return;
-          }
-          try { fn(mensagem); } catch (e) { ctx.falhou('canal', e); }
-        };
+        ouvintes.push(fn);
+        canal.onmessage = entregarAosOuvintes;
       },
     };
+    var ouvintes = [];
+    function entregarAosOuvintes(evento) {
+      var mensagem;
+      try {
+        var dado = evento && evento.data;
+        mensagem = typeof dado === 'string' ? JSON.parse(dado) : dado;
+      } catch (e) {
+        ctx.falhou('canal', new Error('mensagem do nativo que não é JSON'));
+        return;
+      }
+      var lista = ouvintes.slice();
+      for (var i = 0; i < lista.length; i++) {
+        try { lista[i](mensagem); } catch (e) { ctx.falhou('canal', e); }
+      }
+    }
     return ctx;
   }
 
@@ -1807,6 +1828,222 @@
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+  // 8. O registro do aparelho para as notificações (spec 2026-10-18, seção 4.2)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  // O servidor do App de Campo manda os resumos e as emergências pelo Firebase ao token deste aparelho, e precisa saber
+  // de quem ele é. Quem registra é a PRÓPRIA página, com o Bearer dela (o getTokenMW), como em toda chamada ao servidor:
+  // o nativo nunca vê token da Microsoft, e o script não guarda o Bearer (pede na hora a cada chamada). O nativo dá o
+  // token do Firebase e diz se ele já foi registrado há menos de 7 dias (o SharedPreferences "push"):
+  //   script -> nativo: {t:'pushPedirToken'}, 5 s depois do load (a página já definiu o que esta seção usa, e a carga
+  //                     já terminou); {t:'pushRegistrado', token}, quando o servidor aceitou o registro;
+  //   nativo -> script: {t:'pushToken', token (null: sem Firebase, ou o token ainda não saiu), jaRegistrado, versao}.
+  // As rotas (da sessão "App de campo"): POST {MIDDLEWARE_URL}/push/registrar {token, aparelho:'android',
+  // app:'NexusField/<versao>'} e POST {MIDDLEWARE_URL}/push/esquecer {token}, as duas com o Bearer da página.
+  // Sem laço e sem nada na tela:
+  //   - ninguém logado (o Bearer null): tenta de novo no próximo `online` ou na volta ao app (visibilitychange);
+  //   - 404: a rota ainda não está no ar; não tenta mais nesta carga;
+  //   - outro erro, ou sem rede: tenta no próximo `online`, no máximo uma vez a cada 10 minutos (o online que chega
+  //     dentro da espera tenta quando ela acaba);
+  //   - a carga seguinte pergunta ao nativo de novo.
+  // O "Sair" (o aparelho dividido entre técnicos): antes do sair da página (que troca a tela e vai ao logout da
+  // Microsoft, e a navegação cortaria a chamada), o servidor esquece o token, com prazo de 3 s; o sair da página roda
+  // sempre, mesmo se o esquecer falhar. Todo aviso vai como {t:'erro', onde:'push'} com um texto nosso: nunca o token,
+  // o Bearer nem o texto do erro (a mensagem da rede ou do MSAL pode citar endereço com parâmetro ou a conta).
+  var ESPERA_PUSH_MS = 5000;
+  var INTERVALO_PUSH_MS = 10 * 60 * 1000;
+  var PRAZO_ESQUECER_MS = 3000;
+  var ROTA_REGISTRAR = '/push/registrar';
+  var ROTA_ESQUECER = '/push/esquecer';
+  // A marca do sair já embrulhado: uma propriedade da função, não enumerável.
+  var MARCA_SAIR = '__gcCascaSair';
+
+  // O endereço do servidor, ou null. A `const` de topo do campo.html não vira propriedade da janela, mas todo script
+  // clássico da página a enxerga pelo nome (o ambiente léxico global é um só, e este script também roda nele), como o
+  // sheetTask do voltar. Lida com typeof dentro de try: antes da declaração dela (a zona morta), até o typeof lança. Na
+  // janela falsa dos testes vem da propriedade.
+  function enderecoDoServidor(win) {
+    var naJanela = win[PUSH.global.middleware];
+    if (typeof naJanela === 'string' && naJanela) return naJanela;
+    try {
+      return typeof MIDDLEWARE_URL === 'string' && MIDDLEWARE_URL ? MIDDLEWARE_URL : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Do erro, só o nome (TypeError, AbortError), que é uma palavra nossa conhecida; o texto dele nunca.
+  function nomeDoErro(e) {
+    var nome;
+    try { nome = e && e.name; } catch (_) { nome = null; }
+    return typeof nome === 'string' && /^[A-Za-z]{1,40}$/.test(nome) ? nome : 'erro';
+  }
+
+  // O status da resposta (um número), para o aviso.
+  function situacao(resposta) {
+    return resposta && typeof resposta.status === 'number' ? String(resposta.status) : 'sem status';
+  }
+
+  function instalarPush(ctx) {
+    // A carga parada para pedir o retrato vai ser recarregada pelo nativo: a página nem roda.
+    if (ctx.cargaParada) return;
+    var win = ctx.win;
+    var doc = win.document;
+    if (typeof win.addEventListener !== 'function') return;
+    // Guardados agora, atados à janela, como no espelho do localStorage.
+    var agendar = win.setTimeout.bind(win);
+    var cancelar = win.clearTimeout.bind(win);
+
+    var token = null;          // o do Firebase, quando o nativo respondeu com um
+    var versao = '';
+    var emCurso = false;
+    // O que faz tentar de novo: 'login' (sem Bearer: o próximo online ou a volta ao app) ou 'rede' (erro ou sem rede: o
+    // próximo online, depois da espera). null é "nada mais nesta carga": registrado (agora, ou há menos de 7 dias), a
+    // rota que ainda não está no ar (404), ou a página sem o que esta seção usa.
+    var aguardando = null;
+    var esfriando = false;     // a última falha tem menos de 10 minutos
+    var tentarDepois = false;  // um online chegou na espera: tenta quando ela acabar
+    var carregou = false;
+
+    function avisar(texto) {
+      ctx.falhou('push', new Error(texto));
+    }
+
+    // O Bearer da página agora (o getTokenMW chamado como função de topo), ou null sem login. Nunca lança: a falha
+    // sai como Promise rejeitada.
+    function pedirBearer() {
+      return new Promise(function (ok) { ok(win[PUSH.funcao.bearer]()); })
+        .then(function (b) { return typeof b === 'string' && b ? b : null; });
+    }
+
+    function postar(rota, bearer, corpo, extra) {
+      var opcoes = {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpo),
+      };
+      for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) opcoes[k] = extra[k];
+      return win.fetch(enderecoDoServidor(win) + rota, opcoes);
+    }
+
+    // A falha que espera a rede: a próxima tentativa sai no próximo online, e não antes de 10 minutos.
+    function esperarARede(texto) {
+      avisar(texto);
+      aguardando = 'rede';
+      esfriando = true;
+      agendar(function () {
+        esfriando = false;
+        if (tentarDepois) { tentarDepois = false; registrar(); }
+      }, INTERVALO_PUSH_MS);
+    }
+
+    function registrar() {
+      if (!token || emCurso) return;
+      aguardando = null;
+      if (typeof win[PUSH.funcao.bearer] !== 'function' || !enderecoDoServidor(win)) {
+        avisar('a página não tem o ' + PUSH.funcao.bearer + ' ou o ' + PUSH.global.middleware +
+          ': o aparelho não é registrado nesta carga');
+        return;
+      }
+      var esteToken = token;
+      emCurso = true;
+      pedirBearer().then(function (bearer) {
+        if (!bearer) { aguardando = 'login'; return undefined; }
+        // O gcQuieto é o do próprio campo.html (v284): a barra de carregamento conta só o que o técnico pediu, e o
+        // registro é de fundo.
+        return postar(ROTA_REGISTRAR, bearer, { token: esteToken, aparelho: 'android', app: 'NexusField/' + versao },
+          { gcQuieto: true }).then(function (resposta) {
+          if (resposta && resposta.ok) {
+            ctx.enviar({ t: 'pushRegistrado', token: esteToken }, 'push');
+          } else if (resposta && resposta.status === 404) {
+            avisar('a rota de registro do aparelho ainda não está no ar (404): nada mais nesta carga');
+          } else {
+            esperarARede('o registro do aparelho respondeu ' + situacao(resposta) + '; tenta no próximo online');
+          }
+        });
+      }).then(null, function (e) {
+        esperarARede('o registro do aparelho falhou (' + nomeDoErro(e) + '); tenta no próximo online');
+      }).then(function () { emCurso = false; });
+    }
+
+    // Pede ao servidor que esqueça o token, com o Bearer de agora (antes do logout). Resolve quando terminou, deu erro
+    // ou passaram 3 s, o que vier primeiro; nunca rejeita. Ninguém logado: nada a pedir (o servidor não aceitaria).
+    function esquecer(esteToken) {
+      return new Promise(function (pronto) {
+        var acabou = false;
+        var prazo = agendar(function () {
+          prazo = null;
+          if (acabou) return;
+          avisar('o esquecer do aparelho passou de 3 s: o sair segue');
+          terminar();
+        }, PRAZO_ESQUECER_MS);
+        function terminar() {
+          if (acabou) return;
+          acabou = true;
+          if (prazo !== null) { cancelar(prazo); prazo = null; }
+          pronto();
+        }
+        pedirBearer().then(function (bearer) {
+          if (!bearer || !enderecoDoServidor(win)) return undefined;
+          return postar(ROTA_ESQUECER, bearer, { token: esteToken }, {}).then(function (resposta) {
+            if (!resposta || !resposta.ok) avisar('o esquecer do aparelho respondeu ' + situacao(resposta) + ': o sair segue');
+          });
+        }).then(null, function (e) {
+          avisar('o esquecer do aparelho falhou (' + nomeDoErro(e) + '): o sair segue');
+        }).then(terminar);
+      });
+    }
+
+    // O sair da página é definido depois deste script (que roda antes dela): embrulhado no load. Sem token a esquecer,
+    // é o da página na hora, sem nada no meio. Com token, o da página vem depois do esquecer, com o mesmo this e os
+    // mesmos argumentos, e devolve o que ele devolver (o erro dele sobe como subiria).
+    function embrulharSair() {
+      var original = win[PUSH.funcao.sair];
+      if (typeof original !== 'function' || original[MARCA_SAIR]) return;
+      var embrulho = function () {
+        if (!token) return original.apply(this, arguments);
+        var este = this;
+        var argumentos = arguments;
+        return esquecer(token).then(function () { return original.apply(este, argumentos); });
+      };
+      Object.defineProperty(embrulho, MARCA_SAIR, { value: true });
+      win[PUSH.funcao.sair] = embrulho;
+    }
+
+    ctx.ouvirNativo(function (m) {
+      if (!m || typeof m !== 'object' || m.t !== 'pushToken') return;
+      // Sem token (o Firebase não configurado, ou o token ainda não saiu): nada a registrar nem a esquecer.
+      if (typeof m.token !== 'string' || !m.token) return;
+      token = m.token;
+      versao = typeof m.versao === 'string' ? m.versao : '';
+      // Registrado há menos de 7 dias: o token fica só para o sair esquecer.
+      if (m.jaRegistrado === true) return;
+      registrar();
+    });
+
+    win.addEventListener('load', function () {
+      if (carregou) return;
+      carregou = true;
+      try { embrulharSair(); } catch (e) { avisar('o sair da página não foi embrulhado (' + nomeDoErro(e) + ')'); }
+      agendar(function () { ctx.enviar({ t: 'pushPedirToken' }, 'push'); }, ESPERA_PUSH_MS);
+    });
+
+    win.addEventListener('online', function () {
+      if (aguardando === 'login') registrar();
+      else if (aguardando === 'rede') {
+        if (esfriando) tentarDepois = true;
+        else registrar();
+      }
+    });
+
+    if (doc && typeof doc.addEventListener === 'function') {
+      doc.addEventListener('visibilitychange', function () {
+        if (doc.visibilityState === 'visible' && aguardando === 'login') registrar();
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
   // Ponto único de entrada
   // ---------------------------------------------------------------------------------------------------------------
 
@@ -1835,13 +2072,14 @@
       if (!ctx.espelhoDesligado) instalarEspelhoLS(ctx, ls);
     });
     // A 5 depois da 3 e da 4: ela lê o `espelhoDesligado` e o `cargaParada` que a 4 decidiu. A 6 e a 7 não espelham
-    // nada e valem em toda carga.
+    // nada e valem em toda carga; a 8 também não espelha, e fica fora só da carga parada.
     tentar(ctx, 'idb', function () { instalarIDB(ctx); });
     // Sem a seção 5 nesta carga (a janela sem IndexedDB, ou ele negado), a perda termina só com o localStorage: não há
     // fotos a esperar, e uma marca que nunca saísse deixaria toda carga sem espelho.
     if (ctx.concluirPerda && !ctx.idbCuidaDaPerda) tentar(ctx, 'marca', function () { ctx.concluirPerda(); });
     tentar(ctx, 'janela', function () { instalarJanela(ctx); });
     tentar(ctx, 'voltar', function () { instalarVoltar(ctx); });
+    tentar(ctx, 'push', function () { instalarPush(ctx); });
 
     return {
       pronto: Promise.all(ctx.prontos).then(function () { return undefined; }),
@@ -1868,6 +2106,7 @@
       MARCA_PERDA: MARCA_PERDA,
       BANCO_SENTINELA: BANCO_SENTINELA,
       VOLTAR: VOLTAR,
+      PUSH: PUSH,
     };
   } else if (typeof window !== 'undefined') {
     instalar(window, window.gcCasca, window.__GC_RETRATO__ || {});

@@ -35,11 +35,12 @@ import org.json.JSONObject;
  * <pre>
  *   ls {k, v} · lsDel {k} · idbPut {k, tipo, v} · idbDel {k} · idbPedaco {k, id, i, n, mime, b64} · sentinela
  *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila}
- *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg}
+ *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken · pushRegistrado {token}
  * </pre>
  *
  * E a resposta do idbPedir, pela ponte da mesma mensagem: idbItem, idbPedaco e idbFim ({@link #enviarIdb}), ou
- * idbRecusado ({@link #recusarIdb}) quando o disjuntor do dia não deixa.
+ * idbRecusado ({@link #recusarIdb}) quando o disjuntor do dia não deixa. A do pushPedirToken, também pela ponte dela, é
+ * o pushToken {token, jaRegistrado, versao} ({@link RegistroDoPush#resposta}).
  *
  * Regras que o código não mostra sozinho:
  * <ul>
@@ -91,7 +92,8 @@ public final class Mensageiro {
         "idbSentinela",
         "janela", "open", "fora", "camada", "close", "location", "location.assign", "location.replace",
         "location.href", "document.open", "document.write", "document.writeln", "document.close",
-        "voltar")));
+        "voltar",
+        "push")));
 
     /** O que o canal pede ao plugin. Todas chegam na thread do espelho; quem mexe na WebView passa para a de UI. */
     public interface Acoes {
@@ -112,6 +114,16 @@ public final class Mensageiro {
 
         /** Um endereço http ou https de fora do App (o "Conectar Fracttal"), para a Custom Tab. */
         void abrirFora(String url);
+
+        /**
+         * A página quer o token do Firebase para registrar o aparelho no servidor: peça-o ao Firebase e responda pela
+         * ponte da própria mensagem com o {@link RegistroDoPush#resposta} (o token null quando o Firebase não está
+         * configurado ou ainda não deu o token).
+         */
+        void pushPedirToken();
+
+        /** A página registrou este token no servidor: anote com o {@link RegistroDoPush#registrado}. */
+        void pushRegistrado(String token);
 
         /** Um aviso para o log. Nunca traz nome de chave, valor, URL com parâmetros nem e-mail. */
         void erro(String onde, String msg);
@@ -306,6 +318,89 @@ public final class Mensageiro {
         }
     }
 
+    /**
+     * O registro do aparelho no servidor para as notificações (spec 2026-10-18, seção 4.2), do lado nativo. Quem registra
+     * é a página, com o Bearer dela (o nativo nunca vê token da Microsoft); aqui só mora o token do Firebase e QUANDO ele
+     * foi registrado, no SharedPreferences "push" (as chaves do {@link MensagensDoFirebase}, cujo onNewToken grava o token
+     * e apaga o registradoEm), para a página não chamar a rota a cada carga.
+     *
+     * O {@code jaRegistrado} vale só para o MESMO token registrado há menos de {@value #VALIDADE_DO_REGISTRO_MS} ms (7
+     * dias, no relógio de parede: atravessa a reinicialização). Passados os 7 dias a página registra de novo: o servidor
+     * que perdeu o registro (a tabela refeita, o token que ele descartou) volta a ter o aparelho em até uma semana. O
+     * registro "do futuro" (a hora do aparelho voltou) não vale. Custo de errar para o lado do não: um registro a mais.
+     *
+     * Nada de token no log: ele identifica o aparelho para o Firebase. Roda na thread do espelho; o commit (e não o
+     * apply) porque o processo pode morrer logo depois (o "Sair" navega para o logout da Microsoft).
+     */
+    static final class RegistroDoPush {
+
+        static final long VALIDADE_DO_REGISTRO_MS = 7L * 24 * 60 * 60 * 1000;
+
+        private final SharedPreferences prefs;
+        private final LongSupplier relogioDeParede;
+        private final String versao;
+
+        /** @param versao o versionName do app, que a página manda ao servidor como "NexusField/&lt;versao&gt;" */
+        RegistroDoPush(SharedPreferences prefs, LongSupplier relogioDeParede, String versao) {
+            this.prefs = prefs;
+            this.relogioDeParede = relogioDeParede;
+            this.versao = versao == null ? "" : versao;
+        }
+
+        /**
+         * A resposta ao pushPedirToken: {@code {t:'pushToken', token, jaRegistrado, versao}}. {@code doFirebase} é o token
+         * que o Firebase deu agora, ou null (não configurado, ou o token ainda não saiu): aí vai {@code token: null}, e o
+         * que estava guardado fica. Um token diferente do guardado (o renovado, ou o primeiro) é guardado sem registro.
+         */
+        @SuppressLint("ApplySharedPref")
+        String resposta(String doFirebase) {
+            String token = doFirebase == null || doFirebase.isEmpty() ? null : doFirebase;
+            boolean jaRegistrado = false;
+            if (token != null) {
+                if (token.equals(tokenGuardado())) {
+                    jaRegistrado = registroValendo();
+                } else {
+                    // A mesma regra do onNewToken (MensagensDoFirebase.guardarTokenNovo): o servidor só conhece o velho.
+                    prefs.edit().putString(MensagensDoFirebase.CHAVE_TOKEN, token)
+                        .remove(MensagensDoFirebase.CHAVE_REGISTRADO_EM).commit();
+                }
+            }
+            return json("t", "pushToken", "token", token == null ? JSONObject.NULL : token, "jaRegistrado", jaRegistrado,
+                "versao", versao);
+        }
+
+        /**
+         * O pushRegistrado: a página registrou este token agora. Só vale para o token guardado, o que o pushToken deu: o
+         * registro de um token velho que chega atrasado (o Firebase renovou no meio) não marca o novo como registrado.
+         *
+         * @return true se a hora foi gravada
+         */
+        @SuppressLint("ApplySharedPref")
+        boolean registrado(String token) {
+            if (token == null || token.isEmpty() || !token.equals(tokenGuardado())) return false;
+            return prefs.edit().putLong(MensagensDoFirebase.CHAVE_REGISTRADO_EM, relogioDeParede.getAsLong()).commit();
+        }
+
+        private boolean registroValendo() {
+            long em;
+            try {
+                em = prefs.getLong(MensagensDoFirebase.CHAVE_REGISTRADO_EM, -1L);
+            } catch (ClassCastException e) {
+                return false; // um valor de outro tipo na chave conta como sem registro
+            }
+            long agora = relogioDeParede.getAsLong();
+            return em >= 0 && em <= agora && agora - em < VALIDADE_DO_REGISTRO_MS;
+        }
+
+        private String tokenGuardado() {
+            try {
+                return prefs.getString(MensagensDoFirebase.CHAVE_TOKEN, null);
+            } catch (ClassCastException e) {
+                return null;
+            }
+        }
+    }
+
     private final ArmazemEspelho armazem;
     private final Acoes acoes;
     private final Disjuntor disjuntor;
@@ -412,6 +507,15 @@ public final class Mensageiro {
                         return false;
                     }
                     acoes.abrirFora(url);
+                    return true;
+                }
+                case "pushPedirToken":
+                    acoes.pushPedirToken();
+                    return true;
+                case "pushRegistrado": {
+                    String token = texto(m, "token");
+                    if (token == null || token.isEmpty()) return recusar(t);
+                    acoes.pushRegistrado(token);
                     return true;
                 }
                 case "erro": {

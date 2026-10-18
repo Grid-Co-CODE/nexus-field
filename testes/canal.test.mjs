@@ -47,6 +47,13 @@ test('o rótulo que não é texto literal só vem das funções que repassam um'
   assert.deepEqual([...doEnviar], ['onde']);
 });
 
+test('o registro do aparelho (notificações) avisa com o rótulo push, e a lista do nativo o tem', () => {
+  // Sem ele na lista, o aviso de que a rota ainda não está no ar (404) ou de que a rede falhou chegaria ao log como
+  // 'outro', e a prova no aparelho não diria de onde veio.
+  assert.ok(rotulosDoScript().includes('push'), 'o inicio.js usa o rótulo push');
+  assert.ok(rotulosDoNativo().includes('push'), 'o Mensageiro.ONDES_DA_PAGINA tem push');
+});
+
 test('a lista do nativo é a dos rótulos do inicio.js', () => {
   const doScript = rotulosDoScript();
   assert.ok(doScript.length > 20, 'a extração achou os rótulos: ' + doScript.join(', '));

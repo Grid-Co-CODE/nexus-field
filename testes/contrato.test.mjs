@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { conferirContrato, executarContrato, rodarLinhaDeComando, URL_DO_APP, IGNORAR } from './contrato.mjs';
 
 const require = createRequire(import.meta.url);
-const { CLASSES, CHAVE_FILA, VOLTAR, classificar } = require('../www/casca/inicio.js');
+const { CLASSES, CHAVE_FILA, VOLTAR, PUSH, classificar } = require('../www/casca/inicio.js');
 const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const EXATAS = [...new Set([CHAVE_FILA, ...CLASSES.trabalho.exatas, ...CLASSES.trabalho.excecoes, ...CLASSES.cache.exatas])];
@@ -34,6 +34,15 @@ function voltarFicticio({ semId = null, semClasse = null, semFuncao = null, semG
   return { marcacao, script };
 }
 
+// O que o registro do aparelho usa do campo.html, e cada parte pode faltar.
+function pushFicticio({ semBearer = false, semSair = false, semMiddleware = false } = {}) {
+  return [
+    semMiddleware ? '' : `const ${PUSH.global.middleware}='https://servidor.exemplo.test/api';   // o servidor`,
+    semBearer ? '' : `async function ${PUSH.funcao.bearer}(){ return null; }`,
+    semSair ? '' : `async function ${PUSH.funcao.sair}(){ document.body.className='login'; }`,
+  ].join('\n');
+}
+
 // O HTML fictício que tem tudo. Cada peça pode ser trocada ou tirada pelo teste que quer ver aquela falta.
 function htmlFicticio(pecas = {}) {
   const voltar = voltarFicticio();
@@ -52,9 +61,12 @@ function htmlFicticio(pecas = {}) {
     resto: "function ler(k){ return localStorage.getItem(k); }\nfunction gravar(k,v){ localStorage.setItem(k,v); }\nfunction apagar(k){ localStorage.removeItem(k); }",
     marcacao: voltar.marcacao,
     voltar: voltar.script,
+    // O que o registro do aparelho usa (o PUSH do inicio.js), como o campo.html v284 o escreve: a const de topo do
+    // servidor, a função do Bearer e o sair assíncrono.
+    push: pushFicticio(),
     ...pecas,
   };
-  return `<html><head>${p.msal}</head><body>\n${p.marcacao}\n<script>\n${p.banco}\n${p.abrir}\nconst LSK=[${p.chaves}];\nconst FORA=[${p.ignoradas}];\n${p.prefixos}\n${p.rota}\n${p.fracttal}\n${p.login}\n${p.resto}\n${p.voltar}\n</script></body></html>`;
+  return `<html><head>${p.msal}</head><body>\n${p.marcacao}\n<script>\n${p.banco}\n${p.abrir}\nconst LSK=[${p.chaves}];\nconst FORA=[${p.ignoradas}];\n${p.prefixos}\n${p.rota}\n${p.fracttal}\n${p.login}\n${p.resto}\n${p.voltar}\n${p.push}\n</script></body></html>`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -337,6 +349,33 @@ test('voltar: o VOLTAR do inicio.js tem as partes que o contrato lê', () => {
   assert.ok(Object.keys(VOLTAR.funcao).length >= 10);
   assert.equal(typeof VOLTAR.global.tarefaDoFechamento, 'string');
   assert.equal(typeof VOLTAR.abaInicial, 'string');
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// O registro do aparelho para as notificações (o PUSH do inicio.js)
+// ---------------------------------------------------------------------------------------------------------------
+
+test('o contrato exige o getTokenMW, o async function sair e o MIDDLEWARE_URL, e diz qual sumiu', () => {
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: pushFicticio({ semBearer: true }) })), ['push: função getTokenMW']);
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: pushFicticio({ semSair: true }) })), ['push: async function sair']);
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: pushFicticio({ semMiddleware: true }) })), ['push: global MIDDLEWARE_URL']);
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: '' })),
+    ['push: função getTokenMW', 'push: async function sair', 'push: global MIDDLEWARE_URL']);
+});
+
+test('push: o sair que deixou de ser async, um nome só dentro de outro e o nome só citado não valem', () => {
+  // O embrulho do sair devolve uma Promise: com o sair síncrono, quem usasse o retorno dele veria outra coisa.
+  const semSair = pushFicticio({ semSair: true });
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semSair}\nfunction sair(){ x(); }` })), ['push: async function sair']);
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semSair}\nasync function sairDaConta(){}` })), ['push: async function sair']);
+  const semMw = pushFicticio({ semMiddleware: true });
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\nconst MIDDLEWARE_URL_VELHA='x';\nfetch(MIDDLEWARE_URL+'/a');` })),
+    ['push: global MIDDLEWARE_URL']);
+  const semBearer = pushFicticio({ semBearer: true });
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semBearer}\nconst t=await getTokenMW();` })), ['push: função getTokenMW']);
+  // O var e o let também declaram o endereço (o script o lê pelo nome).
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\nvar MIDDLEWARE_URL='x';` })), []);
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\nlet MIDDLEWARE_URL='x';` })), []);
 });
 
 // ---------------------------------------------------------------------------------------------------------------

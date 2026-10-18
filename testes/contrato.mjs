@@ -15,8 +15,9 @@ import { executadoDireto } from '../ferramentas/executado-direto.mjs';
 
 const require = createRequire(import.meta.url);
 // A lista do que se espelha existe no script de início e em mais lugar nenhum; o contrato lê dela. O VOLTAR são os nomes
-// que o voltar do Android usa do campo.html, e o `classificar` decide, como na WebView, se uma chave é espelhada.
-const { CLASSES, CHAVE_FILA, VOLTAR, classificar } = require('../www/casca/inicio.js');
+// que o voltar do Android usa do campo.html, o PUSH os do registro do aparelho para as notificações, e o `classificar`
+// decide, como na WebView, se uma chave é espelhada.
+const { CLASSES, CHAVE_FILA, VOLTAR, PUSH, classificar } = require('../www/casca/inicio.js');
 
 // Origem + appStartPath do capacitor.config.json (o testes/contrato.test.mjs confere que continuam iguais).
 export const URL_DO_APP = 'https://gridco-campo-mw.azurewebsites.net/api/app';
@@ -237,6 +238,22 @@ function conferirVoltar(html, falta) {
   if (!aba.test(html)) falta(`voltar: aba '${VOLTAR.abaInicial}'`);
 }
 
+// --- O registro do aparelho para as notificações ---------------------------------------------------------------
+// O script de início registra o aparelho no servidor pela própria página: o Bearer vem da função de topo getTokenMW, o
+// endereço da const de topo MIDDLEWARE_URL (lida pelo nome), e o "Sair" (a async function sair) é embrulhado para o
+// servidor esquecer o aparelho antes do logout. Sem um deles, o aparelho deixa de ser registrado (o técnico não recebe
+// o resumo nem a emergência) ou o sair deixa de esquecê-lo (o próximo técnico do aparelho receberia os avisos do
+// anterior), tudo em silêncio. O sair tem de ser async: o embrulho devolve uma Promise.
+function temFuncaoAsync(html, nome) {
+  return new RegExp(`\\basync\\s+function\\s+${escapar(nome)}\\s*\\(`).test(html);
+}
+
+function conferirPush(html, falta) {
+  if (!temFuncaoDeTopo(html, PUSH.funcao.bearer)) falta(`push: função ${PUSH.funcao.bearer}`);
+  if (!temFuncaoAsync(html, PUSH.funcao.sair)) falta(`push: async function ${PUSH.funcao.sair}`);
+  if (!temDeclaracao(html, PUSH.global.middleware)) falta(`push: global ${PUSH.global.middleware}`);
+}
+
 /**
  * Confere o campo.html contra o que a casca supõe. Devolve a lista do que faltou (ou do que apareceu e é proibido);
  * vazia = tudo no lugar. Cada item é o NOME do que falta, nunca um trecho do HTML.
@@ -272,6 +289,7 @@ export function conferirContrato(html) {
   else if (!WINDOW_OPEN_EM_BRANCO.test(corpo)) falta("window.open('','_blank') em conectarFracttal");
 
   conferirVoltar(html, falta);
+  conferirPush(html, falta);
 
   for (const [item, padrao] of PROIBIDOS) if (padrao.test(html)) falta(item);
 
@@ -343,7 +361,7 @@ export async function executarContrato({ buscar = fetch, url = URL_DO_APP, esper
       `Contrato quebrado: ${faltou.length} item(ns) do campo.html que a casca supõe não estão como antes.`,
       ...faltou.map((item) => `- ${item}`),
       'Confira com a sessão "App de campo" a classificação em www/casca/inicio.js (CLASSES), a IGNORAR daqui, os nomes ' +
-        'do voltar (VOLTAR) e a janela do Fracttal.',
+        'do voltar (VOLTAR), os do registro do aparelho (PUSH) e a janela do Fracttal.',
     ],
   };
 }

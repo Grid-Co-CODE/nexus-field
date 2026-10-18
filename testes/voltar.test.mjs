@@ -350,7 +350,9 @@ test('VOLTAR traz os nomes do campo.html que o voltar usa, num lugar só (o cont
   assert.equal(VOLTAR.global.tarefaDoFechamento, 'sheetTask');
   assert.equal(VOLTAR.abaInicial, 'tarefas');
   // Todo nome do objeto aparece no código do voltar por papel (nenhum nome solto que o contrato não veria).
-  const secao = CODIGO.slice(CODIGO.indexOf('// 7. O voltar do Android'), CODIGO.indexOf('// Ponto único de entrada'));
+  // A seção 7 vai até a 8 (o registro do aparelho, que tem os nomes dela no PUSH, conferidos no testes/push.test.mjs).
+  const secao = CODIGO.slice(CODIGO.indexOf('// 7. O voltar do Android'), CODIGO.indexOf('// 8. O registro do aparelho'));
+  assert.ok(secao.includes('function instalarVoltar('), 'o corte pega a seção 7 inteira');
   for (const grupo of ['id', 'classe', 'funcao', 'global']) {
     for (const papel of Object.keys(VOLTAR[grupo])) {
       assert.ok(secao.includes('VOLTAR.' + grupo + '.' + papel), 'usado: VOLTAR.' + grupo + '.' + papel);

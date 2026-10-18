@@ -621,13 +621,14 @@ public class MensageiroTest {
     @Test
     public void erroDaPaginaComRotuloDoScriptVaiAoLogComORotulo() {
         for (String onde : new String[] {"idbRestaurar", "espelho-ls", "document.write", "location.href", "perda",
-                "voltar", "reenvio"}) {
+                "voltar", "reenvio", "push"}) {
             assertTrue(onde, m.tratar("{\"t\":\"erro\",\"onde\":\"" + onde + "\",\"msg\":\"qualquer\"}"));
         }
         assertEquals(Arrays.asList("idbRestaurar: erro da página (1 nesta partida)",
             "espelho-ls: erro da página (2 nesta partida)", "document.write: erro da página (3 nesta partida)",
             "location.href: erro da página (4 nesta partida)", "perda: erro da página (5 nesta partida)",
-            "voltar: erro da página (6 nesta partida)", "reenvio: erro da página (7 nesta partida)"), acoes.erros);
+            "voltar: erro da página (6 nesta partida)", "reenvio: erro da página (7 nesta partida)",
+            "push: erro da página (8 nesta partida)"), acoes.erros);
     }
 
     // --- a resposta do idbPedir -----------------------------------------------------------------------------------------
@@ -712,7 +713,135 @@ public class MensageiroTest {
         semDadosDoTecnico();
     }
 
+    // --- o registro do aparelho para as notificações --------------------------------------------------------------
+
+    // Um token do Firebase fictício: como o e-mail, nunca vai ao log.
+    private static final String TOKEN = "tokenFcmFicticio:APA91b_abc123";
+    private static final long DIA_MS = 24L * 60 * 60 * 1000;
+
+    /** O SharedPreferences "push" do app (o mesmo do MensagensDoFirebase), vazio. */
+    private static SharedPreferences preferenciasDoPush() {
+        SharedPreferences prefs = RuntimeEnvironment.getApplication()
+            .getSharedPreferences(MensagensDoFirebase.PREFERENCIAS, Context.MODE_PRIVATE);
+        prefs.edit().clear().commit();
+        return prefs;
+    }
+
+    @Test
+    public void pushPedirTokenEPushRegistradoChegamAoPlugin() {
+        assertTrue(m.tratar("{\"t\":\"pushPedirToken\"}"));
+        assertEquals(1, acoes.pushPedidos);
+        assertTrue(m.tratar("{\"t\":\"pushRegistrado\",\"token\":\"" + TOKEN + "\"}"));
+        assertEquals(Arrays.asList(TOKEN), acoes.pushRegistrados);
+        // Sem o token, vazio ou de outro tipo: recusado, e o aviso não cita o que veio.
+        assertFalse(m.tratar("{\"t\":\"pushRegistrado\"}"));
+        assertFalse(m.tratar("{\"t\":\"pushRegistrado\",\"token\":\"\"}"));
+        assertFalse(m.tratar("{\"t\":\"pushRegistrado\",\"token\":7}"));
+        assertEquals(1, acoes.pushRegistrados.size());
+        assertEquals(3, acoes.erros.size());
+        for (String e : acoes.erros) assertTrue(e, e.startsWith("pushRegistrado:"));
+        semDadosDoTecnico();
+        semOToken();
+    }
+
+    @Test
+    public void pushPedirTokenRespondeComOTokenEJaRegistradoSoComOMesmoTokenHaMenosDe7Dias() throws JSONException {
+        SharedPreferences prefs = preferenciasDoPush();
+        long[] parede = {20_000_000_000L};
+        Mensageiro.RegistroDoPush registro = new Mensageiro.RegistroDoPush(prefs, () -> parede[0], "1.1.0");
+
+        // O primeiro token: guardado, e ainda não registrado no servidor.
+        JSONObject r = objeto(registro.resposta(TOKEN));
+        assertEquals("pushToken", r.getString("t"));
+        assertEquals(TOKEN, r.getString("token"));
+        assertFalse(r.getBoolean("jaRegistrado"));
+        assertEquals("1.1.0", r.getString("versao"));
+        assertEquals(4, r.length());
+        assertEquals(TOKEN, prefs.getString(MensagensDoFirebase.CHAVE_TOKEN, null));
+
+        // A página registrou (o pushRegistrado): a hora fica gravada.
+        long registradoEm = parede[0];
+        assertTrue(registro.registrado(TOKEN));
+        assertEquals(registradoEm, prefs.getLong(MensagensDoFirebase.CHAVE_REGISTRADO_EM, -1L));
+        assertTrue(objeto(registro.resposta(TOKEN)).getBoolean("jaRegistrado"));
+
+        // Vale por 7 dias, no relógio de parede; a hora do aparelho que voltou (o registro "do futuro") não vale.
+        parede[0] = registradoEm + 7 * DIA_MS - 1;
+        assertTrue(objeto(registro.resposta(TOKEN)).getBoolean("jaRegistrado"));
+        parede[0] = registradoEm + 7 * DIA_MS;
+        assertFalse("7 dias depois, registra de novo", objeto(registro.resposta(TOKEN)).getBoolean("jaRegistrado"));
+        parede[0] = registradoEm - 1;
+        assertFalse(objeto(registro.resposta(TOKEN)).getBoolean("jaRegistrado"));
+        parede[0] = registradoEm + DIA_MS;
+        assertTrue(objeto(registro.resposta(TOKEN)).getBoolean("jaRegistrado"));
+
+        // O Firebase deu outro token (renovado): o novo é guardado sem o registro do velho.
+        r = objeto(registro.resposta("tokenRenovado"));
+        assertEquals("tokenRenovado", r.getString("token"));
+        assertFalse(r.getBoolean("jaRegistrado"));
+        assertEquals("tokenRenovado", prefs.getString(MensagensDoFirebase.CHAVE_TOKEN, null));
+        assertFalse(prefs.contains(MensagensDoFirebase.CHAVE_REGISTRADO_EM));
+        // O registro do velho que chega atrasado não vale para o novo.
+        assertFalse(registro.registrado(TOKEN));
+        assertFalse(prefs.contains(MensagensDoFirebase.CHAVE_REGISTRADO_EM));
+        assertTrue(registro.registrado("tokenRenovado"));
+        assertTrue(objeto(registro.resposta("tokenRenovado")).getBoolean("jaRegistrado"));
+
+        // O onNewToken do serviço (MensagensDoFirebase) mexe no mesmo arquivo e nas mesmas chaves: o registro é esquecido.
+        MensagensDoFirebase.guardarTokenNovo(RuntimeEnvironment.getApplication(), "tokenDoServico");
+        assertFalse(objeto(registro.resposta("tokenDoServico")).getBoolean("jaRegistrado"));
+        assertTrue(registro.registrado("tokenDoServico"));
+        assertTrue(objeto(registro.resposta("tokenDoServico")).getBoolean("jaRegistrado"));
+        // E a marca da permissão de notificação, do mesmo arquivo, fica (nada de clear() aqui).
+        assertEquals("tokenDoServico", prefs.getString(MensagensDoFirebase.CHAVE_TOKEN, null));
+    }
+
+    @Test
+    public void semTokenDoFirebaseARespostaLevaTokenNullEOGuardadoFica() throws JSONException {
+        SharedPreferences prefs = preferenciasDoPush();
+        prefs.edit().putString(MensagensDoFirebase.CHAVE_TOKEN, TOKEN).putLong(MensagensDoFirebase.CHAVE_REGISTRADO_EM, 1L)
+            .putBoolean("jaPediuNotificacao", true).commit();
+        Mensageiro.RegistroDoPush registro = new Mensageiro.RegistroDoPush(prefs, () -> 2L, "0.0.0-dev");
+        for (String semToken : new String[] {null, ""}) {
+            JSONObject r = objeto(registro.resposta(semToken));
+            assertEquals("pushToken", r.getString("t"));
+            assertTrue("o token vai como null do JSON", r.has("token") && r.isNull("token"));
+            assertFalse(r.getBoolean("jaRegistrado"));
+            assertEquals("0.0.0-dev", r.getString("versao"));
+        }
+        // O Firebase sem configuração (ou que ainda não deu o token) não apaga o que estava guardado.
+        assertEquals(TOKEN, prefs.getString(MensagensDoFirebase.CHAVE_TOKEN, null));
+        assertEquals(1L, prefs.getLong(MensagensDoFirebase.CHAVE_REGISTRADO_EM, -1L));
+        assertTrue(prefs.getBoolean("jaPediuNotificacao", false));
+        assertFalse("sem token não há o que gravar", registro.registrado(null));
+        assertFalse(registro.registrado(""));
+    }
+
+    @Test
+    public void registroComValorDeOutroTipoNoArquivoNaoLanca() throws JSONException {
+        // Um valor de outro tipo na chave (arquivo mexido, versão de teste) conta como sem registro, sem lançar.
+        SharedPreferences prefs = preferenciasDoPush();
+        prefs.edit().putInt(MensagensDoFirebase.CHAVE_TOKEN, 3).putString(MensagensDoFirebase.CHAVE_REGISTRADO_EM, "ontem")
+            .commit();
+        Mensageiro.RegistroDoPush registro = new Mensageiro.RegistroDoPush(prefs, () -> 5_000L, "1.1.0");
+        assertFalse(objeto(registro.resposta(TOKEN)).getBoolean("jaRegistrado"));
+        assertEquals(TOKEN, prefs.getString(MensagensDoFirebase.CHAVE_TOKEN, null));
+        prefs.edit().putString(MensagensDoFirebase.CHAVE_REGISTRADO_EM, "ontem").commit();
+        assertFalse(objeto(registro.resposta(TOKEN)).getBoolean("jaRegistrado"));
+        assertTrue(registro.registrado(TOKEN));
+        assertTrue(objeto(registro.resposta(TOKEN)).getBoolean("jaRegistrado"));
+    }
+
     // --- ajudantes ---------------------------------------------------------------------------------------------------
+
+    /** O token do Firebase também não vai ao log (nem pelas ações, nem pelo android.util.Log). */
+    private void semOToken() {
+        List<String> tudo = new ArrayList<>(acoes.erros);
+        for (ShadowLog.LogItem item : ShadowLog.getLogs()) tudo.add(item.tag + " " + item.msg);
+        for (String linha : tudo) {
+            if (linha.contains(TOKEN) || linha.contains("APA91b")) fail("o log levou o token: " + linha);
+        }
+    }
 
     private static JSONObject objeto(String json) {
         try {
@@ -828,13 +957,17 @@ public class MensageiroTest {
         final List<JSONObject> leves = new ArrayList<>();
         final List<String> fora = new ArrayList<>();
         final List<String> erros = new ArrayList<>();
+        final List<String> pushRegistrados = new ArrayList<>();
         int idbPedidos;
         int idbRecusas;
+        int pushPedidos;
 
         @Override public void precisoRetrato(JSONObject retrato) { retratos.add(retrato); }
         @Override public void restaurado(JSONObject retratoLeve) { leves.add(retratoLeve); }
         @Override public void idbPedir() { idbPedidos++; }
         @Override public void idbRecusado() { idbRecusas++; }
+        @Override public void pushPedirToken() { pushPedidos++; }
+        @Override public void pushRegistrado(String token) { pushRegistrados.add(token); }
         @Override public void abrirFora(String url) { fora.add(url); }
         @Override public void erro(String onde, String msg) { erros.add(onde + ": " + msg); }
     }
