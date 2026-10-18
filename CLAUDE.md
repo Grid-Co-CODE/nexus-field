@@ -476,7 +476,9 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     o passo seguinte, se um dia valer, é montar sem assinar e assinar com o `apksigner` num passo só.
   - **O pino do certificado:** depois do build, o `apksigner verify --print-certs` (o build-tools do runner) tem de passar
     e o `ferramentas/certificado.mjs` exige exatamente um signatário e o SHA-256 dele igual ao da variável do repositório
-    `CASCA_CERT_SHA256` (aceita o formato do `keytool`, maiúsculo e com `:`); sem a variável, nada é publicado. Os
+    `CASCA_CERT_SHA256` (aceita o formato do `keytool`, maiúsculo e com `:`); sem a variável, nada é publicado. O
+    `apksigner` do build-tools 37 (o mais novo do runner em 18/10/2026) imprime "V2 Signer: ..." (uma linha por esquema)
+    no lugar do "Signer #1 ..." do 36: o conferidor aceita os dois (a 1ª tag, v1.0.0, caiu nisso e nada foi publicado). Os
     aparelhos confiam para sempre na chave da primeira versão: um APK com outra chave (a de teste, uma regerada) seria
     oferecido a cada 6 h e recusado pelo instalador, e o "desinstale" apagaria o espelho. A Release ("Nexus Field
     <versão>") leva `nexus-field.apk`, `nexus-field.apk.sha256` e `versao.json`; o APK de depuração do CI sobe como o

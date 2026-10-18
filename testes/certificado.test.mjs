@@ -63,6 +63,38 @@ test('qualquer outra linha de SHA-256 de certificado tem de ser a mesma chave (c
   assert.equal(conferirCertificado(`${saida(CERTO)}Source Stamp Signer certificate SHA-256 digest: ${CERTO}\n`, CERTO), CERTO);
 });
 
+// O build-tools 37 (o mais novo no runner do GitHub em 18/10/2026, o que o job release escolhe) mudou o prefixo: em vez de
+// "Signer #1 ", uma linha por esquema de assinatura, "V2 Signer: ". Visto na 1ª tag (v1.0.0): o pino recusou um APK
+// assinado com a chave certa porque contou 0 signatários. Amostra real do runner, com o SHA trocado.
+function saida37(...linhas) {
+  return linhas.map(([esquema, sha]) => [
+    `${esquema} Signer: certificate DN: CN=Exemplo`,
+    `${esquema} Signer: certificate SHA-256 digest: ${sha}`,
+    `${esquema} Signer: certificate SHA-1 digest: ${'0'.repeat(40)}`,
+    `${esquema} Signer: certificate MD5 digest: ${'0'.repeat(32)}`,
+  ].join('\n')).join('\n') + '\n';
+}
+
+test('build-tools 37: aceita o formato "V2 Signer:" com a chave esperada', () => {
+  assert.equal(conferirCertificado(saida37(['V2', CERTO]), CERTO), CERTO);
+});
+
+test('build-tools 37: v2 e v3 com o mesmo certificado são um signatário só', () => {
+  assert.equal(conferirCertificado(saida37(['V2', CERTO], ['V3', CERTO]), CERTO), CERTO);
+});
+
+test('build-tools 37: outra chave em qualquer esquema é recusada', () => {
+  assert.throws(() => conferirCertificado(saida37(['V2', OUTRO]), CERTO), /não é o esperado/);
+  assert.throws(() => conferirCertificado(saida37(['V2', CERTO], ['V3', OUTRO]), CERTO), /não é o esperado/);
+});
+
+test('build-tools 37: dois signatários no mesmo esquema são recusados', () => {
+  const dois = `V2 Signer #1: certificate SHA-256 digest: ${CERTO}\nV2 Signer #2: certificate SHA-256 digest: ${CERTO}\n`;
+  assert.throws(() => conferirCertificado(dois, CERTO), /signatário/);
+  const repetido = `V2 Signer: certificate SHA-256 digest: ${CERTO}\nV2 Signer: certificate SHA-256 digest: ${CERTO}\n`;
+  assert.throws(() => conferirCertificado(repetido, CERTO), /signatário/);
+});
+
 test('fim de linha do Windows e avisos do apksigner no meio não atrapalham', () => {
   const texto = `WARNING: META-INF/x.SF not protected by signature\r\n${saida(CERTO).replace(/\n/g, '\r\n')}`;
   assert.equal(conferirCertificado(texto, CERTO), CERTO);
