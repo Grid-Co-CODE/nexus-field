@@ -51,7 +51,9 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   e-mail de pessoa (passam o de "não responda" e os de domínio fictício: `exemplo.com.br`, `example.com`, `*.test`),
   telefone, CPF, nome na pasta do usuário (`C:/Users/<nome>`) e o nome de quem trabalha no repositório: a lista sai dos
   autores do `git log`, só na memória (como o teste do Nexus faz com o cadastro), e conta o nome inteiro em qualquer
-  lugar e o primeiro nome com maiúscula depois de artigo ou preposição ("o X preenche", "do X"). Caso que o criou: o
+  lugar e o primeiro nome com maiúscula depois de artigo ou preposição ("o X preenche", "do X") ou antes de um sobrenome
+  com maiúscula ("Responsável: X Sobrenome": o autor daqui é só a conta "Nome-1234", e o nome inteiro nunca se
+  monta). Caso que o criou: o
   roteiro da prova dizia quem preenche o usuário de teste e de quem era o celular. Ficam de fora só o desenho e o plano
   datados de 16/10, pelo caminho exato (`FORA_DA_VARREDURA_DE_NOMES`), porque ainda trazem o dono como responsável;
   nunca a pasta: desenho ou plano novo em `docs/superpowers/` é varrido, e entrada da lista cujo arquivo saiu do git faz

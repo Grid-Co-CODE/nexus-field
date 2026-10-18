@@ -145,8 +145,9 @@ function arquivosVersionados() {
 // "Nome-1234" do GitHub dá "nome"; as partículas "de", "da"... não contam):
 //   - o nome inteiro (a primeira palavra e qualquer outra, com espaço, ponto, hífen ou sublinhado no meio, como num
 //     e-mail): em qualquer lugar;
-//   - o primeiro nome sozinho, só onde parece gente: com maiúscula, depois de artigo ou preposição ("o X preenche", "no
-//     celular do X", "para o X aprovar") e sem dígito ou hífen logo depois. O que esta regra não pega, a revisão pega.
+//   - o primeiro nome sozinho, só onde parece gente: com maiúscula, sem dígito ou hífen logo depois, e depois de artigo
+//     ou preposição ("o X preenche", "no celular do X", "para o X aprovar") ou antes de um sobrenome com maiúscula
+//     ("Responsável: X Sobrenome"). O que estas regras não pegam, a revisão pega.
 // Ficam de fora, pelo caminho exato, só o desenho e o plano datados de 16/10 (FORA_DA_VARREDURA_DE_NOMES), que trazem o
 // dono como responsável; a lista não cresce sozinha, e entrada cujo arquivo saiu do git faz o teste falhar. Conta
 // automática (nome com "[bot]") e as do próprio GitHub não são gente.
@@ -154,6 +155,10 @@ function arquivosVersionados() {
 const PARTICULAS = new Set(['de', 'da', 'do', 'das', 'dos', 'di', 'du', 'del', 'van', 'von']);
 const SEPARADOR = '[\\s._-]+';
 const ANTES_DE_GENTE = /(?:^|[\s("'])(?:o|a|do|da|pelo|pela|ao|à|com o|com a|que o|que a|para o|para a)\s+$/i;
+// O sobrenome logo depois: outra palavra com maiúscula, só com espaço no meio (e a partícula, "de Tal"). Pega o
+// "Responsável: <nome> <sobrenome>" do cabeçalho de um desenho, que não tem artigo antes, quando o autor do git é só a
+// conta "Nome-1234" e o nome inteiro nunca é montado (o caso deste repositório).
+const SOBRENOME_DEPOIS = /^[ \t]+(?:(?:de|da|do|das|dos|di|du|del|van|von)[ \t]+)?\p{Lu}\p{L}/u;
 const CONTAS_QUE_NAO_SAO_GENTE = new Set(['github', 'copilot', 'claude', 'dependabot']);
 // Pelo caminho exato, nunca pela pasta: com o prefixo `docs/superpowers/`, todo desenho ou plano novo gravado ali (o
 // lugar padrão deles) nunca seria varrido. Arquivo novo nessa pasta passa pela varredura como qualquer outro.
@@ -204,7 +209,8 @@ export function citaNome(linha, { inteiro, primeiro }) {
     const i = mapa[m.index];
     const f = mapa[m.index + m[0].length - 1] + 1;
     const maiuscula = linha[i] !== linha[i].toLowerCase();
-    if (maiuscula && ANTES_DE_GENTE.test(linha.slice(0, i)) && !/^\s*[\d-]/.test(linha.slice(f, f + 3))) return true;
+    if (!maiuscula || /^\s*[\d-]/.test(linha.slice(f, f + 3))) continue;
+    if (ANTES_DE_GENTE.test(linha.slice(0, i)) || SOBRENOME_DEPOIS.test(linha.slice(f))) return true;
   }
   return false;
 }
@@ -226,6 +232,25 @@ test('o detector de nome acha o nome inteiro em qualquer lugar e o primeiro nome
     assert.equal(citaNome(linha, p), false, linha);
   }
   assert.deepEqual(padroesDeNomes([]), { inteiro: null, primeiro: null });
+});
+
+test('autor só com a conta do GitHub (sem sobrenome): o primeiro nome seguido de sobrenome é nome em qualquer lugar', () => {
+  // O caso deste repositório: o único autor é a conta "Nome-1234", e o nome inteiro nunca é montado; a linha
+  // "Responsável: <nome> <sobrenome>" do cabeçalho de um desenho novo passava (não há artigo antes).
+  const p = padroesDeNomes([junta('Beltrano', '-1234')]);
+  assert.equal(p.inteiro, null);
+  for (const linha of [
+    junta('16/10/2026. Responsável: ', 'Beltrano', ' Souza.'), junta('Responsável: ', 'Beltrano', ' de Souza'),
+    junta('assinado ', 'BELTRANO', ' SOUZA'), junta('(', 'Beltrano', ' Souza, dono)'),
+  ]) {
+    assert.equal(citaNome(linha, p), true, linha);
+  }
+  for (const linha of [
+    junta('Beltrano', ' disse'), junta('a conta ', 'Beltrano', '-1234 Souza'), junta('Responsável: ', 'Beltrano', '. Outra'),
+    junta('Beltrano', ', Souza'), junta('beltrano', ' Souza'), junta('Beltranos', ' Souza'),
+  ]) {
+    assert.equal(citaNome(linha, p), false, linha);
+  }
 });
 
 test('fora da varredura de nomes ficam só os dois arquivos datados, e arquivo novo em docs/superpowers/ é varrido', () => {
