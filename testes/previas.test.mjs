@@ -6,7 +6,9 @@
 //   2. a tela de erro é o www/erro.html, byte a byte (a prévia o embute num iframe);
 //   3. a camada do Fracttal é a que o www/casca/inicio.js monta de verdade, com o HTML que o campo.html escreve na aba;
 //   4. o ícone é o PNG que vai ao APK (o primeiro plano de xxxhdpi, byte a byte, embutido como data: URI) sobre a cor do
-//      fundo do ícone, e o rótulo embaixo dele é o do strings.xml.
+//      fundo do ícone, e o rótulo embaixo dele é o do strings.xml;
+//   5. os nomes dos canais de notificação são os do strings.xml que o CanaisDeNotificacao dá a cada canal;
+//   6. toda string do strings.xml tem lugar na prévia: um prefixo novo não passa sem quadro (e sem aprovação).
 // Quando o dono da casca pedir outro texto, o arquivo-fonte muda (strings.xml, erro.html ou inicio.js) e a prévia
 // acompanha; este teste falha enquanto uma das duas estiver para trás.
 //
@@ -32,11 +34,12 @@ const ERRO_HTML = lerArquivo('../www/erro.html');
 const doc = () => new JSDOM(HTML).window.document;
 const compactar = (s) => s.replace(/\s+/g, ' ').trim();
 
-// Os `casca_*` do strings.xml, já como o Android os entrega ao diálogo: entidades do XML e `\n` resolvidos. `texto` vem
-// compactado (para comparar com o que a tela mostra); `bruto` guarda as quebras de linha (as novidades são uma por linha).
-function stringsDaCasca() {
+// As strings de um prefixo do strings.xml, já como o Android as entrega à tela: entidades do XML e `\n` resolvidos.
+// `texto` vem compactado (para comparar com o que a tela mostra); `bruto` guarda as quebras de linha (as novidades são
+// uma por linha). Os `casca_*` são os diálogos e os toasts; os `notificacao_canal_*`, os nomes dos canais.
+function stringsDe(prefixo) {
   const lidas = [];
-  for (const [, nome, original] of STRINGS.matchAll(/<string name="(casca_[a-z_]+)">([\s\S]*?)<\/string>/g)) {
+  for (const [, nome, original] of STRINGS.matchAll(new RegExp(`<string name="(${prefixo}[a-z_]+)">([\\s\\S]*?)</string>`, 'g'))) {
     const bruto = original
       .replace(/\\n/g, '\n').replace(/\\'/g, "'")
       .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
@@ -44,8 +47,11 @@ function stringsDaCasca() {
   }
   return lidas;
 }
+const stringsDaCasca = () => stringsDe('casca_');
+const stringsDosCanais = () => stringsDe('notificacao_canal_');
+// Só o nome no parâmetro: é usado como `.map(textoDe)`, que passaria o índice num segundo parâmetro.
 const textoDe = (nome) => {
-  const achada = stringsDaCasca().find((s) => s.nome === nome);
+  const achada = [...stringsDaCasca(), ...stringsDosCanais()].find((s) => s.nome === nome);
   assert.ok(achada, `${nome} não existe no strings.xml`);
   return achada.texto;
 };
@@ -109,6 +115,13 @@ function toastsDoJava() {
     for (const m of fonte.matchAll(/Toast\.makeText\([^;]*?R\.string\.(\w+)/g)) nomes.push(m[1]);
   }
   return nomes;
+}
+
+// Os nomes que o CanaisDeNotificacao dá aos canais (o setName de cada NotificationChannelCompat.Builder): é o que o
+// técnico lê nos ajustes do Android.
+function canaisDoJava() {
+  const fonte = lerArquivo(PASTA_JAVA + 'CanaisDeNotificacao.java');
+  return [...fonte.matchAll(/\.setName\([^;]*?R\.string\.(\w+)/g)].map((m) => m[1]);
 }
 
 // Lê a folha de estilo da página sem depender do CSSOM do jsdom (que descarta o que não entende): regra a regra, com o
@@ -199,6 +212,40 @@ test('nenhuma string da casca fica sem quadro, e a tabela do teste não cita str
   for (const nome of citadas) assert.ok(existentes.has(nome), `${nome} está na tabela do teste e não existe no strings.xml`);
 });
 
+test('os nomes dos canais de notificação estão no quadro dos ajustes: os que o CanaisDeNotificacao cria, e só eles', () => {
+  const doJava = canaisDoJava();
+  assert.equal(doJava.length, 3, 'o teste achou os três canais do CanaisDeNotificacao');
+  assert.deepEqual(stringsDosCanais().map((s) => s.nome).sort(), [...doJava].sort(),
+    'todo notificacao_canal_* do strings.xml é o nome de um canal, e todo canal tira o nome de um deles');
+
+  const quadro = doc().querySelector('#t-canais .celular.ajustes');
+  assert.ok(quadro, 'o quadro dos ajustes de notificação (figure#t-canais)');
+  const naPrevia = [...quadro.querySelectorAll('.canal-nome')].map((e) => compactar(e.textContent));
+  assert.deepEqual([...naPrevia].sort(), doJava.map(textoDe).sort(),
+    'os nomes no quadro são os do strings.xml, um por canal (a ordem fica com o Android)');
+});
+
+test('toda string do strings.xml tem lugar na prévia: um prefixo novo não escapa da aprovação', () => {
+  // Os casca_* têm quadro de diálogo ou de toast, os notificacao_canal_* o quadro dos ajustes e o nome (app_name e
+  // title_activity_main) o rótulo do ícone e o título da página; o package_name e o custom_url_scheme são o
+  // applicationId, que o técnico não lê. Fora disso é texto novo sem quadro: ganha o quadro e o teste dele na prévia
+  // antes de ir ao campo, ou entra aqui com o motivo de não aparecer ao técnico. Caso que criou a regra: os nomes dos
+  // canais (18/10/2026) saíram do prefixo casca_ e ficaram fora da prévia sem nenhum teste reclamar.
+  const COM_QUADRO = [/^casca_[a-z_]+$/, /^notificacao_canal_[a-z_]+$/, /^(app_name|title_activity_main)$/];
+  const SEM_TELA = ['package_name', 'custom_url_scheme'];
+  const nomes = [...STRINGS.matchAll(/<string\b[^>]*\bname="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(nomes.length >= 20, 'o teste leu as strings do strings.xml');
+  for (const nome of nomes) {
+    assert.ok(SEM_TELA.includes(nome) || COM_QUADRO.some((r) => r.test(nome)),
+      `${nome} está no strings.xml e não tem lugar na prévia`);
+  }
+  // O que os leitores de cima não leem: um atributo antes do name (translatable, formatted) ou um plurals/string-array.
+  for (const [inteira] of STRINGS.matchAll(/<string\b[^>]*>/g)) {
+    assert.match(inteira, /^<string name="[^"]*">$/, `string com outro formato, que a prévia não lê: ${inteira}`);
+  }
+  assert.ok(!/<(plurals|string-array)\b/.test(STRINGS), 'plurals e string-array não têm quadro na prévia');
+});
+
 test('os botões de cada quadro são os que o código Java monta, e todo diálogo do Java tem quadro', () => {
   const doJava = paresDeBotoesDoJava();
   assert.ok(doJava.length >= 5, 'o teste achou os diálogos da MainActivity, do CascaPlugin e do Atualizador');
@@ -257,7 +304,7 @@ test('os links "Ver" da lista têm alvo de toque de pelo menos 44 px', () => {
 
 test('os nomes entre aspas da lista "O que aprovar" são textos de verdade do aplicativo', () => {
   // A lista é uma terceira cópia dos títulos e dos botões; sem esta conferência ela envelhece sozinha.
-  const permitidos = new Set(stringsDaCasca().map((s) => s.texto));
+  const permitidos = new Set([...stringsDaCasca(), ...stringsDosCanais()].map((s) => s.texto));
   for (const nome of ['app_name', 'title_activity_main']) permitidos.add(stringDoApp(nome)); // o nome, Nexus Field
   const erro = new JSDOM(ERRO_HTML).window.document;
   for (const el of erro.querySelectorAll('h1, p, button')) permitidos.add(compactar(el.textContent));

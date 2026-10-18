@@ -63,10 +63,10 @@
 
     <!--
       Os canais das notificações (spec 2026-10-18), com os nomes que o técnico vê nos ajustes do Android (Apps > Nexus
-      Field > Notificações) e ao segurar uma notificação. PENDENTES de aprovação do dono da casca na prévia, na seção das
-      notificações. Os ids (resumo, emergencia, emergencia_silenciosa) são o contrato com o servidor e ficam no código
-      (Notificacoes); só o nome sai daqui. Sem o prefixo casca_: não são diálogo nem toast, e o testes/previas.test.mjs
-      exige um quadro de diálogo ou de toast para cada casca_*.
+      Field > Notificações) e ao segurar uma notificação. PENDENTES de aprovação do dono da casca na prévia, no quadro
+      dos ajustes da seção Notificações (#t-canais). Os ids (resumo, emergencia, emergencia_silenciosa) são o contrato
+      com o servidor e ficam no código (Notificacoes); só o nome sai daqui. Prefixo próprio, não casca_: não são diálogo
+      nem toast. O testes/previas.test.mjs confere que os três estão no quadro e que são os do CanaisDeNotificacao.
     -->
     <string name="notificacao_canal_resumo">Resumo do dia</string>
     <string name="notificacao_canal_emergencia">Emergências</string>

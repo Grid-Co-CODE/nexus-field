@@ -42,6 +42,10 @@
     --dlg-sombra:0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14), 0 9px 46px 8px rgba(0, 0, 0, 0.12);
     --toast-fundo:#323232;
     --toast-texto:#ffffff;
+    /* A tela de ajustes do Android (Apps > Nexus Field > Notificações), com o aparelho no tema claro. Aproximação: o
+       que se aprova ali são os nomes dos canais. */
+    --ajustes-fundo:#ffffff;
+    --ajustes-texto:#1f1f1f;
 
     /* Ícone e nome: o fundo do ícone (o ic_launcher_background do APK, o navy do Nexus) e dois papéis de parede, um
        claro e um escuro, com a cor que o launcher dá ao rótulo em cada um. Não mudam com o tema da página. */
@@ -84,6 +88,8 @@
     --dlg-fundo:#424242;
     --dlg-texto:#ffffff;
     --dlg-botao:#80cbc4;
+    --ajustes-fundo:#121212;
+    --ajustes-texto:#e3e3e3;
   }
 
   * { box-sizing:border-box; }
@@ -195,6 +201,14 @@
     padding:12px 24px; border-radius:24px; background:var(--toast-fundo); color:var(--toast-texto);
     font:14px/1.4 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; text-align:center;
   }
+  /* Os ajustes de notificação do Android: o nome do app em cima e um canal por linha, cada um com a chave ligada (o
+     padrão de um canal novo). */
+  .celular.ajustes { background:var(--ajustes-fundo); color:var(--ajustes-texto); font-family:Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .ajustes-app { padding:72px 24px 24px; font-size:28px; line-height:1.25; }
+  .canais { list-style:none; margin:0; padding:0; }
+  .canal { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:72px; padding:12px 24px; font-size:18px; line-height:1.3; }
+  .chave { position:relative; flex:none; width:52px; height:32px; border-radius:16px; background:var(--dlg-botao); }
+  .chave::after { content:""; position:absolute; top:6px; right:6px; width:20px; height:20px; border-radius:50%; background:var(--ajustes-fundo); }
   /* Só o iframe do erro.html é dimensionado por esta folha. O da camada do Fracttal fica só com o estilo inline que o
      inicio.js declara: uma regra aqui, como a de um "iframe" qualquer, mudaria o que o aparelho mostra. */
   #erro-html { display:block; position:absolute; top:0; left:0; width:100%; height:100%; border:0; background:var(--icone-fundo); }
@@ -223,6 +237,7 @@
       <li><input type="checkbox" id="ok-sha"><label for="ok-sha">O aviso rápido (toast) de quando a atualização não deu certo (o download não terminou ou o arquivo não confere): o texto.</label><a class="ver" href="#t-sha">Ver</a></li>
       <li><input type="checkbox" id="ok-erro"><label for="ok-erro"><b class="cita">Sem internet</b>: o título, os dois textos e o botão <b class="cita">Tentar de novo</b>.</label><a class="ver" href="#t-erro">Ver</a></li>
       <li><input type="checkbox" id="ok-fracttal"><label for="ok-fracttal">O aviso do Fracttal: o botão <b class="cita">Fechar</b> e o visual da camada. O texto da explicação vem da página do App de Campo.</label><a class="ver" href="#t-fracttal">Ver</a></li>
+      <li><input type="checkbox" id="ok-canais"><label for="ok-canais">Novo: os nomes dos canais das notificações, nos ajustes do Android: <b class="cita">Emergências</b>, <b class="cita">Emergências fora do expediente</b> e <b class="cita">Resumo do dia</b>.</label><a class="ver" href="#t-canais">Ver</a></li>
       <li><input type="checkbox" id="ok-visual"><label for="ok-visual">O visual: os diálogos seguem o tema claro ou escuro do aparelho, e os botões usam a cor de destaque padrão do Android (verde-azulado), porque a casca não define uma cor própria.</label></li>
     </ul>
   </section>
@@ -460,6 +475,29 @@
           <div id="gc-casca-aviso" role="dialog" aria-modal="false" aria-label="Aviso" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;margin:0;padding:16px;box-sizing:border-box;background:rgba(0,0,0,0.6)"><div style="display:flex;flex-direction:column;width:100%;max-width:560px;height:100%;max-height:640px;margin:0;padding:0;box-sizing:border-box;overflow:hidden;border-radius:12px;background:#ffffff;color:#14181d;box-shadow:0 8px 32px rgba(0,0,0,0.35)"><iframe sandbox="" title="Aviso" style="display:block;flex:1 1 auto;width:100%;min-height:0;margin:0;padding:0;border:0;background:#ffffff" srcdoc="<meta charset=&quot;utf-8&quot;><meta name=&quot;viewport&quot; content=&quot;width=device-width,initial-scale=1&quot;><title>Conectar Fracttal</title><div style=&quot;font:15px/1.55 -apple-system,system-ui,sans-serif;padding:26px 22px;max-width:34em;color:#14181d&quot;><h2 style=&quot;font-size:19px;margin:0 0 12px;line-height:1.3&quot;>Sua sessão da Microsoft expirou</h2><p>Para reconectar o Fracttal, o app precisa primeiro que você <b>entre de novo com a conta Microsoft</b>. Isso não apaga nada do que você já registrou.</p><p style=&quot;background:#f3f4f6;border-radius:10px;padding:13px 15px&quot;><b>O que fazer:</b><br>1. Volte para o app<br>2. Toque no seu nome, no topo<br>3. Toque em <b>Sair</b><br>4. Entre de novo com <b>o mesmo e-mail</b><br>5. Aí sim, toque em Conectar conta Fracttal</p><p style=&quot;margin-top:22px;color:#6b7280;font-size:13px&quot;>Pode fechar esta aba.</p></div>"></iframe><button type="button" style="display:block;flex:0 0 auto;width:100%;min-height:52px;margin:0;padding:14px 16px;box-sizing:border-box;border:0;border-top:1px solid #e5e7eb;border-radius:0;background:#f3f4f6;color:#14181d;font:600 16px/1.2 system-ui,-apple-system,sans-serif;cursor:pointer">Fechar</button></div></div>
         </div>
         <figcaption><strong>Aviso do Fracttal.</strong> Aparece quando o Conectar conta Fracttal escreve uma explicação em vez de abrir o Fracttal, por exemplo quando a sessão da Microsoft expirou. A camada (o estilo e o botão Fechar) é a do inicio.js, sem mudar nada além do aria-modal. O texto de dentro é o que o campo.html escreve na aba nesse caso (função conectarFracttal, no App de Campo v282, lido em 17/10/2026); no aparelho vem da página do App de Campo, e pode mudar com ela. Fechar tira a camada.</figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="grupo" aria-labelledby="g-notificacoes">
+    <h2 id="g-notificacoes">Notificações</h2>
+    <p class="suave">Os canais em que o Nexus Field separa as notificações, com os nomes que o técnico vê nos ajustes do Android.</p>
+    <div class="galeria">
+
+      <figure class="item" id="t-canais">
+        <div class="celular ajustes" role="group" aria-label="Tela de ajustes do Android com os canais de notificação do Nexus Field">
+          <!-- Os nomes são os do strings.xml (notificacao_canal_*), e o teste confere que são os três que o
+               CanaisDeNotificacao cria. A ordem aqui é a do id do canal (emergencia, emergencia_silenciosa, resumo),
+               a que se espera dos ajustes do Android; não foi conferida em aparelho, e o teste não a exige. -->
+          <div class="ajustes-app">Nexus Field</div>
+          <ul class="canais" aria-label="Canais de notificação">
+            <li class="canal"><span class="canal-nome">Emergências</span><span class="chave" aria-hidden="true"></span></li>
+            <li class="canal"><span class="canal-nome">Emergências fora do expediente</span><span class="chave" aria-hidden="true"></span></li>
+            <li class="canal"><span class="canal-nome">Resumo do dia</span><span class="chave" aria-hidden="true"></span></li>
+          </ul>
+        </div>
+        <figcaption><strong>Os canais das notificações, novo.</strong> Aparecem nos ajustes do Android (Apps, Nexus Field, Notificações) e quando o técnico toca e segura uma notificação. Ele pode desligar ou mudar cada um, e o Nexus Field não desfaz o que ele ajustou. Emergências: toca, vibra três vezes e aparece por cima da tela. Emergências fora do expediente: a emergência que surge fora do dia útil e do expediente chega na barra sem som nem vibração. Resumo do dia: os avisos das 7h e das 13h com as tarefas do dia, com o som padrão e sem aparecer por cima da tela. O desenho da tela de ajustes é uma aproximação: a ordem e o visual mudam com a versão do Android.</figcaption>
       </figure>
 
     </div>

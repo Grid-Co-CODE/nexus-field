@@ -148,11 +148,17 @@ public class NotificacoesTest {
         assertEquals("sem texto, a notificação fica só com o título", "",
             montar(dados("resumo", "resumo", "t", null, null)).texto);
 
-        // O corte não parte um caractere de dois pedaços (UTF-16) ao meio.
-        String comPar = repetir('c', 237) + "😀" + repetir('d', 10);
-        String semMeio = montar(dados("resumo", "resumo", "t", comPar, null)).texto;
-        assertTrue(semMeio.endsWith("…"));
-        assertFalse(Character.isHighSurrogate(semMeio.charAt(semMeio.length() - 2)));
+        // O corte não parte um caractere de dois pedaços (UTF-16) ao meio. O par vai escrito por escape (um rosto
+        // sorrindo, U+1F600): o repositório não leva emoji, e o literal dependeria da codificação do fonte.
+        String par = "\uD83D\uDE00";
+        // Com 238 letras antes, a metade alta cai no índice 238 e a baixa no 239: o corte em 239 (240 com o "…") levaria
+        // só a metade alta. O corte recua uma posição e o par sai inteiro do texto.
+        String parNoCorte = montar(dados("resumo", "resumo", "t", repetir('c', 238) + par + repetir('d', 10), null)).texto;
+        assertEquals("o par no limite sai inteiro, sem a metade alta sozinha", repetir('c', 238) + "…", parNoCorte);
+        assertFalse(Character.isHighSurrogate(parNoCorte.charAt(parNoCorte.length() - 2)));
+        // Com 237 letras antes, o par ocupa os índices 237 e 238 e cabe inteiro antes do corte: nada recua.
+        String parCabe = montar(dados("resumo", "resumo", "t", repetir('c', 237) + par + repetir('d', 10), null)).texto;
+        assertEquals("o par que cabe fica, e o texto tem os 240", repetir('c', 237) + par + "…", parCabe);
     }
 
     @Test

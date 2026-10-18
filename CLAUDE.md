@@ -390,7 +390,8 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   `aapt2 dump xmltree` do de depuração mostra o `value` compilado como booleano.
 - **A prévia das telas novas** (`docs/previas/telas.html`, fora do APK; título "Telas novas do Nexus Field"): uma página
   só, autocontida, com o ícone e o nome (no topo), a abertura, os diálogos do `strings.xml`, os toasts, o `www/erro.html`
-  num iframe e a camada do Fracttal, cada tela numa moldura de 360 px, para o dono da casca aprovar texto e visual antes
+  num iframe, a camada do Fracttal e os nomes dos canais de notificação (seção Notificações, o quadro `#t-canais` dos
+  ajustes do Android), cada tela numa moldura de 360 px, para o dono da casca aprovar texto e visual antes
   de ir ao campo. **O ícone, o nome e os textos estão PENDENTES de aprovação do dono da casca**
   (a página é publicada como Artifact privado do claude.ai e ele aprova por lá); quando ele aprovar, esta frase e os
   cabeçalhos do `strings.xml` passam a dizer "aprovados", com a data. O texto vive no arquivo-fonte, não na prévia:
@@ -406,7 +407,10 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     no conjunto e na ordem do aplicativo: negativo à esquerda, positivo à direita, como a `MainActivity`, o `CascaPlugin`
     e o `Atualizador` os montam; o teste lê os `AlertDialog.Builder` do Java), se os toasts da prévia não forem, no
     conjunto, os `Toast.makeText(..., R.string.x, ...)` do Java (o teste os lê do código), se uma string da casca ficar
-    sem quadro, se as novidades não forem uma linha `- item` cada, se o `srcdoc` do erro não for o `erro.html` inteiro (copie o arquivo
+    sem quadro, se os nomes no quadro dos canais não forem os `notificacao_canal_*` que o `CanaisDeNotificacao` dá a cada
+    canal, se o `strings.xml` ganhar uma string de prefixo sem quadro na prévia (só `package_name` e
+    `custom_url_scheme` ficam fora, porque o técnico não os lê; caso de 18/10/2026: os nomes dos canais trocaram o
+    `casca_` por outro prefixo e nenhum teste exigiu o quadro), se as novidades não forem uma linha `- item` cada, se o `srcdoc` do erro não for o `erro.html` inteiro (copie o arquivo
     escapando `&` como `&amp;` e `"` como `&quot;`, nessa ordem) ou se a camada do Fracttal não for igual à que o
     `inicio.js` monta (o estilo inline é o do aparelho; a moldura tem `transform` para a `position:fixed` da camada
     cobrir só o celular). A única diferença aceita é o `aria-modal="false"` da prévia: numa página estática um
