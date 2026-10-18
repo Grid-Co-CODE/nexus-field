@@ -1,11 +1,14 @@
 package br.com.gridco.campo;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.util.Log;
@@ -23,8 +26,10 @@ import java.util.Map;
 /**
  * A tela única do App: a WebView do Capacitor com o plugin da casca e, na primeira abertura, o pedido da câmera e da
  * localização PRECISA (spec, seção 6.5). No Android 12+ o técnico pode escolher "aproximada", e aí a posição vem com
- * erro de quilômetros e o "esquentar" do GPS do App não termina: por isso o aviso próprio desse caso. Com a WebView
- * antiga, nem o App nem o pedido: só o aviso do plugin.
+ * erro de quilômetros e o "esquentar" do GPS do App não termina: por isso o aviso próprio desse caso. No Android 13+ o
+ * pedido leva também a notificação (spec das notificações, 4.2): na instalação nova junto com os outros dois, e, para
+ * quem já tinha o app e só ganhou a notificação na atualização, depois de um diálogo próprio que explica o motivo. Com
+ * a WebView antiga, nem o App nem o pedido: só o aviso do plugin.
  */
 public class MainActivity extends BridgeActivity {
 
@@ -33,6 +38,27 @@ public class MainActivity extends BridgeActivity {
         Manifest.permission.ACCESS_FINE_LOCATION,
         Manifest.permission.ACCESS_COARSE_LOCATION,
     };
+
+    // A constante da permissão é do Android 13 e o minSdk é 24, então o lint avisa InlinedApi em cada uso. O aviso não
+    // procede: o compilador copia o texto da constante para o nosso código, e ela só é PEDIDA no 13+ (devePedirNotificacao).
+    // Num lugar só, para a supressão ficar à vista.
+    @SuppressLint("InlinedApi")
+    private static final String NOTIFICACAO = Manifest.permission.POST_NOTIFICATIONS;
+
+    // Só pedida no Android 13+ (antes dele a notificação não é permissão). Vai por último: o sistema mostra uma tela
+    // por grupo, e a da notificação é a que o técnico menos precisa para trabalhar.
+    private static final String[] PERMISSOES_COM_NOTIFICACAO = {
+        Manifest.permission.CAMERA,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        NOTIFICACAO,
+    };
+
+    private static final String[] SO_NOTIFICACAO = { NOTIFICACAO };
+
+    // No arquivo "push" do SharedPreferences, o mesmo do token do Firebase (fora do backup, como tudo). Quem negou a
+    // notificação não é perguntado de novo; ligar depois é nos ajustes do Android.
+    static final String CHAVE_JA_PEDIU_NOTIFICACAO = "jaPediuNotificacao";
 
     // Pelo registro da AndroidX, sem código de pedido próprio: o BridgeActivity repassa ao Capacitor e ao Cordova os
     // resultados com código, e um código nosso poderia cair num plugin.
@@ -82,23 +108,61 @@ public class MainActivity extends BridgeActivity {
         return precisa ? Aviso.NENHUM : Aviso.APROXIMADA;
     }
 
+    /**
+     * Se a notificação deve ser pedida agora: só no Android 13+ (antes dele ela não é permissão), só enquanto falta e
+     * uma vez só. Negada, não volta a perguntar: o aviso das tarefas do dia não vale um pedido a cada abertura.
+     */
+    static boolean devePedirNotificacao(int sdk, boolean concedida, boolean jaPediu) {
+        return sdk >= Build.VERSION_CODES.TIRAMISU && !concedida && !jaPediu;
+    }
+
+    static boolean jaPediuNotificacao(Context contexto) {
+        return contexto.getSharedPreferences(MensagensDoFirebase.PREFERENCIAS, Context.MODE_PRIVATE)
+            .getBoolean(CHAVE_JA_PEDIU_NOTIFICACAO, false);
+    }
+
+    static void marcarNotificacaoPedida(Context contexto) {
+        SharedPreferences push = contexto.getSharedPreferences(MensagensDoFirebase.PREFERENCIAS, Context.MODE_PRIVATE);
+        push.edit().putBoolean(CHAVE_JA_PEDIU_NOTIFICACAO, true).apply();
+    }
+
     private boolean tem(String permissao) {
         return ContextCompat.checkSelfPermission(this, permissao) == PackageManager.PERMISSION_GRANTED;
     }
 
     private void primeiraAbertura() {
-        if (tem(Manifest.permission.CAMERA) && tem(Manifest.permission.ACCESS_FINE_LOCATION)) return;
+        boolean pedeNotificacao = devePedirNotificacao(Build.VERSION.SDK_INT,
+            tem(NOTIFICACAO), jaPediuNotificacao(this));
+        if (tem(Manifest.permission.CAMERA) && tem(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            // Quem já tinha o app (atualização para a 1.1.0) já deu a câmera e a localização e não veria pedido nenhum:
+            // o Android abriria a tela da notificação do nada. O diálogo de antes diz do que se trata.
+            if (pedeNotificacao) avisarDasNotificacoes();
+            return;
+        }
+        String[] pedidas = pedeNotificacao ? PERMISSOES_COM_NOTIFICACAO : PERMISSOES;
         new AlertDialog.Builder(this)
             .setTitle(R.string.casca_permissoes_titulo)
             .setMessage(R.string.casca_permissoes_texto)
             .setCancelable(false)
-            .setPositiveButton(R.string.casca_permissoes_continuar, (d, qual) -> pedido.launch(PERMISSOES))
+            .setPositiveButton(R.string.casca_permissoes_continuar, (d, qual) -> pedido.launch(pedidas))
+            .show();
+    }
+
+    private void avisarDasNotificacoes() {
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.casca_avisos_titulo)
+            .setMessage(R.string.casca_avisos_texto)
+            .setCancelable(false)
+            .setPositiveButton(R.string.casca_avisos_continuar, (d, qual) -> pedido.launch(SO_NOTIFICACAO))
             .show();
     }
 
     // Mapa vazio é o pedido interrompido (a tela saiu no meio): não há resposta do técnico a tratar.
     private void aposOPedido(Map<String, Boolean> resultado) {
         if (resultado == null || resultado.isEmpty()) return;
+        // Respondido (dado ou negado) é pedido feito. A marca vai aqui, e não ao abrir o pedido: se o app morrer com a
+        // tela do sistema aberta, o técnico ainda não respondeu e a próxima abertura pergunta de novo.
+        if (resultado.containsKey(NOTIFICACAO)) marcarNotificacaoPedida(this);
         Aviso aviso = avisoDepoisDoPedido(tem(Manifest.permission.CAMERA),
             tem(Manifest.permission.ACCESS_FINE_LOCATION), tem(Manifest.permission.ACCESS_COARSE_LOCATION));
         if (aviso == Aviso.NEGADAS) {

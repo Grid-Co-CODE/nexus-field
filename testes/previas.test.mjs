@@ -77,6 +77,8 @@ function regexDe(texto) {
 // `textos` tem mais de um quando o aplicativo escolhe entre dois (a Release com e sem novidades).
 const DIALOGOS = [
   { titulo: 'casca_permissoes_titulo', textos: ['casca_permissoes_texto'], botoes: ['casca_permissoes_continuar'] },
+  // Quem já tinha o aplicativo e atualizou (Android 13+): o motivo da notificação, antes de o Android pedi-la.
+  { titulo: 'casca_avisos_titulo', textos: ['casca_avisos_texto'], botoes: ['casca_avisos_continuar'] },
   { titulo: 'casca_aproximada_titulo', textos: ['casca_aproximada_texto'], botoes: ['casca_agora_nao', 'casca_abrir_ajustes'] },
   { titulo: 'casca_negadas_titulo', textos: ['casca_negadas_texto'], botoes: ['casca_agora_nao', 'casca_abrir_ajustes'] },
   { titulo: 'casca_webview_titulo', textos: ['casca_webview_texto'], botoes: ['casca_webview_abrir_loja'] },

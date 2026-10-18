@@ -18,10 +18,16 @@
       nota passa a dizer "aprovados", com a data; daí em diante não se muda texto sem nova prévia.
     -->
 
-    <!-- Primeira abertura: pede a câmera e a localização precisa. -->
+    <!-- Primeira abertura: pede a câmera, a localização precisa e (Android 13+) as notificações. -->
     <string name="casca_permissoes_titulo">Antes de começar</string>
-    <string name="casca_permissoes_texto">O Nexus Field usa a câmera para as fotos das OS e das rondas, e a localização precisa para registrar onde o serviço começou e terminou.</string>
+    <string name="casca_permissoes_texto">O Nexus Field usa a câmera para as fotos das OS e das rondas, a localização precisa para registrar onde o serviço começou e terminou e as notificações para avisar das tarefas do dia e das emergências.</string>
     <string name="casca_permissoes_continuar">Continuar</string>
+
+    <!-- Quem já tinha o Nexus Field e atualizou para a 1.1.0 (Android 13+) vê este aviso antes de o Android pedir a
+         notificação. Texto novo de 18/10/2026, PENDENTE de aprovação do dono da casca na prévia. -->
+    <string name="casca_avisos_titulo">Avisos do Nexus Field</string>
+    <string name="casca_avisos_texto">O Nexus Field avisa às 7h e às 13h o que você tem para fazer, e na hora quando surgir uma emergência. Toque em Permitir na próxima tela.</string>
+    <string name="casca_avisos_continuar">Continuar</string>
 
     <!-- O técnico escolheu a localização aproximada (Android 12+). -->
     <string name="casca_aproximada_titulo">Localização precisa desligada</string>

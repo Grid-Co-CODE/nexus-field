@@ -228,6 +228,7 @@
       <li><input type="checkbox" id="ok-icone"><label for="ok-icone">O ícone: o G da Grid em branco no navy, inteiro nas duas máscaras e nos dois papéis de parede, e o nome <b class="cita">Nexus Field</b> embaixo dele.</label><a class="ver" href="#t-icone">Ver</a></li>
       <li><input type="checkbox" id="ok-abertura"><label for="ok-abertura">A abertura: o navy com o G pequeno no centro, enquanto o Nexus Field abre.</label><a class="ver" href="#t-abertura">Ver</a></li>
       <li><input type="checkbox" id="ok-antes"><label for="ok-antes"><b class="cita">Antes de começar</b>: o texto e o botão <b class="cita">Continuar</b>.</label><a class="ver" href="#t-antes">Ver</a></li>
+      <li><input type="checkbox" id="ok-avisos"><label for="ok-avisos">Novo: <b class="cita">Avisos do Nexus Field</b>, para quem já tinha o aplicativo e atualizou: o texto e o botão <b class="cita">Continuar</b>. E o texto novo do <b class="cita">Antes de começar</b>, que agora fala das notificações.</label><a class="ver" href="#t-avisos">Ver</a></li>
       <li><input type="checkbox" id="ok-aproximada"><label for="ok-aproximada"><b class="cita">Localização precisa desligada</b>: o texto e os botões <b class="cita">Abrir ajustes</b> e <b class="cita">Agora não</b>.</label><a class="ver" href="#t-aproximada">Ver</a></li>
       <li><input type="checkbox" id="ok-negadas"><label for="ok-negadas"><b class="cita">Permissões necessárias</b>: o texto e os mesmos dois botões.</label><a class="ver" href="#t-negadas">Ver</a></li>
       <li><input type="checkbox" id="ok-webview"><label for="ok-webview"><b class="cita">Atualize o Android System WebView</b>: o texto e o botão <b class="cita">Abrir a Play Store</b>.</label><a class="ver" href="#t-webview">Ver</a></li>
@@ -280,7 +281,7 @@
 
   <section class="grupo" aria-labelledby="g-permissoes">
     <h2 id="g-permissoes">Permissões e WebView</h2>
-    <p class="suave">Diálogos da primeira abertura e do aparelho com a WebView velha.</p>
+    <p class="suave">Diálogos da primeira abertura, da primeira abertura depois da atualização para a 1.1.0 e do aparelho com a WebView velha.</p>
     <div class="galeria">
 
       <figure class="item" id="t-antes">
@@ -289,12 +290,26 @@
           <div class="veu">
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-antes" aria-describedby="dx-antes">
               <div class="dialogo-titulo" id="dt-antes">Antes de começar</div>
-              <p class="dialogo-texto" id="dx-antes">O Nexus Field usa a câmera para as fotos das OS e das rondas, e a localização precisa para registrar onde o serviço começou e terminou.</p>
+              <p class="dialogo-texto" id="dx-antes">O Nexus Field usa a câmera para as fotos das OS e das rondas, a localização precisa para registrar onde o serviço começou e terminou e as notificações para avisar das tarefas do dia e das emergências.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Continuar</span></div>
             </div>
           </div>
         </div>
-        <figcaption><strong>Primeira abertura.</strong> Aparece antes de o Android pedir a câmera e a localização. Não fecha tocando fora nem pelo botão Voltar; só o Continuar segue.</figcaption>
+        <figcaption><strong>Primeira abertura.</strong> Aparece antes de o Android pedir a câmera, a localização e, no Android 13 ou mais novo, as notificações. Não fecha tocando fora nem pelo botão Voltar; só o Continuar segue.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-avisos">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Avisos do Nexus Field">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="veu">
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-avisos" aria-describedby="dx-avisos">
+              <div class="dialogo-titulo" id="dt-avisos">Avisos do Nexus Field</div>
+              <p class="dialogo-texto" id="dx-avisos">O Nexus Field avisa às 7h e às 13h o que você tem para fazer, e na hora quando surgir uma emergência. Toque em Permitir na próxima tela.</p>
+              <div class="dialogo-botoes"><span class="dialogo-botao">Continuar</span></div>
+            </div>
+          </div>
+        </div>
+        <figcaption><strong>Quem já tinha o aplicativo.</strong> Aparece uma vez, na primeira abertura depois da atualização para a 1.1.0, no Android 13 ou mais novo. A câmera e a localização já estão liberadas, então só falta a notificação: o Android a pede logo depois do Continuar. Não fecha tocando fora nem pelo botão Voltar. Se o técnico negar, o Nexus Field não pergunta de novo; ligar depois é nos ajustes do Android.</figcaption>
       </figure>
 
       <figure class="item" id="t-aproximada">
