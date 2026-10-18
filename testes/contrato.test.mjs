@@ -242,6 +242,19 @@ test('a IGNORAR: cada entrada é gc_, tem motivo e não é algo que a casca espe
   for (const nome of ['gc_erros_js', 'gc_vivo', 'gc_tela']) assert.ok(Object.hasOwn(IGNORAR, nome), nome);
 });
 
+test('a hora dos eventos locais (gc_campo_status_meta) é trabalho, fora da IGNORAR, e o contrato a exige no site', () => {
+  // Sem ela, depois de uma restauração, o `reconciliar` do campo.html (o reparo do estado órfão) descarta os estados
+  // locais (gc_campo_status) que não têm item na fila: toda ação do técnico carimba a hora ali, e o estado sem carimbo é
+  // tomado por lixo. Ela volta com o estado, ou o estado restaurado some na primeira programação que chega.
+  const chave = 'gc_campo_status_meta';
+  assert.equal(classificar(chave), 'trabalho');
+  assert.ok(CLASSES.trabalho.exatas.includes(chave));
+  assert.ok(!Object.hasOwn(IGNORAR, chave), 'ou espelha, ou ignora');
+  // Como chave exata do trabalho, o contrato quebra se ela sumir do site.
+  const html = htmlFicticio({ chaves: EXATAS.filter((k) => k !== chave).map((k) => `'${k}'`).join(', ') });
+  assert.deepEqual(conferirContrato(html), [`'${chave}'`]);
+});
+
 test('entre crases sem interpolação (o jeito dos comentários do site) não conta como chave nova', () => {
   assert.deepEqual(conferirContrato(htmlFicticio({ resto: '// antes a fila ficava em `gc_fila_velha`, hoje não' })), []);
   // Limite conhecido: entre aspas simples, num comentário, conta (o falso alarme custa uma issue).

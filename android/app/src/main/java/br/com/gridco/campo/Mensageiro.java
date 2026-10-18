@@ -16,9 +16,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.LongSupplier;
 
@@ -54,11 +56,12 @@ import org.json.JSONObject;
  *       {@value #COMPLETOS_POR_JANELA} completos em 60 s, contados por processo ({@link Disjuntor}); daí em diante, até a
  *       janela andar, a recarga vai com o retrato sem conferência ({@link #semConferencia}), com que a página não para
  *       a carga.</li>
- *   <li><b>No máximo {@value #RESTAURACOES_POR_DIA} restaurações por 24 h no aparelho</b> ({@link DisjuntorDaPerda}):
- *       as de perda (o precisoRetrato 'perda') e as só do IndexedDB (o idbPedir que não é da perda) somam. A página
- *       refaz a restauração que não terminou na carga seguinte, e o disco cheio que recusa sempre faria disso um laço
- *       que segura a página a cada abertura. Estourado: a perda recarrega sem conferência (a página segue sem espelho até
- *       a janela andar) e o idbPedir ganha um idbRecusado (a página abre na hora).</li>
+ *   <li><b>No máximo {@value #RESTAURACOES_POR_DIA} restaurações por 24 h no aparelho, em duas contas</b>
+ *       ({@link DisjuntorDaPerda}): uma para as de perda (o precisoRetrato 'perda') e outra para as só do IndexedDB (o
+ *       idbPedir que não é da perda); uma nunca gasta a vaga da outra. A página refaz a restauração que não terminou na
+ *       carga seguinte, e o disco cheio que recusa sempre faria disso um laço que segura a página a cada abertura.
+ *       Estourada a da perda, ela recarrega sem conferência (a página segue sem espelho até a janela andar); estourada a
+ *       do IndexedDB, o idbPedir ganha um idbRecusado (a página abre na hora).</li>
  * </ul>
  *
  * Não é seguro entre threads: o plugin chama {@link #tratar} e {@link #enviarIdb} sempre da mesma thread (a do
@@ -151,11 +154,19 @@ public final class Mensageiro {
     }
 
     /**
-     * As restaurações dos últimos 24 h NO APARELHO: no máximo {@link Mensageiro#RESTAURACOES_POR_DIA}. Caso que o criou: a
-     * página refaz na carga seguinte a restauração que não terminou (a marca da perda e o banco sentinela da casca só
-     * saem com ela inteira), e o disco cheio, que recusa toda gravação, faria cada abertura do app pedir tudo de novo e
-     * segurar a página. A contagem fica fora da cota do IndexedDB e atravessa o processo (o renderer que morre recria a
-     * tela; o Android mata o app em segundo plano): na {@link Memoria}, que no app é o SharedPreferences. Se ela não
+     * As restaurações dos últimos 24 h NO APARELHO, em duas contas separadas, cada uma com no máximo
+     * {@link Mensageiro#RESTAURACOES_POR_DIA}: a da perda ({@link #liberaPerda}, o precisoRetrato 'perda') e a só do
+     * IndexedDB ({@link #liberaIdb}, o idbPedir que não é da perda). Caso que o criou: a página refaz na carga seguinte a
+     * restauração que não terminou (a marca da perda e o banco sentinela da casca só saem com ela inteira), e o disco
+     * cheio, que recusa toda gravação, faria cada abertura do app pedir tudo de novo e segurar a página.
+     *
+     * Separadas porque, com uma conta só, as restaurações só do IndexedDB (o banco sentinela que falta a cada carga com o
+     * disco cheio) gastavam as vagas do dia, e a perda de verdade que viesse depois recarregava sem o retrato completo: a
+     * página seguia um dia sem espelho, com a cópia boa parada no nativo. A 'idb' nunca gasta a vaga da 'perda', nem o
+     * contrário.
+     *
+     * A contagem fica fora da cota do IndexedDB e atravessa o processo (o renderer que morre recria a tela; o Android
+     * mata o app em segundo plano): na {@link Memoria}, que no app é o SharedPreferences, uma chave por conta. Se ela não
      * gravar (o disco cheio pega o SharedPreferences também), vale a contagem deste objeto, que o plugin guarda um por
      * processo.
      *
@@ -165,76 +176,101 @@ public final class Mensageiro {
      */
     static final class DisjuntorDaPerda {
 
-        /** A chave do SharedPreferences: os instantes, em milissegundos, separados por vírgula. */
+        /** A chave da conta da perda no SharedPreferences: os instantes, em milissegundos, separados por vírgula. */
         static final String CHAVE = "restauracoes";
 
-        /** Onde a contagem fica entre os processos. */
-        interface Memoria {
-            String ler();
+        /** A chave da conta só do IndexedDB, no mesmo formato. */
+        static final String CHAVE_IDB = "restauracoes_idb";
 
-            void gravar(String valor);
+        /** Onde as contagens ficam entre os processos, cada uma na sua chave. */
+        interface Memoria {
+            String ler(String chave);
+
+            void gravar(String chave, String valor);
         }
 
-        private final Memoria memoria;
-        private final LongSupplier relogio;
-        private List<Long> doProcesso = new ArrayList<>();
+        private final Conta daPerda;
+        private final Conta soDoIdb;
 
         DisjuntorDaPerda(Memoria memoria, LongSupplier relogioDeParede) {
-            this.memoria = memoria;
-            this.relogio = relogioDeParede;
+            this.daPerda = new Conta(memoria, CHAVE, relogioDeParede);
+            this.soDoIdb = new Conta(memoria, CHAVE_IDB, relogioDeParede);
         }
 
-        /** Conta uma restauração agora, se cabe na janela, e diz se ela pode sair. */
-        synchronized boolean libera() {
-            long agora = relogio.getAsLong();
-            List<Long> naJanela = naJanela(ler(), agora);
-            List<Long> doProcessoNaJanela = naJanela(doProcesso, agora);
-            if (doProcessoNaJanela.size() > naJanela.size()) naJanela = doProcessoNaJanela;
-            boolean libera = naJanela.size() < RESTAURACOES_POR_DIA;
-            if (libera) naJanela.add(agora);
-            doProcesso = naJanela;
-            StringBuilder texto = new StringBuilder();
-            for (Long t : naJanela) texto.append(texto.length() == 0 ? "" : ",").append(t);
-            try {
-                memoria.gravar(texto.toString());
-            } catch (RuntimeException e) {
-                // Fica a contagem do processo.
+        /** Conta uma restauração da perda agora, se cabe na janela dela, e diz se ela pode sair. */
+        synchronized boolean liberaPerda() {
+            return daPerda.libera();
+        }
+
+        /** O mesmo para uma restauração só do IndexedDB, na conta dela. */
+        synchronized boolean liberaIdb() {
+            return soDoIdb.libera();
+        }
+
+        /** Uma das contas: os instantes da janela, na memória e no processo. */
+        private static final class Conta {
+            private final Memoria memoria;
+            private final String chave;
+            private final LongSupplier relogio;
+            private List<Long> doProcesso = new ArrayList<>();
+
+            Conta(Memoria memoria, String chave, LongSupplier relogio) {
+                this.memoria = memoria;
+                this.chave = chave;
+                this.relogio = relogio;
             }
-            return libera;
-        }
 
-        private List<Long> ler() {
-            List<Long> lidos = new ArrayList<>();
-            String texto;
-            try {
-                texto = memoria.ler();
-            } catch (RuntimeException e) {
+            boolean libera() {
+                long agora = relogio.getAsLong();
+                List<Long> naJanela = naJanela(ler(), agora);
+                List<Long> doProcessoNaJanela = naJanela(doProcesso, agora);
+                if (doProcessoNaJanela.size() > naJanela.size()) naJanela = doProcessoNaJanela;
+                boolean libera = naJanela.size() < RESTAURACOES_POR_DIA;
+                if (libera) naJanela.add(agora);
+                doProcesso = naJanela;
+                StringBuilder texto = new StringBuilder();
+                for (Long t : naJanela) texto.append(texto.length() == 0 ? "" : ",").append(t);
+                try {
+                    memoria.gravar(chave, texto.toString());
+                } catch (RuntimeException e) {
+                    // Fica a contagem do processo.
+                }
+                return libera;
+            }
+
+            private List<Long> ler() {
+                List<Long> lidos = new ArrayList<>();
+                String texto;
+                try {
+                    texto = memoria.ler(chave);
+                } catch (RuntimeException e) {
+                    return lidos;
+                }
+                if (texto == null) return lidos;
+                for (String pedaco : texto.split(",")) {
+                    try {
+                        lidos.add(Long.parseLong(pedaco.trim()));
+                    } catch (NumberFormatException e) {
+                        // Um pedaço torto não conta.
+                    }
+                }
                 return lidos;
             }
-            if (texto == null) return lidos;
-            for (String pedaco : texto.split(",")) {
-                try {
-                    lidos.add(Long.parseLong(pedaco.trim()));
-                } catch (NumberFormatException e) {
-                    // Um pedaço torto não conta.
-                }
-            }
-            return lidos;
-        }
 
-        private static List<Long> naJanela(List<Long> momentos, long agora) {
-            List<Long> dentro = new ArrayList<>();
-            for (Long t : momentos) if (t <= agora && agora - t < JANELA_DA_PERDA_MS) dentro.add(t);
-            return dentro;
+            private static List<Long> naJanela(List<Long> momentos, long agora) {
+                List<Long> dentro = new ArrayList<>();
+                for (Long t : momentos) if (t <= agora && agora - t < JANELA_DA_PERDA_MS) dentro.add(t);
+                return dentro;
+            }
         }
 
         /** A memória no SharedPreferences do app. Um valor de outro tipo na chave conta como vazio. */
         static Memoria naPreferencia(SharedPreferences prefs) {
             return new Memoria() {
                 @Override
-                public String ler() {
+                public String ler(String chave) {
                     try {
-                        return prefs.getString(CHAVE, "");
+                        return prefs.getString(chave, "");
                     } catch (ClassCastException e) {
                         return "";
                     }
@@ -245,8 +281,8 @@ public final class Mensageiro {
                 // morre na restauração).
                 @SuppressLint("ApplySharedPref")
                 @Override
-                public void gravar(String valor) {
-                    prefs.edit().putString(CHAVE, valor).commit();
+                public void gravar(String chave, String valor) {
+                    prefs.edit().putString(chave, valor).commit();
                 }
             };
         }
@@ -254,16 +290,17 @@ public final class Mensageiro {
         /** A memória só deste objeto (o teste, e o Mensageiro do teste). */
         static Memoria naMemoria() {
             return new Memoria() {
-                private String valor = "";
+                private final Map<String, String> valores = new HashMap<>();
 
                 @Override
-                public String ler() {
-                    return valor;
+                public String ler(String chave) {
+                    String valor = valores.get(chave);
+                    return valor == null ? "" : valor;
                 }
 
                 @Override
-                public void gravar(String novo) {
-                    valor = novo;
+                public void gravar(String chave, String novo) {
+                    valores.put(chave, novo);
                 }
             };
         }
@@ -279,7 +316,7 @@ public final class Mensageiro {
 
     /**
      * @param disjuntor o do processo: a tela recriada passa o mesmo (ver {@link Disjuntor})
-     * @param perdas    o do aparelho (ver {@link DisjuntorDaPerda}), também um por processo
+     * @param perdas    o do aparelho, com as duas contas do dia (ver {@link DisjuntorDaPerda}), também um por processo
      */
     public Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, DisjuntorDaPerda perdas) {
         // O relógio que não anda para trás com a troca de hora do aparelho.
@@ -359,10 +396,10 @@ public final class Mensageiro {
                     return restaurado(m);
                 case "idbPedir":
                     // A restauração da perda já passou pelo disjuntor do dia no precisoRetrato; a só do IndexedDB
-                    // ('idb', ou sem motivo) passa aqui, a cada pedido.
-                    if (!"perda".equals(texto(m, "motivo")) && !perdas.libera()) {
-                        avisar("disjuntor", RESTAURACOES_POR_DIA + " restaurações em 24 h no aparelho; a do IndexedDB "
-                            + "fica para a próxima janela");
+                    // ('idb', ou sem motivo) passa aqui, a cada pedido, na conta dela (nunca gasta a vaga da perda).
+                    if (!"perda".equals(texto(m, "motivo")) && !perdas.liberaIdb()) {
+                        avisar("disjuntor", RESTAURACOES_POR_DIA + " restaurações só do IndexedDB em 24 h no aparelho; "
+                            + "a próxima fica para a próxima janela");
                         acoes.idbRecusado();
                         return true;
                     }
@@ -438,11 +475,11 @@ public final class Mensageiro {
             // recarga em laço não gasta as restaurações dele.
             avisar("disjuntor", disjuntor.pedidosNaJanela() + " pedidos de retrato em 60 s; recarrega sem conferir a fila");
             retrato = semConferencia(armazem);
-        } else if ("perda".equals(motivo) && !perdas.libera()) {
+        } else if ("perda".equals(motivo) && !perdas.liberaPerda()) {
             // A restauração da perda que não termina (o disco cheio) seria refeita a cada abertura do app. Com o
             // semParar, a página segue sem espelho e com a marca da perda de pé; a próxima janela restaura de novo.
-            avisar("disjuntor", RESTAURACOES_POR_DIA + " restaurações em 24 h no aparelho; recarrega sem conferir, e a "
-                + "página segue sem espelho até a janela andar");
+            avisar("disjuntor", RESTAURACOES_POR_DIA + " restaurações da perda em 24 h no aparelho; recarrega sem "
+                + "conferir, e a página segue sem espelho até a janela andar");
             retrato = semConferencia(armazem);
         } else {
             try {

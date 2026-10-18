@@ -285,50 +285,80 @@ public class MensageiroTest {
         assertEquals("restaurar", acoes.retratos.get(3).getString("modo"));
     }
 
-    // --- o disjuntor da perda: 3 restaurações por 24 h no aparelho ------------------------------------------------------
+    // --- o disjuntor do dia: 3 restaurações de perda e 3 só do IndexedDB por 24 h no aparelho, em contas separadas ---
 
     @Test
     public void disjuntorDaPerdaDeixaTresEm24hPeloRelogioDeParede() {
         Mensageiro.DisjuntorDaPerda.Memoria memoria = Mensageiro.DisjuntorDaPerda.naMemoria();
         long[] parede = {5_000_000_000L};
         Mensageiro.DisjuntorDaPerda d = new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]);
-        assertTrue(d.libera());
-        assertTrue("dois no mesmo instante contam dois", d.libera());
+        assertTrue(d.liberaPerda());
+        assertTrue("dois no mesmo instante contam dois", d.liberaPerda());
         parede[0] += 1_000L;
-        assertTrue(d.libera());
-        assertFalse("a quarta em 24 h não sai", d.libera());
+        assertTrue(d.liberaPerda());
+        assertFalse("a quarta em 24 h não sai", d.liberaPerda());
         parede[0] += Mensageiro.JANELA_DA_PERDA_MS - 1_001L;
-        assertFalse("um milissegundo antes de as duas primeiras saírem da janela", d.libera());
+        assertFalse("um milissegundo antes de as duas primeiras saírem da janela", d.liberaPerda());
         parede[0] += 1L;
-        assertTrue("as duas primeiras saíram da janela", d.libera());
-        assertTrue(d.libera());
-        assertFalse(d.libera());
+        assertTrue("as duas primeiras saíram da janela", d.liberaPerda());
+        assertTrue(d.liberaPerda());
+        assertFalse(d.liberaPerda());
+    }
+
+    @Test
+    public void asRestauracoesDaPerdaESoDoIndexedDbTemContasSeparadas() {
+        // Caso que criou a regra: com uma conta só, as restaurações só do IndexedDB (o banco sentinela que falta a cada
+        // carga com o disco cheio) gastavam as vagas do dia, e a perda de verdade que viesse depois recarregava sem o
+        // retrato completo: a página seguia sem espelho por um dia, com a cópia boa parada no nativo.
+        Mensageiro.DisjuntorDaPerda.Memoria memoria = Mensageiro.DisjuntorDaPerda.naMemoria();
+        long[] parede = {6_000_000_000L};
+        Mensageiro.DisjuntorDaPerda d = new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]);
+        for (int i = 0; i < Mensageiro.RESTAURACOES_POR_DIA; i++) assertTrue("idb " + i, d.liberaIdb());
+        assertFalse("a quarta só do IndexedDB em 24 h não sai", d.liberaIdb());
+        for (int i = 0; i < Mensageiro.RESTAURACOES_POR_DIA; i++) {
+            assertTrue("a perda tem as vagas dela: " + i, d.liberaPerda());
+        }
+        assertFalse(d.liberaPerda());
+        // E ao contrário: a perda estourada não fecha a do IndexedDB (outro aparelho, outra janela).
+        Mensageiro.DisjuntorDaPerda e =
+            new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naMemoria(), () -> parede[0]);
+        for (int i = 0; i < Mensageiro.RESTAURACOES_POR_DIA; i++) assertTrue(e.liberaPerda());
+        assertFalse(e.liberaPerda());
+        assertTrue("a do IndexedDB ainda sai", e.liberaIdb());
+        // Cada conta mora na sua chave da memória.
+        assertEquals(3, memoria.ler(Mensageiro.DisjuntorDaPerda.CHAVE).split(",").length);
+        assertEquals(3, memoria.ler(Mensageiro.DisjuntorDaPerda.CHAVE_IDB).split(",").length);
+        assertNotEquals(Mensageiro.DisjuntorDaPerda.CHAVE, Mensageiro.DisjuntorDaPerda.CHAVE_IDB);
     }
 
     @Test
     public void disjuntorDaPerdaAtravessaOProcessoPelaMemoria() {
         // O processo morre (o renderer que morre na restauração, o Android que mata o app em segundo plano): a contagem
-        // é do aparelho, na memória que fica (o SharedPreferences), não do processo.
+        // é do aparelho, na memória que fica (o SharedPreferences), não do processo. Vale para as duas contas.
         Mensageiro.DisjuntorDaPerda.Memoria memoria = Mensageiro.DisjuntorDaPerda.naMemoria();
         long[] parede = {7_000_000_000L};
-        assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
-        assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
-        assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
-        assertFalse(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
+        for (int i = 0; i < 3; i++) {
+            assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).liberaPerda());
+            assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).liberaIdb());
+        }
+        assertFalse(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).liberaPerda());
+        assertFalse(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).liberaIdb());
     }
 
     @Test
     public void disjuntorDaPerdaSemGravarNaMemoriaAindaContaNoProcesso() {
         // O disco cheio, que é o caso do laço, também pode recusar o SharedPreferences.
         Mensageiro.DisjuntorDaPerda.Memoria quebrada = new Mensageiro.DisjuntorDaPerda.Memoria() {
-            @Override public String ler() { return ""; }
-            @Override public void gravar(String valor) { throw new IllegalStateException("disco cheio"); }
+            @Override public String ler(String chave) { return ""; }
+            @Override public void gravar(String chave, String valor) { throw new IllegalStateException("disco cheio"); }
         };
         Mensageiro.DisjuntorDaPerda d = new Mensageiro.DisjuntorDaPerda(quebrada, () -> 9_000_000_000L);
-        assertTrue(d.libera());
-        assertTrue(d.libera());
-        assertTrue(d.libera());
-        assertFalse(d.libera());
+        for (int i = 0; i < 3; i++) {
+            assertTrue(d.liberaPerda());
+            assertTrue(d.liberaIdb());
+        }
+        assertFalse(d.liberaPerda());
+        assertFalse(d.liberaIdb());
     }
 
     @Test
@@ -336,17 +366,19 @@ public class MensageiroTest {
         Mensageiro.DisjuntorDaPerda.Memoria memoria = Mensageiro.DisjuntorDaPerda.naMemoria();
         long[] parede = {10_000_000_000L};
         Mensageiro.DisjuntorDaPerda d = new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]);
-        assertTrue(d.libera());
-        assertTrue(d.libera());
-        assertTrue(d.libera());
-        assertFalse(d.libera());
+        assertTrue(d.liberaPerda());
+        assertTrue(d.liberaPerda());
+        assertTrue(d.liberaPerda());
+        assertFalse(d.liberaPerda());
         // A hora do aparelho voltou um ano: as marcas "do futuro" não valem (senão travariam por um ano).
         parede[0] -= 365L * Mensageiro.JANELA_DA_PERDA_MS;
-        assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).libera());
+        assertTrue(new Mensageiro.DisjuntorDaPerda(memoria, () -> parede[0]).liberaPerda());
 
         Mensageiro.DisjuntorDaPerda.Memoria torta = Mensageiro.DisjuntorDaPerda.naMemoria();
-        torta.gravar("x,,-3,abc," + Long.MAX_VALUE);
-        assertTrue(new Mensageiro.DisjuntorDaPerda(torta, () -> parede[0]).libera());
+        torta.gravar(Mensageiro.DisjuntorDaPerda.CHAVE, "x,,-3,abc," + Long.MAX_VALUE);
+        torta.gravar(Mensageiro.DisjuntorDaPerda.CHAVE_IDB, "x,,-3,abc," + Long.MAX_VALUE);
+        assertTrue(new Mensageiro.DisjuntorDaPerda(torta, () -> parede[0]).liberaPerda());
+        assertTrue(new Mensageiro.DisjuntorDaPerda(torta, () -> parede[0]).liberaIdb());
     }
 
     @Test
@@ -389,8 +421,8 @@ public class MensageiroTest {
         // A restauração da perda já passou pelo disjuntor no precisoRetrato.
         for (int i = 0; i < 5; i++) assertTrue(m.tratar("{\"t\":\"idbPedir\",\"motivo\":\"perda\"}"));
         assertEquals(5, acoes.idbPedidos);
-        // A só do IndexedDB (sem o banco sentinela da casca, a restauração que não terminou): 3 por 24 h, junto com as de
-        // perda. Sem motivo conta como ela.
+        // A só do IndexedDB (sem o banco sentinela da casca, a restauração que não terminou): 3 por 24 h, na conta dela.
+        // Sem motivo conta como ela.
         assertTrue(m.tratar("{\"t\":\"idbPedir\",\"motivo\":\"idb\"}"));
         assertTrue(m.tratar("{\"t\":\"idbPedir\"}"));
         assertTrue(m.tratar("{\"t\":\"idbPedir\",\"motivo\":\"idb\"}"));
@@ -400,10 +432,38 @@ public class MensageiroTest {
         assertEquals("a quarta é recusada", 8, acoes.idbPedidos);
         assertEquals(1, acoes.idbRecusas);
         assertTrue(acoes.erros.toString(), acoes.erros.get(0).startsWith("disjuntor:"));
+    }
 
-        // E a perda que vem depois também esbarra no mesmo dia.
+    @Test
+    public void tresRestauracoesSoDoIndexedDbNoDiaNaoTiramOCompletoDaPerdaSeguinte() throws JSONException {
+        // O disco cheio faz cada carga restaurar só o IndexedDB (o banco sentinela nunca volta) e gastar o dia dela. A
+        // perda de verdade que vem depois ainda ganha o retrato completo: a 'idb' nunca gasta a vaga da 'perda'.
+        fake.sentinela = true;
+        fake.hashes = Arrays.asList("aaaaaaaa");
+        for (int i = 0; i < Mensageiro.RESTAURACOES_POR_DIA; i++) {
+            assertTrue(m.tratar("{\"t\":\"idbPedir\",\"motivo\":\"idb\"}"));
+        }
+        assertTrue(m.tratar("{\"t\":\"idbPedir\",\"motivo\":\"idb\"}"));
+        assertEquals("a só do IndexedDB estourou a conta dela", 1, acoes.idbRecusas);
+
         assertTrue(m.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
-        assertTrue(acoes.retratos.get(0).getBoolean("semParar"));
+        assertEquals(1, acoes.retratos.size());
+        JSONObject retrato = acoes.retratos.get(0);
+        assertEquals("a perda ainda é atendida com o retrato completo", "restaurar", retrato.getString("modo"));
+        assertEquals("perda", retrato.getString("motivo"));
+        assertFalse(retrato.optBoolean("semParar", false));
+        assertEquals(1, retrato.getJSONArray("filaHashes").length());
+
+        // E a perda que esgota a conta dela não fecha a do IndexedDB de um aparelho que ainda tem vaga.
+        Mensageiro outro = new Mensageiro(new ArmazemFalso(), acoes, new Mensageiro.Disjuntor(), () -> agora);
+        for (int i = 0; i < Mensageiro.RESTAURACOES_POR_DIA + 1; i++) {
+            agora += 61_000L; // fora da janela de 60 s: só o disjuntor do dia conta
+            assertTrue(outro.tratar("{\"t\":\"precisoRetrato\",\"motivo\":\"perda\"}"));
+        }
+        int pedidos = acoes.idbPedidos;
+        assertTrue(outro.tratar("{\"t\":\"idbPedir\",\"motivo\":\"idb\"}"));
+        assertEquals("a do IndexedDB sai", pedidos + 1, acoes.idbPedidos);
+        semDadosDoTecnico();
     }
 
     @Test
@@ -423,14 +483,21 @@ public class MensageiroTest {
         long[] parede = {11_000_000_000L};
         for (int i = 0; i < 3; i++) {
             assertTrue(new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naPreferencia(prefs), () -> parede[0])
-                .libera());
+                .liberaPerda());
         }
         assertFalse(new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naPreferencia(prefs), () -> parede[0])
-            .libera());
-        // Um valor de outro tipo na chave (versão antiga, arquivo mexido) conta como vazio, sem lançar.
-        prefs.edit().clear().putInt(Mensageiro.DisjuntorDaPerda.CHAVE, 7).commit();
+            .liberaPerda());
+        // A conta só do IndexedDB mora noutra chave: as perdas do dia não a gastam.
         assertTrue(new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naPreferencia(prefs), () -> parede[0])
-            .libera());
+            .liberaIdb());
+        assertEquals(String.valueOf(parede[0]), prefs.getString(Mensageiro.DisjuntorDaPerda.CHAVE_IDB, ""));
+        // Um valor de outro tipo na chave (versão antiga, arquivo mexido) conta como vazio, sem lançar.
+        prefs.edit().clear().putInt(Mensageiro.DisjuntorDaPerda.CHAVE, 7).putInt(Mensageiro.DisjuntorDaPerda.CHAVE_IDB, 7)
+            .commit();
+        assertTrue(new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naPreferencia(prefs), () -> parede[0])
+            .liberaPerda());
+        assertTrue(new Mensageiro.DisjuntorDaPerda(Mensageiro.DisjuntorDaPerda.naPreferencia(prefs), () -> parede[0])
+            .liberaIdb());
     }
 
     @Test

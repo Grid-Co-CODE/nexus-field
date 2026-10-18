@@ -45,10 +45,16 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
 - A casca nunca envia nada da fila ao servidor. Quem envia é a página.
 - O espelho nunca guarda `msal.*`, o `sessionStorage` nem token. `gc_campo_ident` fica cifrado em repouso (Android Keystore).
 - `allowBackup=false` e `dataExtractionRules` excluindo tudo em `<cloud-backup>` e `<device-transfer>`.
-- Sem serviço pago, sem segredo no repositório ou no APK, sem nome de colega em arquivo versionado. pt-BR, sem emoji.
+- Sem serviço pago, sem segredo no repositório ou no APK, sem nome de pessoa em arquivo versionado: cite pelo papel ("o
+  dono da casca", "o responsável pela prova", "o aparelho de prova"). pt-BR, sem emoji.
   O `testes/dados-pessoais.test.mjs` varre o `git ls-files` e falha com `caminho:linha (tipo)`, nunca o valor, em
   e-mail de pessoa (passam o de "não responda" e os de domínio fictício: `exemplo.com.br`, `example.com`, `*.test`),
-  telefone, CPF e nome na pasta do usuário (`C:/Users/<nome>`). Nome de colega solto ele não acha: isso segue na revisão.
+  telefone, CPF, nome na pasta do usuário (`C:/Users/<nome>`) e o nome de quem trabalha no repositório: a lista sai dos
+  autores do `git log`, só na memória (como o teste do Nexus faz com o cadastro), e conta o nome inteiro em qualquer
+  lugar e o primeiro nome com maiúscula depois de artigo ou preposição ("o X preenche", "do X"). Caso que o criou: o
+  roteiro da prova dizia quem preenche o usuário de teste e de quem era o celular. Fica de fora o `docs/superpowers/`
+  (o desenho e o plano datados, que o dono assina como responsável; como o histórico do git, não se reescreve). Nome de
+  colega que não é autor do git ele não acha: isso segue na revisão.
 - A chave de assinatura e as senhas nunca são impressas em terminal, log ou commit.
 - O repositório continua PÚBLICO e em `Grid-Co-CODE/app-campo-android`: o app lê a `releases/latest/download/` sem
   autenticação, e o `VersaoRemota` só aceita APK desse endereço. Privado ou movido, o app fica sem atualização em silêncio.
@@ -149,15 +155,19 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     `semParar: true`). No `restaurado`, volta ao leve fresco; se o espelho falhar ao ler, vai o sem conferência, nunca
     fica no completo: ele seria reaplicado na carga sem o id no sessionStorage ("limpar só o login") e gravaria o `ls` e
     a fila velhos.
-  - **O disjuntor do dia** (`Mensageiro.DisjuntorDaPerda`): no máximo 3 restaurações por 24 h NO APARELHO, porque a
-    página refaz na carga seguinte a restauração que não terminou, e o disco cheio que recusa sempre faria cada abertura
-    pedir tudo de novo e segurar a página. Somam as de perda (o `precisoRetrato` 'perda'; estourado, vai o sem
-    conferência, e a página segue sem espelho com a marca de pé até a janela andar) e as só do IndexedDB (o `idbPedir`
-    com `motivo: 'idb'`, ou sem motivo; estourado, o nativo responde `{t:'idbRecusado'}` pela ponte e a página abre na
-    hora). O `idbPedir` da perda leva `motivo: 'perda'` e não conta de novo. O de 60 s é conferido antes: a recarga em
-    laço não gasta o do dia. A contagem mora no SharedPreferences `casca_espelho` (fora do backup, como tudo), com o
-    relógio de parede (atravessa a reinicialização); a marca "do futuro" (a hora do aparelho voltou) não conta, senão
-    travaria pelo tempo que a hora voltou. Se o SharedPreferences não gravar, vale a contagem do objeto, um por processo.
+  - **O disjuntor do dia** (`Mensageiro.DisjuntorDaPerda`): no máximo 3 restaurações por 24 h NO APARELHO em cada uma
+    de duas contas separadas, porque a página refaz na carga seguinte a restauração que não terminou, e o disco cheio
+    que recusa sempre faria cada abertura pedir tudo de novo e segurar a página. Uma conta é a das de perda
+    (`liberaPerda`, o `precisoRetrato` 'perda'; estourada, vai o sem conferência, e a página segue sem espelho com a
+    marca de pé até a janela andar); a outra, a das só do IndexedDB (`liberaIdb`, o `idbPedir` com `motivo: 'idb'`, ou
+    sem motivo; estourada, o nativo responde `{t:'idbRecusado'}` pela ponte e a página abre na hora). Separadas porque,
+    com uma conta só, as restaurações só do IndexedDB (o banco sentinela que falta a cada carga com o disco cheio)
+    gastavam as vagas do dia, e a perda de verdade seguinte recarregava sem o retrato completo. O `idbPedir` da perda
+    leva `motivo: 'perda'` e não conta de novo. O de 60 s é conferido antes: a recarga em laço não gasta o do dia. As
+    contagens moram no SharedPreferences `casca_espelho` (fora do backup, como tudo), nas chaves `restauracoes` (perda)
+    e `restauracoes_idb`, com o relógio de parede (atravessa a reinicialização); a marca "do futuro" (a hora do aparelho
+    voltou) não conta, senão travaria pelo tempo que a hora voltou. Se o SharedPreferences não gravar, vale a contagem
+    do objeto, um por processo.
   - Com `semParar` o `inicio.js` nunca chama `win.stop()`: a perda (a marca, ou o localStorage vazio com espelho) segue
     com o espelho desligado, como na trava da sessão, e avisa `{t:'erro', onde:'perda'}`; a fila atrasada segue. Sem
     ele, com a marca da perda e o sessionStorage que não guarda a trava, o leve sem `filaHashes` não evitava a parada da
@@ -223,9 +233,16 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     o retrato da perda espelha (o localStorage acabou de voltar do nativo); toda outra carga com a marca, não. Sem
     IndexedDB na janela, a perda termina só com o localStorage. A chave que o `idbChaves` anunciou e o nativo não mandou
     não conta (o `n` é o que ele mandou): contá-la travaria a perda para sempre por um blob ilegível no espelho.
-  - **A perda só do IndexedDB** (sem o `gc_casca`, ou a store das fotos vazia com o nativo cheio) grava só as chaves
-    AUSENTES na WebView, nunca sobrescreve: o espelho pode ter perdido a última gravação de um rascunho. A da perda grava
-    tudo (a mesma geração do localStorage). No fim de toda restauração, o que só a WebView tem vai ao nativo.
+  - **A restauração nunca sobrescreve o que a WebView tem.** Na da perda, a chave de trabalho ou de cache com valor na
+    WebView fica como está e só as ausentes voltam do `ls` do retrato (a fila tem a regra dela, abaixo); no IndexedDB, a
+    da perda e a só do IndexedDB (sem o `gc_casca`, ou a store das fotos vazia com o nativo cheio) gravam só as chaves
+    AUSENTES. A da WebView é a mais nova: o nativo só recebe o que a página espelha. Caso que criou a regra: a
+    restauração das fotos que não termina (a marca fica) e o disjuntor do dia deixam a página rodar sem espelho, com o
+    localStorage restaurado, por até um dia; o técnico mexe na `gc_zl_pend`, no `gc_fech_draft` e no rascunho da ronda
+    (`rdraft:` no IndexedDB), e a restauração da janela seguinte gravava por cima a versão velha do nativo. Na perda de
+    verdade a WebView está vazia, e tudo volta. Custo aceito: o que a página apagou numa carga sem espelho volta. No fim
+    de toda restauração, o que só a WebView tem no IndexedDB vai ao nativo; o valor da WebView que difere do nativo (no
+    localStorage ou no IndexedDB) só chega a ele quando a página o regravar.
   - **O prazo da seção do IndexedDB é de inatividade**: 20 s sem item nem pedaço do nativo, com teto absoluto de 180 s. O
     teto fixo de 15 s soltava a página no meio de uma restauração saudável de vídeos, e o envio da fila dava por enviadas
     as fotos que ainda não tinham chegado.
@@ -287,7 +304,7 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   - O `cache/atualizacao/` é limpo a cada checagem de 6 h (sobra da versão instalada, diálogo fechado) e, antes do
     instalador, fica só o APK novo. O `confere` lê em pedaços de 64 KB.
   - Os textos estão no `strings.xml` (`casca_atualizacao_*`, `casca_instalar_*`), PENDENTES de aprovação do
-    Levi na prévia. O `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) e o
+    dono da casca na prévia. O `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) e o
     `casca_atualizacao_baixando` (17/10/2026) não estavam no plano.
   - Do `Atualizador` testa-se em JVM o fluxo inteiro com rede, telas e relógio falsos (`AtualizadorTest`; a tela falsa
     também diz "fora da frente"); os diálogos de verdade, o toast e o instalador do sistema só se veem no aparelho. **Os
@@ -314,11 +331,11 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   `app-release-unsigned.apk` não tem o atalho no manifesto nem `gc_apagar_webview`/`deleteAllData` no dex, e o
   `aapt2 dump xmltree` do de depuração mostra o `value` compilado como booleano.
 - **A prévia das telas novas** (`docs/previas/telas.html`, fora do APK): uma página só, autocontida, com os diálogos do
-  `strings.xml`, os toasts, o `www/erro.html` num iframe e a camada do Fracttal, cada um numa moldura de 360 px, para o Levi
-  aprovar texto e visual antes de ir ao campo. **Os textos estão PENDENTES de aprovação do Levi** (a página é publicada
-  como Artifact privado do claude.ai e ele aprova por lá); quando ele aprovar, esta frase e os cabeçalhos do
-  `strings.xml` passam a dizer "aprovados", com a data. O texto vive no arquivo-fonte, não na prévia: pedido de mudança
-  se faz no `strings.xml`, no `erro.html` ou no `inicio.js` e a prévia acompanha.
+  `strings.xml`, os toasts, o `www/erro.html` num iframe e a camada do Fracttal, cada um numa moldura de 360 px, para o
+  dono da casca aprovar texto e visual antes de ir ao campo. **Os textos estão PENDENTES de aprovação do dono da casca**
+  (a página é publicada como Artifact privado do claude.ai e ele aprova por lá); quando ele aprovar, esta frase e os
+  cabeçalhos do `strings.xml` passam a dizer "aprovados", com a data. O texto vive no arquivo-fonte, não na prévia:
+  pedido de mudança se faz no `strings.xml`, no `erro.html` ou no `inicio.js` e a prévia acompanha.
   - O `testes/previas.test.mjs` falha se um diálogo da prévia não for um grupo do `strings.xml` (título, texto e botões
     no conjunto e na ordem do aplicativo: negativo à esquerda, positivo à direita, como a `MainActivity`, o `CascaPlugin`
     e o `Atualizador` os montam; o teste lê os `AlertDialog.Builder` do Java), se os toasts da prévia não forem, no
@@ -418,8 +435,10 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     comentário conta (como presente e como nova; entre crases não conta); chave com caractere fora de `[A-Za-z0-9_.:-]`
     não é vista. Medido em 17/10/2026: passa no site vivo e na cópia v282, e cada mudança de uma peça no HTML real (versão
     do MSAL, store, `window.open`, prefixo, chave nova, versão do banco, keyPath, um id ou função do voltar) é pega. Nota
-    para quem classifica: o `gc_campo_status_meta` está na `IGNORAR` porque o "limpar só o login" do próprio site o apaga,
-    mas sem ele o `reconciliar` do site descarta os estados locais sem item na fila.
+    para quem classifica: o `gc_campo_status_meta` (a hora de cada ação do técnico por tarefa, o `META_KEY` do site) é
+    TRABALHO, ao lado do `gc_campo_status`: sem ele, depois de uma restauração, o `reconciliar` do site (o reparo do
+    estado órfão) descarta os estados locais sem item na fila. Que o "limpar só o login" do site o apague não muda nada:
+    a exclusão vai ao espelho como qualquer outra (conferido no `campo.html` v282, 18/10/2026; o contrato passa nele).
   - **A issue diária (`contrato`, `ferramentas/issue-do-contrato.mjs`):** uma issue por TIPO, com rótulo e título
     próprios: `contrato` (o site mudou; não fecha sozinha, ganha um comentário quando a saída muda e outro, uma vez, quando
     volta a passar), `contrato-leitura` (não deu para ler o site; fecha sozinha quando o site for lido de novo) e

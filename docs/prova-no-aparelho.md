@@ -6,7 +6,7 @@ acontecer; o que falhar vira uma nota embaixo do item (o que se fez, o que se vi
 
 ## Antes de começar
 
-- Usuário de teste combinado com o PCM: `________________` (o Levi preenche; nunca um técnico real)
+- Usuário de teste combinado com o PCM: `________________` (o responsável pela prova preenche; nunca um técnico real)
 - OS de teste combinada com o PCM: `________________` (nenhuma OS real é usada)
 - Aparelho: `________________` (modelo e versão do Android)
 - APK: `________________` (depuração ou Release, e o commit ou a versão)
@@ -48,8 +48,8 @@ deixa o espelho nativo intacto. O APK da Release não tem esse caminho (o `teste
       menos um item na fila (por exemplo, fechar uma tarefa em modo avião e voltar o sinal só depois da prova).
 - [ ] Tirar o App dos recentes (a tela tem de abrir do zero: com ela aberta, o atalho só traz o App para a frente).
 - [ ] Tocar e segurar o ícone do App e escolher **Prova: apagar WebView**.
-      Com o cabo, num aparelho de prova em que o shell do adb é permitido (no celular pessoal do Levi não é: lá o adb só
-      instala, desinstala e lê o logcat do app), o mesmo pedido vai por
+      Com o cabo, só num aparelho em que o shell do adb é permitido (no aparelho de prova não é: lá o adb só instala,
+      desinstala e lê o logcat do app), o mesmo pedido vai por
       `adb shell am start -n br.com.gridco.campo/.MainActivity --ez gc_apagar_webview true`.
 - [ ] Aparece o aviso "Depuração: armazenamento da WebView apagado..." e, uns 3 s depois, o App abre sozinho.
 - [ ] O App pode pedir o login de novo: é esperado (a sessão da Microsoft nunca vai ao espelho) e é também o sinal de

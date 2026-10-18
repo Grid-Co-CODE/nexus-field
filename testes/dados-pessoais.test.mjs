@@ -1,7 +1,8 @@
-// O repositório é PÚBLICO: nenhum arquivo versionado leva e-mail de pessoa, telefone, CPF ou o nome de alguém num caminho
-// de pasta (C:/Users/<nome>). Exceções: os e-mails de "não responda" e os de domínio fictício (exemplo.com.br,
-// example.com, *.test), que são os das fixtures. A varredura é a dos arquivos que o git versiona (git ls-files), e a
-// mensagem diz o arquivo, a linha e o TIPO do achado, nunca o valor (o log do CI também é público).
+// O repositório é PÚBLICO: nenhum arquivo versionado leva e-mail de pessoa, telefone, CPF, o nome de alguém num caminho
+// de pasta (C:/Users/<nome>) ou o nome de quem trabalha no repositório (os autores do git; ver NOME DE PESSOA, abaixo).
+// Exceções: os e-mails de "não responda" e os de domínio fictício (exemplo.com.br, example.com, *.test), que são os das
+// fixtures. A varredura é a dos arquivos que o git versiona (git ls-files), e a mensagem diz o arquivo, a linha e o TIPO
+// do achado, nunca o valor (o log do CI também é público).
 //
 // Os exemplos de dado pessoal deste teste são montados em tempo de execução, aos pedaços: escritos inteiros aqui, a
 // varredura acharia este próprio arquivo.
@@ -132,6 +133,115 @@ function arquivosVersionados() {
   assert.equal(r.status, 0, `o git ls-files falhou: ${r.stderr}`);
   return r.stdout.split('\0').filter(Boolean);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// NOME DE PESSOA: os autores do git
+// ---------------------------------------------------------------------------------------------------------------
+// Quem trabalha no repositório é citado pelo papel ("o dono da casca", "o responsável pela prova", "o aparelho de prova"),
+// nunca pelo nome. Caso que criou a regra: o roteiro da prova dizia quem preenche o usuário de teste e de quem era o
+// celular em que o adb não pode tudo. Como no teste do Nexus (que monta os nomes do cadastro), a lista de nomes é
+// montada SÓ NA MEMÓRIA, aqui dos nomes de autor do `git log`: nenhum nome é escrito neste arquivo nem na mensagem de
+// falha, que diz `caminho:linha`. Do nome do autor valem as palavras de 3 letras ou mais, sem acento nem caixa (a conta
+// "Nome-1234" do GitHub dá "nome"; as partículas "de", "da"... não contam):
+//   - o nome inteiro (a primeira palavra e qualquer outra, com espaço, ponto, hífen ou sublinhado no meio, como num
+//     e-mail): em qualquer lugar;
+//   - o primeiro nome sozinho, só onde parece gente: com maiúscula, depois de artigo ou preposição ("o X preenche", "no
+//     celular do X", "para o X aprovar") e sem dígito ou hífen logo depois. O que esta regra não pega, a revisão pega.
+// Fica de fora o registro datado do desenho e do plano (docs/superpowers/), que o dono assina como responsável: como o
+// histórico do git, não se reescreve. Conta automática (nome com "[bot]") e as do próprio GitHub não são gente.
+
+const PARTICULAS = new Set(['de', 'da', 'do', 'das', 'dos', 'di', 'du', 'del', 'van', 'von']);
+const SEPARADOR = '[\\s._-]+';
+const ANTES_DE_GENTE = /(?:^|[\s("'])(?:o|a|do|da|pelo|pela|ao|à|com o|com a|que o|que a|para o|para a)\s+$/i;
+const CONTAS_QUE_NAO_SAO_GENTE = new Set(['github', 'copilot', 'claude', 'dependabot']);
+const FORA_DA_VARREDURA_DE_NOMES = 'docs/superpowers/';
+
+const semAcento = (s) => s.normalize('NFKD').replace(/[̀-ͯ]/g, '');
+const escaparRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** As regras de busca para uma lista de nomes (só na memória). */
+export function padroesDeNomes(nomes) {
+  const inteiros = new Set();
+  const primeiros = new Set();
+  for (const nome of nomes) {
+    if (/\[bot\]/i.test(nome)) continue;
+    const palavras = semAcento(String(nome)).toLowerCase().split(/[^a-z]+/)
+      .filter((p) => p.length >= 3 && !PARTICULAS.has(p));
+    if (!palavras.length || CONTAS_QUE_NAO_SAO_GENTE.has(palavras[0])) continue;
+    primeiros.add(escaparRe(palavras[0]));
+    for (const outra of palavras.slice(1)) inteiros.add(escaparRe(palavras[0]) + SEPARADOR + escaparRe(outra));
+  }
+  const alternativas = (conjunto) => [...conjunto].sort((a, b) => b.length - a.length).join('|');
+  return {
+    inteiro: inteiros.size ? new RegExp(`(?<![a-z0-9])(?:${alternativas(inteiros)})(?![a-z0-9])`) : null,
+    primeiro: primeiros.size ? new RegExp(`(?<![a-z0-9])(?:${alternativas(primeiros)})(?![a-z0-9])`, 'g') : null,
+  };
+}
+
+/** Se a linha cita alguém da lista pelo nome (as regras acima). */
+export function citaNome(linha, { inteiro, primeiro }) {
+  // A linha sem acento e em minúsculas, com o índice no original de cada caractere (para ver a maiúscula e o que vem
+  // antes no texto de verdade).
+  let norm = '';
+  const mapa = [];
+  for (let i = 0; i < linha.length; i++) {
+    for (const c of semAcento(linha[i]).toLowerCase()) { norm += c; mapa.push(i); }
+  }
+  if (inteiro && inteiro.test(norm)) return true;
+  if (!primeiro) return false;
+  for (const m of norm.matchAll(primeiro)) {
+    const i = mapa[m.index];
+    const f = mapa[m.index + m[0].length - 1] + 1;
+    const maiuscula = linha[i] !== linha[i].toLowerCase();
+    if (maiuscula && ANTES_DE_GENTE.test(linha.slice(0, i)) && !/^\s*[\d-]/.test(linha.slice(f, f + 3))) return true;
+  }
+  return false;
+}
+
+test('o detector de nome acha o nome inteiro em qualquer lugar e o primeiro nome só onde parece gente', () => {
+  const p = padroesDeNomes([junta('Fulano', ' de ', 'Tal'), junta('Beltrano', '-1234'), 'algum-robo[bot]', 'GitHub']);
+  for (const linha of [
+    'Usuário de teste: (o Fulano preenche; nunca um técnico real)', 'no celular pessoal do Beltrano não é',
+    'PENDENTES de aprovação do Fulano na prévia', 'para o Beltrano aprovar', 'contato: fulano.tal', 'Fulano Tal assina',
+    'por FULANO_TAL',
+  ]) {
+    assert.equal(citaNome(linha, p), true, linha);
+  }
+  for (const linha of [
+    'o responsável pela prova preenche', 'do fulano em minúscula, que pode ser palavra comum',
+    'Fulano disse, no começo da frase', 'a conta Beltrano-1234 do GitHub', 'o Fulanos', 'o GitHub desliga o agendamento',
+    'algum-robo abriu a issue',
+  ]) {
+    assert.equal(citaNome(linha, p), false, linha);
+  }
+  assert.deepEqual(padroesDeNomes([]), { inteiro: null, primeiro: null });
+});
+
+function autoresDoGit() {
+  const r = spawnSync('git', ['log', '--format=%an'], { cwd: raiz, encoding: 'utf8' });
+  assert.equal(r.status, 0, `o git log falhou: ${r.stderr}`);
+  return [...new Set(r.stdout.split('\n').map((s) => s.trim()).filter(Boolean))];
+}
+
+test('nenhum arquivo versionado cita pelo nome quem trabalha no repositório (os autores do git)', (t) => {
+  const padroes = padroesDeNomes(autoresDoGit());
+  if (!padroes.primeiro) {
+    t.skip('o git log não tem autor que seja gente');
+    return;
+  }
+  const problemas = [];
+  for (const caminho of arquivosVersionados()) {
+    if (caminho.startsWith(FORA_DA_VARREDURA_DE_NOMES) || BINARIOS.has(extname(caminho).toLowerCase())) continue;
+    let texto;
+    try { texto = readFileSync(join(raiz, caminho), 'utf8'); } catch { continue; /* apagado e não commitado */ }
+    if (texto.slice(0, 8000).includes('\0')) continue;
+    texto.split(/\r?\n/).forEach((linha, i) => {
+      if (citaNome(linha, padroes)) problemas.push(`${caminho}:${i + 1} (nome de pessoa)`);
+    });
+  }
+  assert.deepEqual(problemas, [],
+    `nome de pessoa em arquivo versionado (o repositório é público; cite pelo papel):\n${problemas.join('\n')}`);
+});
 
 test('nenhum arquivo versionado tem e-mail de pessoa, telefone, CPF ou nome na pasta do usuário', () => {
   const arquivos = arquivosVersionados();

@@ -996,8 +996,8 @@ test('espelho desligado não toca no IndexedDB, e a restauração da perda que v
   await p.casca.pronto;
   assert.deepEqual(p.enviados, [{ t: 'precisoRetrato', motivo: 'perda' }]);
 
-  // O nativo recarrega com o retrato completo da perda: o localStorage e o IndexedDB voltam da mesma geração, e a foto
-  // que a página apagou sem espelho volta (o banco sentinela de pé não impede).
+  // O nativo recarrega com o retrato completo da perda: o que falta no localStorage e no IndexedDB volta, e a foto que
+  // a página apagou sem espelho volta (o banco sentinela de pé não impede).
   const r = recarregar(p, { retrato: completoDaPerda(['f_1', 'f_2']) });
   const pagina = abrirComoAPagina(r.win);
   await ate(() => pediu(r), 'idbPedir');
@@ -1028,7 +1028,7 @@ test('espelho desligado sem o banco sentinela: não restaura nem cria o banco se
   assert.deepEqual(await bancos(aparelho), [BANCO_FOTOS]);
 });
 
-test('restauração da perda devolve também o IndexedDB inteiro, mesmo com o banco sentinela de pé', async () => {
+test('restauração da perda devolve também o IndexedDB que falta, mesmo com o banco sentinela de pé', async () => {
   for (const motivo of ['perda', undefined]) {
     const rotulo = 'motivo ' + motivo;
     const aparelho = await aparelhoEmUso({ f_1: 'velha', f_5: 'só na WebView' });
@@ -1045,8 +1045,9 @@ test('restauração da perda devolve também o IndexedDB inteiro, mesmo com o ba
     j.responder({ t: 'idbFim', n: 2 });
     const db = await pagina.promessa;
     await j.casca.pronto;
-    // Na perda a cópia do nativo vence: o localStorage que acabou de voltar é dela (a mesma geração).
-    assert.deepEqual(await lerFotos(aparelho), { f_1: 'nova', f_2: 'dois', f_5: 'só na WebView' }, 'nada é apagado: ' + rotulo);
+    // O que a WebView tem fica (é o mais novo: a cópia do nativo não sabe do que se fez numa carga sem espelho); só o
+    // que falta volta, e nada é apagado.
+    assert.deepEqual(await lerFotos(aparelho), { f_1: 'velha', f_2: 'dois', f_5: 'só na WebView' }, rotulo);
     assert.equal(await temCasca(aparelho), true, rotulo);
     await ate(() => j.enviados.length === 3, 'reenvio da f_5: ' + rotulo);
     await assentar();
@@ -1064,6 +1065,79 @@ test('restauração da perda devolve também o IndexedDB inteiro, mesmo com o ba
   await j.casca.pronto;
   await assentar();
   assert.deepEqual(j.enviados.map((m) => m.t), ['restaurado']);
+});
+
+test('perda repetida depois de trabalho feito sem espelho: o localStorage e a foto do rascunho da WebView não voltam à versão do nativo', async () => {
+  const lsDoNativo = { gc_zl_pend: 'pend do nativo', gc_fech_draft: 'fech do nativo' };
+  const chaves = ['f_1', 'f_2', 'rdraft:u'];
+  const aparelho = criarAparelho(); // a perda de verdade: o IndexedDB foi junto
+
+  // 1ª restauração da perda: o localStorage volta, e a das fotos morre antes do idbFim (a f_2 nem chegou). A marca fica.
+  const r1 = montar({ idb: aparelho, ls: { [MARCA_PERDA]: '1' }, retrato: completoDaPerda(chaves, { ls: lsDoNativo }) });
+  await ate(() => pediu(r1), 'idbPedir 1');
+  r1.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
+  r1.responder({ t: 'idbItem', k: 'rdraft:u', tipo: 'texto', v: 'rascunho do nativo' });
+  await ate(async () => ((await lerFotos(aparelho)) || {})['rdraft:u'] === 'rascunho do nativo', 'rdraft gravado');
+  assert.equal(r1.ls.getItem(MARCA_PERDA), '1');
+
+  // A partida seguinte, com o disjuntor do dia estourado (o retrato sem conferência): a página roda sem espelho, e o
+  // técnico mexe na pendência, no rascunho do fechamento e na foto do rascunho da ronda.
+  const s = montar({
+    idb: aparelho, ls: copiar(r1.win.localStorage), retrato: { ...RETRATO_EM_USO, idbChaves: chaves, semParar: true },
+  });
+  await s.casca.pronto;
+  s.ls.setItem('gc_zl_pend', 'pend nova');
+  s.ls.setItem('gc_fech_draft', 'fech novo');
+  const db = await abrirComoAPagina(s.win).promessa;
+  await idbPut(db, 'rdraft:u', 'rascunho novo');
+  db.close();
+  s.avancar(5000);
+  await assentar();
+  assert.deepEqual(s.enviados.map((m) => m.t + ':' + (m.onde || '')), ['erro:perda'], 'nada vai ao nativo');
+
+  // A janela seguinte: a marca pede o retrato, e o nativo devolve a cópia velha dele, de novo.
+  const r2 = montar({
+    idb: aparelho, ls: copiar(s.win.localStorage), retrato: completoDaPerda(chaves, { id: 'r2', ls: lsDoNativo }),
+  });
+  assert.equal(r2.ls.getItem('gc_zl_pend'), 'pend nova');
+  assert.equal(r2.ls.getItem('gc_fech_draft'), 'fech novo');
+  const pagina = abrirComoAPagina(r2.win);
+  await ate(() => pediu(r2), 'idbPedir 2');
+  r2.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
+  r2.responder({ t: 'idbItem', k: 'f_2', tipo: 'texto', v: 'b' });
+  r2.responder({ t: 'idbItem', k: 'rdraft:u', tipo: 'texto', v: 'rascunho do nativo' });
+  r2.responder({ t: 'idbFim', n: 3 });
+  (await pagina.promessa).close();
+  await r2.casca.pronto;
+  await ate(() => r2.ls.getItem(MARCA_PERDA) === null, 'a perda termina');
+  assert.deepEqual(await lerFotos(aparelho), { f_1: 'a', f_2: 'b', 'rdraft:u': 'rascunho novo' },
+    'só a f_2, que faltava, voltou');
+  assert.equal(await temCasca(aparelho), true);
+  for (const c of [r1, s, r2]) assert.ok(semApagar(c), 'nenhum idbDel nem lsDel');
+});
+
+test('a perda de verdade (a WebView vazia) continua devolvendo o IndexedDB inteiro', async () => {
+  const aparelho = criarAparelho();
+  const video = bytesDeTeste(PEDACO + 10);
+  const retrato = completoDaPerda(['f_1', 'rdraft:u', 'v_1'], { ls: { gc_fech_draft: 'x' } });
+  const j = montar({ idb: aparelho, ls: { [MARCA_PERDA]: '1' }, retrato });
+  const pagina = abrirComoAPagina(j.win);
+  await ate(() => pediu(j), 'idbPedir');
+  j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'a' });
+  j.responder({ t: 'idbItem', k: 'rdraft:u', tipo: 'json', v: '{"fotos":["f_1"]}' });
+  j.responder({ t: 'idbPedaco', k: 'v_1', i: 0, n: 2, mime: 'video/mp4', b64: b64(video.subarray(0, PEDACO)) });
+  j.responder({ t: 'idbPedaco', k: 'v_1', i: 1, n: 2, mime: 'video/mp4', b64: b64(video.subarray(PEDACO)) });
+  j.responder({ t: 'idbFim', n: 3 });
+  (await pagina.promessa).close();
+  await j.casca.pronto;
+  await ate(() => j.ls.getItem(MARCA_PERDA) === null, 'a perda termina');
+  const fotos = await lerFotos(aparelho);
+  assert.deepEqual(Object.keys(fotos).sort(), ['f_1', 'rdraft:u', 'v_1']);
+  assert.equal(fotos.f_1, 'a');
+  assert.deepEqual(fotos['rdraft:u'], { fotos: ['f_1'] });
+  assert.deepEqual(await bytesDe(fotos.v_1), video);
+  assert.equal(j.ls.getItem('gc_fech_draft'), 'x');
+  assert.equal(await temCasca(aparelho), true);
 });
 
 test('banco sentinela ausente numa carga normal: perda só do IndexedDB, restaura sem apagar o que a WebView tem', async () => {

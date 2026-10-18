@@ -49,7 +49,6 @@ export const IGNORAR = Object.freeze({
   gc_campo_rd_conta: 'a situação da conta no Fracttal que o servidor mandou (vale 72 h)',
   gc_campo_rd_sem_os: 'a contagem de rondas sem OS, que o servidor manda',
   gc_campo_bd_cache: 'a cópia antiga da programação (hoje no IndexedDB, que o espelho cobre)',
-  gc_campo_status_meta: 'a hora dos eventos locais; o "limpar só o login" do site a apaga',
   // Não é chave: é o prefixo da lista de proteção contra o despejo do próprio site (_LS_TRABALHO).
   gc_ronda: 'prefixo da proteção contra o despejo do site, não uma chave',
 });

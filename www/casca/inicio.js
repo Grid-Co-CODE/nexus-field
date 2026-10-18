@@ -50,6 +50,9 @@
         'gc_fech_draft', 'gc_campo_aprdia', 'gc_zl_pend', 'gc_zl_draft', 'gc_v1_os_chamado', 'gc_campo_status',
         'gc_v1_os_voltou', 'gc_fb_draft', 'gc_v1_fora_local', 'gc_v1_pt_st', 'gc_campo_geo_ini',
         'gc_campo_ident', // dado pessoal: o nativo guarda cifrado (Android Keystore)
+        // A hora de cada ação do técnico por tarefa. Vai junto com o gc_campo_status: sem ela, o `reconciliar` do site
+        // (o reparo do estado órfão) toma por lixo o estado local sem item na fila, e o estado restaurado some.
+        'gc_campo_status_meta',
       ],
       prefixos: ['gc_ronda_', 'gc_apr_rasc_', 'gc_ext_rasc_'],
       excecoes: ['gc_ronda_ctx'],
@@ -155,7 +158,7 @@
       cargaParada: false,
 
       // Ligado pela seção 4 quando esta carga aplicou o retrato completo de uma perda (motivo 'perda', ou sem motivo):
-      // a seção 5 devolve também o IndexedDB inteiro do nativo, a mesma geração do localStorage que acabou de voltar.
+      // a seção 5 devolve também o IndexedDB do nativo (o que falta na WebView), com o banco sentinela de pé ou não.
       // Esta carga espelha (o localStorage acabou de voltar do nativo), mesmo com a marca da perda ainda de pé.
       restauracaoDePerda: false,
 
@@ -352,8 +355,9 @@
   // (o idbFim recebido e as gravações conferidas, na seção 5). Caso que criou a regra: a restauração do IndexedDB que
   // morria no meio (o técnico toca em Entrar logo depois da perda e o loginRedirect leva a página) não era retomada, e a
   // página dava por enviadas as fotos que só o nativo tinha. Com a marca de pé, a carga seguinte para e pede o retrato de
-  // novo, e a restauração recomeça inteira (é idempotente: o localStorage é o do nativo, que já tem o que esta carga
-  // espelhou, e as fotos são regravadas). Quem segura o laço é o disjuntor do nativo (3 restaurações de perda por 24 h).
+  // novo, e a restauração recomeça inteira (é idempotente: só volta o que falta na WebView, no localStorage e nas fotos,
+  // e o que ela tem fica; ver A RESTAURAÇÃO NUNCA SOBRESCREVE). Quem segura o laço é o disjuntor do nativo (3
+  // restaurações de perda por 24 h, contadas à parte das só do IndexedDB).
   // A da fila não mexe na marca. A página nunca a grava nem a apaga de propósito (o classificar a deixa fora do espelho
   // e da restauração); o despejo do `lsS` vai da maior chave para a menor e só chegaria a ela, que é pequena, depois de
   // derrubar todas as maiores que ele não protege (os caches).
@@ -617,6 +621,14 @@
   // tudo isso). Ordem: a fila, depois o trabalho, depois o cache, chave por chave; a que não couber vai para a lista
   // `naoCouberam` e a próxima ainda é tentada (uma pequena pode caber depois de uma grande). Na perda, a marca sai e a
   // sentinela entra só quando o IndexedDB também voltou (ctx.concluirPerda); na fila, a sentinela entra já.
+  // A RESTAURAÇÃO NUNCA SOBRESCREVE: a chave de trabalho ou de cache que a WebView tem (com valor) fica como está, e só
+  // as ausentes voltam (a fila tem a regra dela: juntarFilas). A que a WebView tem é a mais nova: o nativo só recebe o
+  // que a página espelha, e uma carga sem espelho não manda nada. Caso que criou a regra: a restauração das fotos que
+  // não termina (a marca fica) e o disjuntor do dia deixam a página rodar sem espelho, com o localStorage restaurado,
+  // por até um dia; o técnico mexe nas pendências e nos rascunhos, e a restauração da janela seguinte gravava por cima a
+  // versão velha do nativo. A perda de verdade leva o localStorage inteiro, e nela tudo volta. Custo aceito: o valor da
+  // WebView fica no lugar do do nativo só quando ela não perdeu aquela chave, e aí ela é a mais nova. Como antes, a
+  // chave que a página apagou numa carga sem espelho volta (a exclusão não chegou ao nativo).
   // A fila que voltou e o id do retrato ficam na memória da sessão (SESSAO_FILA e SESSAO_RETRATO), e a trava sai.
   // O `motivo` do retrato é o do pedido que ele atende. Com 'fila' o nativo manda `ls` vazio, e só a fila é regravada.
   // Do `ls` do retrato só entra o que o classificar diz que é trabalho ou cache: msal.*, a sentinela, a própria fila
@@ -648,6 +660,7 @@
         var chave = nomes[i];
         var valor = origem[chave];
         if (classificar(chave) !== classes[c] || typeof valor !== 'string') continue;
+        if (ls.getItem.call(ls.real, chave) !== null) continue; // a da WebView fica: A RESTAURAÇÃO NUNCA SOBRESCREVE
         if (gravarOriginal(ls, chave, valor)) chaves++;
         else naoCouberam.push(chave);
       }
@@ -748,9 +761,9 @@
   // tocada pela página depois do prazo. A restauração que morre no meio (o loginRedirect, o renderer que morre num vídeo
   // grande) ou que não grava tudo (o disco cheio) deixa o banco faltando, e a carga seguinte restaura de novo: só as
   // chaves ausentes, sem passar por cima do que a WebView tem (ver restaurarIDB). Quem segura o laço do disco que recusa
-  // sempre é o disjuntor do nativo (no máximo 3 restaurações por 24 h no aparelho, contadas fora da cota do IndexedDB):
-  // estourado, ele responde idbRecusado, e a página abre na hora. Na perda (a marca no localStorage), o mesmo vale para a
-  // marca, que só sai no fim (ver A MARCA DA PERDA, na seção 4).
+  // sempre é o disjuntor do nativo (no máximo 3 restaurações só do IndexedDB por 24 h no aparelho, contadas fora da
+  // cota do IndexedDB e à parte das de perda): estourado, ele responde idbRecusado, e a página abre na hora. Na perda
+  // (a marca no localStorage), o mesmo vale para a marca, que só sai no fim (ver A MARCA DA PERDA, na seção 4).
   //
   // A RECONCILIAÇÃO (o banco sentinela de pé) nunca manda apagar no nativo: só reenvia o que falta lá. Uma chave que o
   // nativo tem e a WebView não pode ser a exclusão da página que se perdeu no canal, mas também o que ainda não voltou, e
@@ -762,8 +775,8 @@
   // A CARGA SEM ESPELHO (a perda que a trava não deixou parar, o stop que lançou, a marca da perda) não toca no
   // IndexedDB: nem restaura, nem reconcilia, nem cria ou apaga o banco sentinela. A faxina de órfãos da página que roda
   // assim (`idbKeys` + `idbDel` do campo.html, com o localStorage vazio) apaga fotos sem espelhar; quem as devolve é a
-  // marca da perda, que leva a carga seguinte ao retrato completo, e a restauração da perda devolve o IndexedDB inteiro
-  // junto com o localStorage, da mesma geração, com o banco sentinela de pé ou não.
+  // marca da perda, que leva a carga seguinte ao retrato completo, e a restauração da perda devolve o que falta no
+  // IndexedDB junto com o localStorage, com o banco sentinela de pé ou não (o que a WebView tem fica: ver restaurarIDB).
 
   // Captura o IndexedDB e os métodos originais UMA vez, antes de qualquer embrulho e de qualquer script da página. A
   // restauração grava pelo put original (pelo embrulhado, ecoaria ao nativo o que acabou de vir dele).
@@ -945,8 +958,8 @@
 
   // Decide, antes de a página abrir o banco das fotos, o que esta carga (com espelho) faz com o IndexedDB. Devolve uma
   // Promise que nunca rejeita; o `comPrazo` a corta (ver O PRAZO DA SEÇÃO).
-  //   restauração da perda (retrato completo, motivo   → restaura o IndexedDB inteiro do nativo, esteja o banco
-  //   'perda' ou sem motivo)                              sentinela de pé ou não (a mesma geração do localStorage);
+  //   restauração da perda (retrato completo, motivo   → restaura do nativo as chaves ausentes na WebView, esteja o
+  //   'perda' ou sem motivo)                              banco sentinela de pé ou não (junto com o localStorage);
   //   sem indexedDB.databases()                        → "não sei": avisa e segue sem restaurar nem reconciliar;
   //   sem o banco sentinela                            → perda só do IndexedDB (ou a restauração que não terminou):
   //                                                       com espelho no nativo, restaura só as chaves ausentes; sem
@@ -954,9 +967,8 @@
   //   com o banco sentinela                            → reconcilia, uma vez por sessão.
   function conferirIDB(ctx, idb, envio, estado) {
     var doNativo = chavesDoNativo(ctx.retrato);
-    // O localStorage acabou de voltar do retrato completo (seção 4). Sem o IndexedDB da mesma geração, a faxina de órfãos
-    // da página apagaria o que a WebView tem e o localStorage restaurado não cita, e as fotos que ele cita e a WebView
-    // perdeu (ou que a página apagou numa carga sem espelho) não voltariam.
+    // O localStorage acabou de voltar do retrato completo (seção 4). Sem o IndexedDB junto, as fotos que ele cita e a
+    // WebView perdeu (ou que a faxina de órfãos da página apagou numa carga sem espelho) não voltariam.
     if (ctx.restauracaoDePerda) return restaurarIDB(ctx, idb, envio, estado, 'perda', doNativo);
     if (typeof idb.listarBancos !== 'function') {
       ctx.falhou('idb', new Error('indexedDB.databases() indisponível: sem conferência do IndexedDB nesta carga'));
@@ -1084,12 +1096,12 @@
   // {t:'idbItem', k, tipo, v} e {t:'idbPedaco', k, i, n, mime, b64} (pedaços de um Blob, na ordem ou não), e no fim
   // {t:'idbFim', n}, com `n` = quantas entradas (chaves) o nativo mandou; ou {t:'idbRecusado'}, quando o disjuntor do
   // nativo não deixa (a página abre na hora, e a próxima janela tenta de novo).
-  // O `motivo` vai ao nativo porque o disjuntor dele conta a restauração uma vez só: a da perda ('perda') já foi contada
-  // no precisoRetrato; a só do IndexedDB ('idb') é contada aqui.
-  //   'perda': a cópia do nativo vence (o localStorage que acabou de voltar é dela, a mesma geração), e no fim a perda
-  //            termina (ctx.concluirPerda: sai a marca, entra a sentinela);
-  //   'idb':   o localStorage está intacto, e a restauração grava só as chaves AUSENTES na WebView, nunca sobrescreve
-  //            uma que existe (o espelho pode ter perdido a última gravação de um rascunho, e o da WebView é o novo).
+  // O `motivo` vai ao nativo porque o disjuntor dele conta a restauração uma vez só e em separado: a da perda ('perda')
+  // já foi contada no precisoRetrato; a só do IndexedDB ('idb') é contada aqui, na conta dela.
+  // As duas gravam só as chaves AUSENTES na WebView e nunca sobrescrevem uma que existe: o espelho pode ter perdido a
+  // última gravação de um rascunho, ou a página rodou sem espelho depois de uma restauração da perda que não terminou
+  // (ver A RESTAURAÇÃO NUNCA SOBRESCREVE, na seção 4), e o da WebView é o novo. Na 'perda', no fim, a perda termina
+  // (ctx.concluirPerda: sai a marca, entra a sentinela).
   // Terminou (idbFim com o `n` batendo, nenhuma falha, todo Blob inteiro, toda chave resolvida): o banco sentinela volta
   // e o que só a WebView tem vai ao nativo (o mesmo reenvio da reconciliação). Não terminou: avisa só com contagens, e a
   // carga seguinte restaura de novo. Uma chave que o idbChaves anunciou e o nativo não mandou não conta: o `n` é o que ele
@@ -1101,7 +1113,7 @@
     var daPerda = motivo === 'perda';
     return new Promise(function (resolver) {
       var recebidas = new Set();  // as chaves que chegaram, inteiras ou não
-      var resolvidas = new Set(); // gravadas, já presentes (fora da perda) ou tocadas pela página depois do prazo
+      var resolvidas = new Set(); // gravadas, já presentes ou tocadas pela página depois do prazo
       var falhas = 0;
       var fim = false;
       var pedacos = new Map(); // chave -> { n, mime, partes, chegaram }
@@ -1114,7 +1126,7 @@
             if (!db) { falhas++; return undefined; }
             // O que a página gravou ou apagou depois do prazo vence a cópia que chega atrasada.
             if (estado.tocadas.has(k)) { resolvidas.add(k); return undefined; }
-            return gravarNoBanco(idb, db, k, valor, !daPerda).then(function (gravou) {
+            return gravarSeAusente(idb, db, k, valor).then(function (gravou) {
               if (gravou) resolvidas.add(k); else falhas++;
             });
           });
@@ -1243,20 +1255,16 @@
     });
   }
 
-  // Grava uma entrada pelo put original, numa transação só dela. Com `soAusente`, conta a chave antes, na mesma
-  // transação, e só grava se ela não está lá (a chave presente resolve do mesmo jeito: true). Resolve false se a
+  // Grava uma entrada pelo put original, numa transação só dela, só se a chave não está lá: conta a chave antes, na
+  // mesma transação (a chave presente resolve do mesmo jeito: true, e o valor da WebView fica). Resolve false se a
   // transação não terminou (o disco cheio aborta, ou o put lança). Nunca rejeita.
-  function gravarNoBanco(idb, db, k, valor, soAusente) {
+  function gravarSeAusente(idb, db, k, valor) {
     return new Promise(function (ok) {
       try {
         var tx = db.transaction(STORE_FOTOS, 'readwrite');
         var store = tx.objectStore(STORE_FOTOS);
         tx.oncomplete = function () { ok(true); };
         tx.onabort = function () { ok(false); };
-        if (!soAusente) {
-          idb.put.call(store, valor, k);
-          return;
-        }
         var conta = store.count(k);
         conta.onsuccess = function () {
           if (conta.result !== 0) return;

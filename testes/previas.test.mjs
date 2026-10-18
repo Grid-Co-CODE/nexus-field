@@ -1,12 +1,12 @@
-// Prova que a prévia das telas novas (docs/previas/telas.html) mostra o que o APK vai mostrar. O Levi aprova os textos
-// e o visual por ela; se a prévia e o aparelho divergirem, a aprovação vale para uma tela que não existe. Por isso a
-// prévia não é conferida "por olho": ela é lida contra as fontes do que vai ao aparelho.
+// Prova que a prévia das telas novas (docs/previas/telas.html) mostra o que o APK vai mostrar. O dono da casca aprova
+// os textos e o visual por ela; se a prévia e o aparelho divergirem, a aprovação vale para uma tela que não existe. Por
+// isso a prévia não é conferida "por olho": ela é lida contra as fontes do que vai ao aparelho.
 //   1. cada diálogo da prévia é um grupo do strings.xml (título, texto, botões no conjunto e na ordem em que a
 //      MainActivity, o CascaPlugin e o Atualizador os montam), e cada toast é um do strings.xml que o Java mostra;
 //   2. a tela de erro é o www/erro.html, byte a byte (a prévia o embute num iframe);
 //   3. a camada do Fracttal é a que o www/casca/inicio.js monta de verdade, com o HTML que o campo.html escreve na aba.
-// Quando o Levi pedir outro texto, o arquivo-fonte muda (strings.xml, erro.html ou inicio.js) e a prévia acompanha; este
-// teste falha enquanto uma das duas estiver para trás.
+// Quando o dono da casca pedir outro texto, o arquivo-fonte muda (strings.xml, erro.html ou inicio.js) e a prévia
+// acompanha; este teste falha enquanto uma das duas estiver para trás.
 //
 // A página é publicada como Artifact (página privada do claude.ai), que a embrulha: por isso o arquivo não tem
 // doctype, html, head nem body, e o contrato da página (título, tokens de cor nos dois temas, gutter com a área
