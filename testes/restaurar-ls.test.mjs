@@ -602,8 +602,87 @@ test('perda repetida depois de trabalho feito sem espelho: o que a WebView tem n
   assert.equal(r.ls.getItem('gc_fech_draft'), 'fech novo', 'o rascunho feito sem espelho fica');
   assert.equal(r.ls.getItem('gc_subs_1'), 'cache do nativo', 'só o que falta na WebView volta');
   assert.deepEqual(ordem, [CHAVE_FILA, 'gc_subs_1', SENTINELA_LS], 'nada é gravado por cima do que a WebView tem');
-  assert.deepEqual(r.enviados, [{ t: 'restaurado', chaves: 1, naoCouberam: [], fila: true }]);
+  // E o nativo fica em dia sem esperar a página regravar: depois do restaurado vai o que a WebView tem de diferente.
+  assert.deepEqual(r.enviados, [
+    { t: 'restaurado', chaves: 1, naoCouberam: [], fila: true },
+    { t: 'ls', k: 'gc_zl_pend', v: 'pend nova' },
+    { t: 'ls', k: 'gc_fech_draft', v: 'fech novo' },
+  ]);
   assert.equal(r.ls.getItem(MARCA_PERDA), null, 'a perda terminou');
+});
+
+// O nativo grava o que a página manda ({t:'ls'}); o teste faz o papel dele para ver o que uma 2ª perda devolveria.
+function oNativoDepoisDe(doNativo, enviados) {
+  const copia = { ...doNativo };
+  for (const m of enviados) {
+    if (m.t === 'ls') copia[m.k] = m.v;
+    if (m.t === 'lsDel') delete copia[m.k];
+  }
+  return copia;
+}
+
+test('perda repetida antes de a página regravar: a 2ª restauração devolve a versão da WebView, não a velha do nativo', () => {
+  // O caso: a 1ª restauração não terminou (as fotos), a página rodou sem espelho e o técnico refez o rascunho do
+  // fechamento, abriu uma ronda e baixou um cache novo. A janela seguinte restaura de novo e a WebView fica com o dela
+  // (A RESTAURAÇÃO NUNCA SOBRESCREVE), mas o nativo continuava com a cópia velha: se a WebView fosse perdida OUTRA vez
+  // antes de a página regravar aquelas chaves, a 3ª restauração devolvia o rascunho de antes, e o trabalho de horas sumia.
+  const doNativo = { gc_zl_pend: 'pend', gc_fech_draft: 'fech do nativo', gc_subs_1: 'cache do nativo', gc_subs_2: 'cache velho', gc_subs_3: 'igual' };
+  const semEspelho = montar({
+    ls: { [MARCA_PERDA]: '1', [CHAVE_FILA]: '[]', gc_zl_pend: 'pend', gc_fech_draft: 'fech do nativo', gc_subs_2: 'cache velho', gc_subs_3: 'igual' },
+    retrato: semConferencia(),
+  });
+  semEspelho.ls.setItem('gc_fech_draft', 'fech novo');
+  semEspelho.ls.setItem('gc_ronda_x@y_2026-10-18_U1', 'ronda aberta sem espelho');
+  semEspelho.ls.setItem('gc_subs_2', 'cache baixado sem espelho');
+  semEspelho.avancar(5000);
+
+  const r = montar({ ls: lsDe(semEspelho), retrato: completo({ ls: doNativo, fila: '[]', motivo: 'perda', id: 'r2' }) });
+  assert.deepEqual(r.enviados, [
+    { t: 'restaurado', chaves: 1, naoCouberam: [], fila: true },
+    // O trabalho primeiro (a ordem da WebView), depois o cache. Não vai o que é igual ao do nativo (gc_zl_pend,
+    // gc_subs_3), nem o que acabou de voltar dele (gc_subs_1), nem a fila, a sentinela ou a marca.
+    { t: 'ls', k: 'gc_fech_draft', v: 'fech novo' },
+    { t: 'ls', k: 'gc_ronda_x@y_2026-10-18_U1', v: 'ronda aberta sem espelho' },
+    { t: 'ls', k: 'gc_subs_2', v: 'cache baixado sem espelho' },
+  ]);
+
+  // A 2ª perda: a WebView some inteira e o nativo devolve o que tem agora.
+  const nativo = oNativoDepoisDe(doNativo, r.enviados);
+  const segunda = montar({ ls: { [MARCA_PERDA]: '1' }, retrato: completo({ ls: nativo, fila: '[]', motivo: 'perda', id: 'r3' }) });
+  assert.equal(segunda.ls.getItem('gc_fech_draft'), 'fech novo', 'o rascunho refeito volta, não o de antes');
+  assert.equal(segunda.ls.getItem('gc_ronda_x@y_2026-10-18_U1'), 'ronda aberta sem espelho');
+  assert.equal(segunda.ls.getItem('gc_subs_2'), 'cache baixado sem espelho');
+  assert.equal(segunda.ls.getItem('gc_zl_pend'), 'pend');
+  assert.deepEqual(segunda.enviados, [{ t: 'restaurado', chaves: 6, naoCouberam: [], fila: true }],
+    'a WebView vazia não tem nada de diferente a mandar: a perda de verdade não ecoa o que acabou de voltar');
+});
+
+test('perda repetida: se o canal recusar uma chave, as outras ainda vão e o aviso leva só o rótulo', () => {
+  const doNativo = { gc_fech_draft: 'fech do nativo', gc_subs_1: 'cache do nativo' };
+  const base = { [MARCA_PERDA]: '1', [CHAVE_FILA]: '[]', gc_fech_draft: 'fech novo', gc_ronda_x: 'ronda', gc_subs_1: 'cache novo' };
+  const recusando = ({ canal }) => {
+    const original = canal.postMessage;
+    canal.postMessage = function (texto) {
+      if (JSON.parse(texto).k === 'gc_fech_draft') throw new Error('canal cheio');
+      return original.call(this, texto);
+    };
+  };
+  const r = montar({ ls: base, retrato: completo({ ls: doNativo, fila: '[]', motivo: 'perda', id: 'r2' }) }, recusando);
+  assert.deepEqual(r.enviados, [
+    { t: 'restaurado', chaves: 0, naoCouberam: [], fila: true },
+    { t: 'erro', onde: 'reenvio', msg: 'canal cheio' },
+    { t: 'ls', k: 'gc_ronda_x', v: 'ronda' },
+    { t: 'ls', k: 'gc_subs_1', v: 'cache novo' },
+  ]);
+  assert.equal(r.ls.getItem(MARCA_PERDA), null, 'a perda termina do mesmo jeito');
+});
+
+test('a restauração só da fila não manda ao nativo o que a WebView tem (o ls do retrato vem vazio e não quer dizer "falta")', () => {
+  const j = montar({
+    ls: { [SENTINELA_LS]: '1', [CHAVE_FILA]: V2, gc_fech_draft: 'rascunho da página', gc_subs_1: 'cache da página' },
+    retrato: completo({ ls: {}, fila: V3, filaHashes: HASHES, motivo: 'fila' }),
+  });
+  assert.deepEqual(j.enviados, [{ t: 'restaurado', chaves: 0, naoCouberam: [], fila: true }]);
 });
 
 test('a perda de verdade (a WebView vazia) continua devolvendo tudo o que o nativo guarda', () => {
@@ -762,9 +841,13 @@ test('o mesmo retrato completo não é aplicado duas vezes', () => {
   k.avancar(400);
   assert.deepEqual(k.enviados, [{ t: 'ls', k: 'gc_fech_draft', v: 'y' }], 'espelho ligado');
 
-  // Um retrato completo novo (outro id) é aplicado: a fila volta, e o rascunho que a WebView tem fica (nunca sobrescreve).
+  // Um retrato completo novo (outro id) é aplicado: a fila volta, e o rascunho que a WebView tem fica (nunca sobrescreve)
+  // e vai ao nativo, que tem o 'fech' do retrato.
   const r2 = recarregar(k, { retrato: { ...retrato, id: 'r2' } });
-  assert.deepEqual(r2.enviados, [{ t: 'restaurado', chaves: 0, naoCouberam: [], fila: true }]);
+  assert.deepEqual(r2.enviados, [
+    { t: 'restaurado', chaves: 0, naoCouberam: [], fila: true },
+    { t: 'ls', k: 'gc_fech_draft', v: 'y' },
+  ]);
   assert.equal(r2.ls.getItem(CHAVE_FILA), V3);
   assert.equal(r2.ls.getItem('gc_fech_draft'), 'y');
 

@@ -68,7 +68,12 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   roteiro da prova dizia quem preenche o usuário de teste e de quem era o celular. Ficam de fora só o desenho e o plano
   datados de 16/10, pelo caminho exato (`FORA_DA_VARREDURA_DE_NOMES`), porque ainda trazem o dono como responsável;
   nunca a pasta: desenho ou plano novo em `docs/superpowers/` é varrido, e entrada da lista cujo arquivo saiu do git faz
-  o teste falhar. Nome de colega que não é autor do git ele não acha: isso segue na revisão.
+  o teste falhar. Nome de colega que não é autor do git ele não acha: isso segue na revisão. **No CI a lista sem nenhum
+  autor que seja gente é FALHA, não pulo** (`CI=true`, que o GitHub Actions define; fora do CI, no computador de quem
+  desenvolve, pula como antes), e o checkout do job `montar` traz o histórico inteiro (`fetch-depth: 0`): num
+  pull_request o checkout raso tem só o commit de merge de teste do GitHub, de autor "GitHub", e a varredura de nomes
+  ficava verde sem procurar ninguém. O `dados-pessoais.test.mjs` prova a fiação rodando uma cópia dele num repositório
+  novo com esse único autor (falha com `CI=true`, pula sem).
 - A chave de assinatura e as senhas nunca são impressas em terminal, log ou commit.
 - O repositório é PÚBLICO e se chama `Grid-Co-CODE/nexus-field` (decidido em 17/10/2026, antes de existir no GitHub): o
   app lê a `releases/latest/download/` sem autenticação, e o `VersaoRemota` só aceita APK desse endereço. Privado,
@@ -136,6 +141,14 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   o G sairia com ~150 dp); sem eles, o padrão do androidx era o fundo do tema e o ícone genérico do Android. O
   `android:background` do tema é o `drawable/splash.xml` (o navy e o G num quadro de 192 dp, o mesmo tamanho). Os
   `splash.png` do template saíram. O aspecto exato no Android 12+ é do sistema e se confere no aparelho.
+- **A tela "Sem internet" e a página local** (`www/erro.html`, `www/index.html`) têm o fundo navy do Nexus Field
+  (`#090d18`), o mesmo do ícone e da abertura (R40, 18/10/2026). Até 17/10/2026 eram o roxo-escuro do site (`#191528`),
+  porque o ícone também era; com o ícone e a abertura navy, a sequência no aparelho ficava abertura navy, erro roxo. O
+  texto, o texto suave e o destaque ficaram como eram (o contraste não pediu troca); o texto do botão (`--sobre-destaque`)
+  é o navy. O `testes/icone.test.mjs` confere que o `--fundo` das duas é o `ic_launcher_background`, que um comentário
+  diz que a cor é a do Nexus Field e o contraste (WCAG AA) do texto, do texto suave e do botão. Na prévia, o `srcdoc` é a
+  cópia do `erro.html` (o `previas.test.mjs` compara) e o quadro dele pinta o `--icone-fundo`; o `--app-fundo` dela
+  segue o roxo do SITE, atrás dos diálogos e da camada do Fracttal.
 - **`android/app/src/main/assets/public/`, `capacitor.config.json` e `capacitor.plugins.json` (em `assets/`) e
   `res/xml/config.xml` são gerados** pelo `cap sync` e ficam fora do git. O `local.properties` também.
 - **O espelho nativo** (`android/app/src/main/java/br/com/gridco/campo/`): `EspelhoSqlite` guarda no `espelho.db` e em
@@ -275,8 +288,16 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     localStorage restaurado, por até um dia; o técnico mexe na `gc_zl_pend`, no `gc_fech_draft` e no rascunho da ronda
     (`rdraft:` no IndexedDB), e a restauração da janela seguinte gravava por cima a versão velha do nativo. Na perda de
     verdade a WebView está vazia, e tudo volta. Custo aceito: o que a página apagou numa carga sem espelho volta. No fim
-    de toda restauração, o que só a WebView tem no IndexedDB vai ao nativo; o valor da WebView que difere do nativo (no
-    localStorage ou no IndexedDB) só chega a ele quando a página o regravar.
+    de toda restauração, o que só a WebView tem no IndexedDB vai ao nativo; o valor da WebView que difere do nativo no
+    IndexedDB só chega a ele quando a página o regravar. **No localStorage, a restauração da PERDA manda o que a WebView
+    manteve** (R40, 18/10/2026; `reenviarOQueAWebViewManteve`): depois do `restaurado` (e da fila juntada), vai
+    `{t:'ls', k, v}` de cada chave de trabalho e de cache cujo valor na WebView difere do `ls` do retrato ou que o
+    retrato não tem, o trabalho primeiro, pelo mesmo `enviar` e rótulo `reenvio` do reenvio ao espelho recriado (as
+    chaves vêm do mesmo `chavesDoEspelho`). Caso que criou a regra: o rascunho do fechamento refeito numa carga sem espelho
+    ficava só na WebView, e uma SEGUNDA perda antes de a página regravá-lo devolvia a versão velha do nativo. Nunca manda
+    apagar; é de melhor esforço (o canal que recusa uma chave é avisado só com o rótulo e as outras seguem); o que acabou de
+    voltar do nativo é igual a ele e não é reenviado. A restauração só da fila não faz isso: o `ls` dela vem vazio, e vazio
+    ali não quer dizer que o nativo não tem.
   - **O prazo da seção do IndexedDB é de inatividade**: 20 s sem item nem pedaço do nativo, com teto absoluto de 180 s. O
     teto fixo de 15 s soltava a página no meio de uma restauração saudável de vídeos, e o envio da fila dava por enviadas
     as fotos que ainda não tinham chegado.
@@ -408,7 +429,8 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   o `env` de cada passo), e RODA os scripts dos passos que decidem a Release num bash com `curl`, `gh` e `apksigner`
   falsos (o commit na main num repositório git de verdade, a versão da tag, o versionCode, o certificado, a publicação e
   o agendamento). A pasta tem exatamente os dois arquivos: um terceiro escaparia das regras.
-  - **Montagem (`montar`):** Node `22.x` (o jsdom 30 pede `^22.22.2`; o `package.json` declara `engines`), `npm ci` e
+  - **Montagem (`montar`):** checkout com o histórico inteiro (`fetch-depth: 0`, para a varredura de nomes achar os
+    autores; ver "Regras que não mudam"), Node `22.x` (o jsdom 30 pede `^22.22.2`; o `package.json` declara `engines`), `npm ci` e
     `npm test`, depois Java 21 (Temurin), `npx cap sync android` e `./gradlew testDebugUnitTest assembleDebug lint`, e o
     APK de depuração sobe como artifact. Neste job e no contrato as actions vão por versão maior (`actions/checkout@v7`,
     `setup-node@v7`, `setup-java@v6`, `upload-artifact@v7`, `gradle/actions/setup-gradle@v6`): não há segredo nem escrita
@@ -424,6 +446,13 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     do COMMIT da tag: uma tag num ramo com o arquivo mexido leva junto as conferências. A guarda de verdade é a
     configuração do repositório (abaixo, "O que a Task 10 configura no GitHub"); as conferências do job pegam o engano,
     nesta ordem, todas antes de a chave sair do secret:
+    0. **o repositório é o `Grid-Co-CODE/nexus-field`** (R40, 18/10/2026; o primeiro passo do job, antes até do checkout, e
+       compara o `GITHUB_REPOSITORY` do runner com o nome inteiro, na caixa certa): o app lê o `versao.json` de
+       `releases/latest/download/` DESTE repositório e só aceita o APK das Releases dele. Uma Release que saísse de um fork,
+       do nome antigo ou de um repositório criado com outro nome seria publicada, assinada e vista por ninguém, em silêncio.
+       A mensagem diz que o app só enxerga esse repositório. O `testes/versao-json.test.mjs` confere o nome no
+       `Atualizador.URL_VERSAO`, no `VersaoRemota` e no gerador do `versao.json`, e o `testes/workflows.test.mjs` põe este
+       passo frente a frente com o `URL_VERSAO` e o roda com repositórios parecidos (outra caixa, sufixo, prefixo, vazio);
     1. **o commit da tag está na `main`** (`fetch-depth: 0` e `git merge-base --is-ancestor`): a tag posta por engano num
        ramo de worktree publicaria código que nunca passou pela `main`;
     2. **a versão da tag** pelo `node ferramentas/versao-json.mjs tipo-da-versao`: o semver mora só no `PADRAO_VERSAO` de

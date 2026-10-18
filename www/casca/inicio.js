@@ -571,6 +571,19 @@
   // sessão não entra e a carga seguinte manda de novo.
   function reenviarLS(ctx, ls) {
     if (lerSessao(ls, SESSAO_LS) !== null) return;
+    var todas = true;
+    var chaves = chavesDoEspelho(ls);
+    for (var j = 0; j < chaves.length; j++) {
+      var k = chaves[j];
+      var v = ls.getItem.call(ls.real, k);
+      if (v !== null && !ctx.enviar({ t: 'ls', k: k, v: v }, 'reenvio')) todas = false;
+    }
+    if (todas) gravarSessao(ls, SESSAO_LS, '1');
+  }
+
+  // As chaves de trabalho e de cache que o localStorage tem agora, o trabalho primeiro (prioridade maior), cada classe
+  // na ordem do localStorage. A fila, a sentinela, a marca e o que a casca não espelha ficam de fora (ver CLASSES).
+  function chavesDoEspelho(ls) {
     var real = ls.real;
     var trabalho = [];
     var cache = [];
@@ -580,14 +593,7 @@
       if (classe === 'trabalho') trabalho.push(chave);
       else if (classe === 'cache') cache.push(chave);
     }
-    var todas = true;
-    var chaves = trabalho.concat(cache);
-    for (var j = 0; j < chaves.length; j++) {
-      var k = chaves[j];
-      var v = ls.getItem.call(real, k);
-      if (v !== null && !ctx.enviar({ t: 'ls', k: k, v: v }, 'reenvio')) todas = false;
-    }
-    if (todas) gravarSessao(ls, SESSAO_LS, '1');
+    return trabalho.concat(cache);
   }
 
   // Compara a fila da WebView com as versões do retrato (mais nova primeiro, até 3, em fnv1a32) e com a última que esta
@@ -628,7 +634,8 @@
   // por até um dia; o técnico mexe nas pendências e nos rascunhos, e a restauração da janela seguinte gravava por cima a
   // versão velha do nativo. A perda de verdade leva o localStorage inteiro, e nela tudo volta. Custo aceito: o valor da
   // WebView fica no lugar do do nativo só quando ela não perdeu aquela chave, e aí ela é a mais nova. Como antes, a
-  // chave que a página apagou numa carga sem espelho volta (a exclusão não chegou ao nativo).
+  // chave que a página apagou numa carga sem espelho volta (a exclusão não chegou ao nativo). O que a WebView manteve
+  // vai ao nativo logo depois do `restaurado` (reenviarOQueAWebViewManteve, no fim desta função), na perda.
   // A fila que voltou e o id do retrato ficam na memória da sessão (SESSAO_FILA e SESSAO_RETRATO), e a trava sai.
   // O `motivo` do retrato é o do pedido que ele atende. Com 'fila' o nativo manda `ls` vazio, e só a fila é regravada.
   // Do `ls` do retrato só entra o que o classificar diz que é trabalho ou cache: msal.*, a sentinela, a própria fila
@@ -692,6 +699,27 @@
     ctx.enviar({ t: 'restaurado', chaves: chaves, naoCouberam: naoCouberam, fila: fila }, 'restaurado');
     // A junta é nova para o nativo: vai depois do restaurado, pelo caminho único da fila (e fica lembrada na sessão).
     if (juntada !== null && fila) espelharFila(ctx, ls, juntada, 'fila');
+    // E o que a WebView manteve (a restauração não a sobrescreve) também é novo para ele: só a perda; a restauração da
+    // fila traz o `ls` vazio, e vazio ali não quer dizer que o nativo não tem.
+    if (daPerda) reenviarOQueAWebViewManteve(ctx, ls, origem);
+  }
+
+  // O QUE A WEBVIEW MANTEVE VAI AO NATIVO. A restauração da perda nunca sobrescreve a chave que a WebView tem (acima), e o
+  // nativo ficaria com a cópia velha dela até a página regravar a chave: o rascunho do fechamento refeito numa carga sem
+  // espelho só chegaria a ele quando o técnico mexesse nele de novo. Se a WebView fosse perdida OUTRA vez antes disso, a
+  // restauração seguinte devolveria o rascunho de antes. Então, depois do `restaurado`, vai ao nativo cada chave de
+  // trabalho e de cache cujo valor na WebView difere do `ls` do retrato (ou que o retrato não tem), o trabalho primeiro,
+  // pelo mesmo `enviar` e rótulo do reenvio do espelho recriado. Só manda o que a WebView tem: nunca manda apagar. É de
+  // melhor esforço: a chave que o canal recusar é avisada (só o rótulo) e as outras seguem, e a página a regrava no
+  // próximo setItem. O que acabou de voltar do nativo é igual ao dele e não é mandado de volta.
+  function reenviarOQueAWebViewManteve(ctx, ls, doNativo) {
+    var chaves = chavesDoEspelho(ls);
+    for (var j = 0; j < chaves.length; j++) {
+      var k = chaves[j];
+      var v = ls.getItem.call(ls.real, k);
+      if (v === null || (typeof doNativo[k] === 'string' && doNativo[k] === v)) continue;
+      ctx.enviar({ t: 'ls', k: k, v: v }, 'reenvio');
+    }
   }
 
   // JUNTAR AS FILAS (só na restauração da perda). A WebView pode ter fila própria, feita numa carga que rodou sem espelho

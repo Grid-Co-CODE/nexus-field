@@ -22,9 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # fetch-depth: 0 (o histórico inteiro): o testes/dados-pessoais.test.mjs monta a lista de nomes do `git log`. No
+      # checkout raso de um pull_request o log tem só o commit de merge de teste do GitHub (autor "GitHub", que não é
+      # gente), e a varredura de nomes não procurava ninguém. Mesmo com o histórico, o teste falha no CI se a lista vier
+      # sem nenhum autor que seja gente, em vez de pular.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       # O jsdom 30 (testes do script de início) pede Node ^22.22.2; o 22.x pega o mais recente da série.
       - uses: actions/setup-node@v7
@@ -99,6 +104,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      # O app só enxerga o Grid-Co-CODE/nexus-field: o Atualizador lê o versao.json de releases/latest/download/ dele, e o
+      # VersaoRemota só aceita o APK das Releases dele (o testes/versao-json.test.mjs confere o nome nos três lados e este
+      # passo). Uma Release assinada que saísse de outro repositório (um fork, o nome antigo, o repositório criado com outro
+      # nome ou outra caixa) seria publicada e vista por ninguém: os aparelhos ficariam sem atualização, em silêncio. É o
+      # primeiro passo: falha antes de baixar o código e muito antes de a chave sair do secret. O GITHUB_REPOSITORY o
+      # próprio runner define.
+      - name: O repositório é o que o app enxerga
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REPOSITORY:-}" != "Grid-Co-CODE/nexus-field" ]; then
+            echo "Esta Release sairia de '${GITHUB_REPOSITORY:-}', mas o app só enxerga Grid-Co-CODE/nexus-field: nada foi publicado." >&2
+            exit 1
+          fi
+
       # Neste job, toda action é fixada por SHA de commit, com a tag no comentário: uma tag móvel sequestrada rodaria aqui
       # com o token de escrita e perto das senhas da chave. SHAs conferidos com `gh api repos/<action>/commits/<tag>` em
       # 17/10/2026; cada versão tinha ao menos duas semanas.

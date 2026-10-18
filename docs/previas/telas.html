@@ -26,7 +26,8 @@
     --moldura:#20232b;
     --sombra:rgba(20, 24, 29, 0.22);
 
-    /* A tela do App de Campo atrás dos avisos: o fundo do erro.html e blocos só para dar volume (sem texto). */
+    /* O site (o App de Campo) atrás dos avisos: o fundo dele e blocos só para dar volume (sem texto). A tela Sem internet
+       não usa esta cor: ela é do Nexus Field e usa o --icone-fundo, abaixo. */
     --app-fundo:#191528;
     --app-barra:#2a2440;
     --app-bloco:#2a2440;
@@ -196,7 +197,7 @@
   }
   /* Só o iframe do erro.html é dimensionado por esta folha. O da camada do Fracttal fica só com o estilo inline que o
      inicio.js declara: uma regra aqui, como a de um "iframe" qualquer, mudaria o que o aparelho mostra. */
-  #erro-html { display:block; position:absolute; top:0; left:0; width:100%; height:100%; border:0; background:var(--app-fundo); }
+  #erro-html { display:block; position:absolute; top:0; left:0; width:100%; height:100%; border:0; background:var(--icone-fundo); }
 </style>
 <div class="pagina" lang="pt-BR">
 <main>
@@ -408,14 +409,15 @@
   <meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1, viewport-fit=cover&quot;>
   <title>Nexus Field: sem internet</title>
   <style>
-    /* Fundo igual ao do App de Campo (#191528), o site que esta tela substitui: a troca de uma para a outra não
-       parece outro aplicativo. Cor só aqui, em variável; nenhuma regra abaixo escreve cor por extenso. */
+    /* Fundo do Nexus Field (#090d18), o mesmo do ícone e da abertura: esta tela aparece logo depois da abertura e não
+       pode parecer outro aplicativo (até 17/10/2026 era o roxo-escuro do site, quando o ícone também era). Cor só aqui,
+       em variável; nenhuma regra abaixo escreve cor por extenso. */
     :root {
-      --fundo:#191528;
+      --fundo:#090d18;
       --texto:#f2f0fa;
       --texto-suave:#b9b4cf;
       --destaque:#a3d900;
-      --sobre-destaque:#191528;
+      --sobre-destaque:#090d18;
     }
     * { box-sizing:border-box; }
     html, body { margin:0; min-height:100%; background:var(--fundo); color:var(--texto);

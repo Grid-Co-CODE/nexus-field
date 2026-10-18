@@ -183,3 +183,48 @@ test('a abertura (splash) é o navy com o G pequeno no centro, sem as imagens do
   assert.equal(camadas[1].getAttribute('android:width'), '192dp');
   assert.equal(camadas[1].getAttribute('android:height'), '192dp');
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// A tela "Sem internet" e a página local no navy do Nexus Field (R40, 18/10/2026)
+// ---------------------------------------------------------------------------------------------------------------
+// A tela de erro (www/erro.html) e a página local (www/index.html) aparecem logo depois da abertura. Até 17/10/2026 elas
+// tinham o fundo do App de Campo (o roxo-escuro do site), porque o ícone também tinha; o ícone e a abertura passaram ao
+// navy do Nexus (#090d18), e a sequência no aparelho ficaria navy -> roxo -> site. As duas páginas acompanham o ícone, e
+// o texto continua legível nele.
+
+const luminancia = (hex) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contraste = (a, b) => {
+  const [claro, escuro] = [luminancia(a), luminancia(b)].sort((x, y) => y - x);
+  return (claro + 0.05) / (escuro + 0.05);
+};
+
+// As variáveis do :root da página (`--nome:#rrggbb`), já em minúsculas.
+function coresDaRaiz(html) {
+  const raizCss = html.match(/:root\s*\{([^}]*)\}/)?.[1] ?? '';
+  const cores = {};
+  for (const [, nome, valor] of raizCss.matchAll(/--([a-z-]+)\s*:\s*(#[0-9a-fA-F]{6})\b/g)) cores[nome] = valor.toLowerCase();
+  return cores;
+}
+
+test('a tela Sem internet e a página local têm o fundo do ícone (o navy do Nexus Field), com o texto legível nele', () => {
+  const navy = ler(join(RES, 'values', 'ic_launcher_background.xml')).match(/>\s*(#[0-9a-fA-F]{6})\s*</)[1].toLowerCase();
+  for (const arquivo of ['www/erro.html', 'www/index.html']) {
+    const html = ler(join(raiz, arquivo));
+    const cores = coresDaRaiz(html);
+    assert.equal(cores.fundo, navy, `${arquivo}: o fundo é o do ícone`);
+    assert.ok(!/#191528/i.test(html), `${arquivo}: o roxo-escuro do App de Campo não sobra, nem em comentário`);
+    const comentarios = [...html.matchAll(/\/\*([\s\S]*?)\*\//g)].map((m) => m[1]);
+    assert.ok(comentarios.some((c) => /Nexus Field/.test(c) && c.includes(navy)),
+      `${arquivo}: um comentário diz que o fundo é a cor do Nexus Field (e qual é)`);
+    assert.ok(contraste(cores.texto, cores.fundo) >= 7, `${arquivo}: o texto no fundo`);
+  }
+  // Só a tela de erro tem texto suave e botão.
+  const erro = coresDaRaiz(ler(join(raiz, 'www/erro.html')));
+  assert.ok(contraste(erro['texto-suave'], erro.fundo) >= 4.5, 'o texto suave no fundo (WCAG AA)');
+  assert.ok(contraste(erro['sobre-destaque'], erro.destaque) >= 4.5, 'o texto do botão sobre o destaque (WCAG AA)');
+  assert.ok(contraste(erro.destaque, erro.fundo) >= 3, 'o botão se destaca do fundo');
+});

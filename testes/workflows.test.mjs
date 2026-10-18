@@ -184,14 +184,31 @@ test('as CASCA_* chegam só ao passo do Gradle; o npm ci e o cap sync rodam ante
 // O que tem de passar antes de publicar
 // ---------------------------------------------------------------------------------------------------------------
 
+// O repositório do app: o Atualizador lê o versao.json de releases/latest/download/ DESTE repositório, e o VersaoRemota só
+// aceita o APK das Releases dele. Uma Release que saísse de outro (um fork, o nome antigo, o repositório criado com outro
+// nome) seria publicada, assinada e vista por ninguém: os aparelhos ficariam sem atualização, em silêncio.
+const REPOSITORIO_DO_APP = 'Grid-Co-CODE/nexus-field';
+const PASSO_DO_REPOSITORIO = 'O repositório é o que o app enxerga';
+
+test('o primeiro passo da Release confere o repositório, e o nome dele é o que o Atualizador lê', () => {
+  const urlVersao = ler('android/app/src/main/java/br/com/gridco/campo/Atualizador.java').match(/URL_VERSAO =\s*"([^"]+)"/)?.[1];
+  assert.equal(urlVersao, `https://github.com/${REPOSITORIO_DO_APP}/releases/latest/download/versao.json`,
+    'o repositório que o app lê é o desta conferência (se mudar, mude os dois)');
+  assert.equal(indiceDoNome(release, PASSO_DO_REPOSITORIO), 0, 'antes de baixar o código, de qualquer outra conferência e da chave');
+  const p = release.steps[0];
+  assert.ok(p.run.includes(`"${REPOSITORIO_DO_APP}"`), 'o nome do repositório vai inteiro e entre aspas no script');
+  assert.match(p.run, /\$\{?GITHUB_REPOSITORY\}?/, 'compara com o repositório da própria execução');
+  assert.ok(!p.env && !p.uses, 'o GITHUB_REPOSITORY o runner já traz: o passo só roda um script');
+});
+
 test('antes de a chave sair do secret: o commit da tag na main, a versão da tag e o versionCode que cresce', () => {
   const decodificar = indiceDoNome(release, 'Decodificar a chave de assinatura');
-  assert.equal(indiceDoUses(release, 'actions/checkout@'), 0);
-  assert.deepEqual(release.steps[0].with, { 'persist-credentials': false, 'fetch-depth': 0 }, 'o histórico inteiro, para achar a main');
+  assert.equal(indiceDoUses(release, 'actions/checkout@'), 1, 'logo depois da conferência do repositório');
+  assert.deepEqual(release.steps[1].with, { 'persist-credentials': false, 'fetch-depth': 0 }, 'o histórico inteiro, para achar a main');
   const naMain = indiceDoNome(release, 'O commit da tag está na main');
   const versao = indiceDoNome(release, 'Versão da tag');
   const cresce = indiceDoNome(release, 'O versionCode cresce');
-  assert.equal(naMain, 1, 'logo depois do checkout');
+  assert.equal(naMain, 2, 'logo depois do checkout');
   assert.ok(versao > naMain && cresce > versao && decodificar > cresce, 'ordem: main, versão, versionCode, chave');
   assert.match(release.steps[naMain].run, /git merge-base --is-ancestor "\$alvo" origin\/main/);
   assert.match(release.steps[versao].run, /node ferramentas\/versao-json\.mjs tipo-da-versao "\$versao"/);
@@ -241,6 +258,17 @@ test('CI de PR: Node 22.x, npm test, os testes de JVM, o APK de depuração, o l
   assert.deepEqual(nomes, ['instaladorRecebeOUriDoProviderParaOApkDaPasta', 'oProviderDoInstaladorNaoExpoeNadaAlemDeCacheAtualizacao']);
   const java = ler('android/app/src/test/java/br/com/gridco/campo/AtualizadorTest.java');
   for (const nome of nomes) assert.match(java, new RegExp(`public void ${nome}\\(`), `${nome} no AtualizadorTest.java`);
+});
+
+test('CI de PR: o checkout do job dos testes traz o histórico inteiro, para a varredura de nomes achar os autores', () => {
+  // O testes/dados-pessoais.test.mjs monta a lista de nomes do `git log`. Com o checkout raso (um commit só), o log tem
+  // o autor do último commit; num pull_request esse é o commit de merge de teste do GitHub, de autor "GitHub", que não é
+  // gente, e a varredura de nomes era pulada em silêncio. Com o histórico inteiro vêm os autores de verdade.
+  const checkout = usoDe(montar.jobs.montar, 'actions/checkout@');
+  assert.ok(checkout, 'o job dos testes baixa o código');
+  assert.equal(checkout.with?.['fetch-depth'], 0);
+  assert.equal(checkout.with?.['persist-credentials'], false, 'e continua sem deixar o token no disco');
+  assert.ok(indiceDoUses(montar.jobs.montar, 'actions/checkout@') < indiceDoRun(montar.jobs.montar, 'npm test'));
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -311,6 +339,26 @@ test('todo run dos dois workflows passa no bash -n', pularSemBash, () => {
       }
     }
   }
+});
+
+test('passo "O repositório é o que o app enxerga": só o Grid-Co-CODE/nexus-field publica, com o nome inteiro e a caixa certa', pularSemBash, (t) => {
+  const dir = pastaTemporaria(t);
+  const script = passo(release, PASSO_DO_REPOSITORIO).run;
+  const rodar = (repositorio) => bash(script, { cwd: dir, env: { GITHUB_REPOSITORY: repositorio } });
+  const certo = rodar(REPOSITORIO_DO_APP);
+  assert.equal(certo.status, 0, `o repositório do app passa: ${certo.stderr}`);
+  for (const outro of [
+    'Grid-Co-CODE/app-campo', 'Grid-Co-CODE/nexus', 'Grid-Co-CODE/nexus-field-teste', 'Grid-Co-CODE/nexus-fiel', 'outra-conta/nexus-field',
+    'grid-co-code/nexus-field', 'Grid-Co-CODE/Nexus-Field', 'x/Grid-Co-CODE/nexus-field', 'Grid-Co-CODE/nexus-field/x', ' Grid-Co-CODE/nexus-field', '',
+  ]) {
+    const r = rodar(outro);
+    assert.notEqual(r.status, 0, `"${outro}" não pode publicar`);
+    assert.match(r.stderr, /só enxerga Grid-Co-CODE\/nexus-field/, 'a mensagem diz qual é o único repositório que o app enxerga');
+    assert.equal(r.stdout, '');
+  }
+  // Sem a variável (o script rodado fora do GitHub) também não passa: nada de "vazio igual a certo".
+  const semVariavel = bash(script, { cwd: dir, env: { GITHUB_REPOSITORY: undefined } });
+  assert.notEqual(semVariavel.status, 0);
 });
 
 test('passo "O commit da tag está na main": a tag num ramo fora da main não publica', pularSemBash, (t) => {

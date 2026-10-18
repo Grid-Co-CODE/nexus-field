@@ -29,6 +29,8 @@ instalação é do próprio dono do aparelho. O que precisa do cabo está marcad
       rótulo **Nexus Field** embaixo. Na gaveta de apps e em Configurações > Apps, o mesmo nome.
 - [ ] Com os ícones temáticos ligados (Android 13+, "Ícones com tema" no papel de parede), o G aparece na cor do tema.
 - [ ] Ao abrir, a abertura é o navy com o G pequeno no centro (sem a imagem padrão do Capacitor).
+- [ ] A tela "Sem internet" (primeira abertura em modo avião) tem o mesmo navy da abertura, não o roxo-escuro do site, com o
+      texto legível e o botão verde "Tentar de novo".
 
 ## O roteiro da spec (10.3)
 

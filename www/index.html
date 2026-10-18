@@ -7,8 +7,9 @@
   <style>
     /* O Capacitor exige um webDir com index.html, mas o app abre o site (server.url). Esta página só aparece se o
        carregamento do site for interrompido antes de a página de erro assumir, e atrás do aviso da WebView antiga
-       (o MainActivity tira o server.url, e o site do App de Campo não abre sem o script de início). */
-    :root { --fundo:#191528; --texto:#f2f0fa; }
+       (o MainActivity tira o server.url, e o site do App de Campo não abre sem o script de início). O fundo é o do
+       Nexus Field (#090d18), o mesmo do ícone, da abertura e da tela "Sem internet". */
+    :root { --fundo:#090d18; --texto:#f2f0fa; }
     html, body { margin:0; height:100%; background:var(--fundo); color:var(--texto);
       font-family:system-ui, sans-serif; display:flex; align-items:center; justify-content:center; }
   </style>

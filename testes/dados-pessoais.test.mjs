@@ -8,7 +8,8 @@
 // varredura acharia este próprio arquivo.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, copyFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname } from 'node:path';
@@ -269,6 +270,69 @@ test('fora da varredura de nomes ficam só os dois arquivos datados, e arquivo n
   }
 });
 
+/**
+ * O que a varredura de nomes faz com a lista de autores: 'varrer' (há autor que seja gente), 'pular' (não há, e é o
+ * computador de quem desenvolve, onde o repositório pode estar sem histórico) ou 'falhar' (não há, e é o CI). No CI a
+ * lista vazia quer dizer checkout raso: o pull_request traz só o commit de merge de teste do GitHub, de autor "GitHub".
+ * Pular ali deixava o teste verde sem procurar nome nenhum. O GitHub Actions define CI=true.
+ */
+export function decisaoDaVarreduraDeNomes(padroes, ambiente) {
+  if (padroes.primeiro) return 'varrer';
+  return /^(?:true|1)$/i.test(String(ambiente?.CI ?? '')) ? 'falhar' : 'pular';
+}
+
+test('sem autor que seja gente no git log: fora do CI a varredura de nomes pula, e no CI ela falha', () => {
+  // O caso: o checkout raso do CI (um commit só) de um pull_request traz o commit de merge de teste do GitHub, de autor
+  // "GitHub", que não é gente. A lista de nomes ficava vazia e a varredura era pulada, com o teste verde: ninguém via
+  // que nenhum nome estava sendo procurado. No CI isso é falha (o checkout traz o histórico inteiro, fetch-depth: 0).
+  const vazia = padroesDeNomes([]);
+  const soContas = padroesDeNomes(['GitHub', 'algum-robo[bot]']);
+  const comGente = padroesDeNomes([junta('Beltrano', '-1234'), 'GitHub']);
+  assert.equal(decisaoDaVarreduraDeNomes(comGente, {}), 'varrer');
+  assert.equal(decisaoDaVarreduraDeNomes(comGente, { CI: 'true' }), 'varrer');
+  for (const padroes of [vazia, soContas]) {
+    assert.equal(decisaoDaVarreduraDeNomes(padroes, {}), 'pular', 'no computador de quem desenvolve, o repositório pode estar sem histórico');
+    assert.equal(decisaoDaVarreduraDeNomes(padroes, { CI: '' }), 'pular');
+    assert.equal(decisaoDaVarreduraDeNomes(padroes, { CI: 'false' }), 'pular');
+    assert.equal(decisaoDaVarreduraDeNomes(padroes, { CI: 'true' }), 'falhar', 'o GitHub Actions define CI=true');
+    assert.equal(decisaoDaVarreduraDeNomes(padroes, { CI: 'TRUE' }), 'falhar');
+    assert.equal(decisaoDaVarreduraDeNomes(padroes, { CI: '1' }), 'falhar');
+  }
+});
+
+test('o teste da varredura de nomes, num repositório raso do CI (só o autor "GitHub"), falha com CI=true e pula sem ele', (t) => {
+  // A fiação, não só a decisão: roda uma CÓPIA deste arquivo num repositório novo cujo único commit é de "GitHub" (o merge
+  // de teste de um pull_request num checkout raso) e confere o que a varredura de nomes faz de verdade. O filtro por nome
+  // deixa o filho rodar só a varredura (este teste não casa com ele: sem recursão).
+  const dir = mkdtempSync(join(tmpdir(), 'casca-raso-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, 'testes'));
+  copyFileSync(join(raiz, 'testes', 'dados-pessoais.test.mjs'), join(dir, 'testes', 'dados-pessoais.test.mjs'));
+  const git = (...args) => {
+    const r = spawnSync('git', ['-c', 'user.name=GitHub', '-c', 'user.email=noreply@github.com', '-c', 'commit.gpgsign=false', ...args],
+      { cwd: dir, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  git('init', '-q');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'merge de teste');
+  const rodar = (ci) => {
+    const env = { ...process.env };
+    delete env.CI;
+    delete env.NODE_TEST_CONTEXT; // o filho é uma execução nova do node --test, não um subteste desta
+    if (ci !== undefined) env.CI = ci;
+    const r = spawnSync(process.execPath, ['--test', '--test-reporter=spec', '--test-name-pattern=cita pelo nome quem trabalha',
+      'testes/dados-pessoais.test.mjs'], { cwd: dir, encoding: 'utf8', env });
+    return { status: r.status, saida: (r.stdout ?? '') + (r.stderr ?? '') };
+  };
+  const noCi = rodar('true');
+  assert.notEqual(noCi.status, 0, 'no CI, sem autor que seja gente, o teste cai');
+  assert.match(noCi.saida, /fetch-depth: 0/, 'e diz o que conferir');
+  const local = rodar(undefined);
+  assert.equal(local.status, 0, 'fora do CI pula');
+  assert.match(local.saida, /skipped 1/);
+});
+
 function autoresDoGit() {
   const r = spawnSync('git', ['log', '--format=%an'], { cwd: raiz, encoding: 'utf8' });
   assert.equal(r.status, 0, `o git log falhou: ${r.stderr}`);
@@ -277,10 +341,14 @@ function autoresDoGit() {
 
 test('nenhum arquivo versionado cita pelo nome quem trabalha no repositório (os autores do git)', (t) => {
   const padroes = padroesDeNomes(autoresDoGit());
-  if (!padroes.primeiro) {
+  const decisao = decisaoDaVarreduraDeNomes(padroes, process.env);
+  if (decisao === 'pular') {
     t.skip('o git log não tem autor que seja gente');
     return;
   }
+  assert.notEqual(decisao, 'falhar',
+    'no CI o git log não trouxe nenhum autor que seja gente, e a varredura de nomes não procuraria ninguém: confira se o checkout ' +
+    'tem o histórico inteiro (fetch-depth: 0 no montar.yml)');
   const arquivos = arquivosVersionados();
   // A exceção é de arquivo que existe: renomeado ou apagado, a entrada sai da lista (e o renomeado é varrido).
   for (const caminho of FORA_DA_VARREDURA_DE_NOMES) {

@@ -477,3 +477,13 @@ test('a página é autocontida, sem emoji e com a lista "O que aprovar" no topo'
   assert.ok(!/\p{Extended_Pictographic}/u.test(HTML), 'sem emoji');
   assert.ok(d.querySelector('#o-que-aprovar'), 'a lista "O que aprovar" no topo');
 });
+
+test('o quadro da tela Sem internet tem o fundo do Nexus Field (o do ícone), não o do site que fica atrás dos avisos', () => {
+  const f = folha();
+  assert.equal(regraDe(f, '#erro-html').decl.background, 'var(--icone-fundo)',
+    'o iframe do erro.html pinta o navy enquanto carrega, como a página dele');
+  // O --app-fundo continua sendo o do site (atrás dos diálogos e da camada do Fracttal), e é outra cor.
+  const raizCss = regraDe(f, ':root').decl;
+  assert.notEqual(raizCss['--app-fundo'].toLowerCase(), raizCss['--icone-fundo'].toLowerCase());
+  assert.match(ERRO_HTML, /--fundo:\s*#090d18/i, 'e o srcdoc (a cópia do erro.html) está no navy');
+});
