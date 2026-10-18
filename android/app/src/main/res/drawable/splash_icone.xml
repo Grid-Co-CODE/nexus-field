@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  O ícone da abertura (windowSplashScreenAnimatedIcon). O sistema o desenha num quadro de 288 dp (Android 12+, e o
+  Theme.SplashScreen do androidx do 7 ao 11); com o primeiro plano do ícone direto, o G sairia com ~150 dp. A margem de
+  48 dp de cada lado deixa o G com ~100 dp: pequeno, no centro do navy.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@mipmap/ic_launcher_foreground"
+    android:inset="48dp" />

@@ -1,9 +1,10 @@
-# CLAUDE.md — app-campo-android
+# CLAUDE.md — Nexus Field (app-campo-android)
 
-Casca Android (Capacitor 8.5.3) do App de Campo da Grid Co. O App de Campo é um PWA que roda ao vivo em
-`https://gridco-campo-mw.azurewebsites.net/api/app`; a casca só o abre em tela cheia, com ícone, GPS e câmera nativos,
-e guarda no aparelho o que o navegador pode perder. O site não muda: aqui só há leitura dele, e só pelo teste de
-contrato.
+**Nexus Field** é a casca Android (Capacitor 8.5.3) do App de Campo da Grid Co. O App de Campo é um PWA que roda ao
+vivo em `https://gridco-campo-mw.azurewebsites.net/api/app`; a casca só o abre em tela cheia, com ícone, GPS e câmera
+nativos, e guarda no aparelho o que o navegador pode perder. O site não muda: aqui só há leitura dele, e só pelo teste
+de contrato. O aplicativo se chama Nexus Field (pedido do dono da casca, 17/10/2026); o site dentro dele continua
+sendo o App de Campo. A pasta local ainda se chama `app-campo-android`; o repositório é `Grid-Co-CODE/nexus-field`.
 
 - Desenho: `docs/superpowers/specs/2026-10-16-app-campo-android-design.md`
 - Plano: `docs/superpowers/plans/2026-10-16-app-campo-android.md`
@@ -12,7 +13,7 @@ contrato.
 
 ```
 npm install
-npm test                                   # testes de Node (script de início, configuração, workflows, contrato, governança)
+npm test                                   # testes de Node (script de início, configuração, ícone, nome, workflows, contrato, governança)
 source ferramentas/ambiente.sh             # JAVA_HOME, ANDROID_HOME, PATH e android/local.properties (JDK 21, SDK API 36)
 npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug lint)
 ```
@@ -24,7 +25,7 @@ No Windows, rode o `npm test` pelo Git Bash: o `testes/workflows.test.mjs` roda 
 bash de verdade e PULA esses testes fora do Git Bash (o `bash.exe` do System32 é o do WSL, outro sistema de arquivos).
 
 O APK de depuração sai em `android/app/build/outputs/apk/debug/app-debug.apk`. Não há emulador nesta máquina. O adb, num
-aparelho de prova ligado por USB, só instala ou desinstala `br.com.gridco.campo` e lê o logcat filtrado ao app: nada de
+aparelho de prova ligado por USB, só instala ou desinstala `br.com.gridco.nexusfield` e lê o logcat filtrado ao app: nada de
 shell, `run-as`, `pull`, print de tela, outro app ou configuração do sistema. Sem o cabo, a prova inteira se faz com o APK
 instalado por arquivo ou link: o roteiro é o `docs/prova-no-aparelho.md` (caixas de seleção). O APK de depuração nunca vai
 a técnico: no campo, só o da Release.
@@ -40,8 +41,18 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   `server.appStartPath` é `/api/app`.
 - `server.allowNavigation` tem só hosts de login da Microsoft. O Fracttal nunca entra.
 - `CapacitorHttp` fica desligado. Capacitor fixo em 8.5.3 (`@capacitor/core`, `cli`, `android`).
-- O user agent termina com `GridcoCampoApp/<versionName>`.
-- Pacote `br.com.gridco.campo`, nome "App de Campo Grid Co.", rótulo do ícone "Campo GridCo".
+- O user agent termina com `NexusField/<versionName>` (`CascaPlugin.userAgent`).
+- Nome "Nexus Field" (o `appName` do Capacitor, o `app_name` e o rótulo do ícone, `title_activity_main`);
+  `applicationId` `br.com.gridco.nexusfield`. O pacote Java e o `namespace` ficam `br.com.gridco.campo` (só código):
+  o que depende do `applicationId` o lê do build (`${applicationId}` no manifesto, `BuildConfig.APPLICATION_ID` no
+  código), menos o `targetPackage` do atalho de depuração (o `res/xml` não aceita o `${applicationId}`; o
+  `testes/depuracao.test.mjs` compara). Mudou em 17/10/2026, antes da primeira Release: depois dela, outro
+  `applicationId` é outro aplicativo para o Android, e cada técnico teria de desinstalar o antigo (o que apaga o
+  espelho). Um APK de depuração de antes (`br.com.gridco.campo`) instala AO LADO do novo, não por cima.
+- **Texto da casca diz Nexus Field**, nunca "App de Campo" nem "o App" para falar do aplicativo; "App de Campo" só onde
+  o texto fala do site. O `testes/nome.test.mjs` lê o que a casca mostra (o `strings.xml` do main e do debug, a tela
+  "Sem internet", a página local, as novidades, o `appName`) e falha no nome errado; o trecho que fala do site entra na
+  lista `SOBRE_O_SITE` dele, com o motivo.
 - A casca nunca envia nada da fila ao servidor. Quem envia é a página.
 - O espelho nunca guarda `msal.*`, o `sessionStorage` nem token. `gc_campo_ident` fica cifrado em repouso (Android Keystore).
 - `allowBackup=false` e `dataExtractionRules` excluindo tudo em `<cloud-backup>` e `<device-transfer>`.
@@ -59,8 +70,11 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   nunca a pasta: desenho ou plano novo em `docs/superpowers/` é varrido, e entrada da lista cujo arquivo saiu do git faz
   o teste falhar. Nome de colega que não é autor do git ele não acha: isso segue na revisão.
 - A chave de assinatura e as senhas nunca são impressas em terminal, log ou commit.
-- O repositório continua PÚBLICO e em `Grid-Co-CODE/app-campo-android`: o app lê a `releases/latest/download/` sem
-  autenticação, e o `VersaoRemota` só aceita APK desse endereço. Privado ou movido, o app fica sem atualização em silêncio.
+- O repositório é PÚBLICO e se chama `Grid-Co-CODE/nexus-field` (decidido em 17/10/2026, antes de existir no GitHub): o
+  app lê a `releases/latest/download/` sem autenticação, e o `VersaoRemota` só aceita APK desse endereço. Privado,
+  movido ou criado com outro nome, o app fica sem atualização em silêncio (o `testes/versao-json.test.mjs` confere o
+  nome nos três lados: `Atualizador.URL_VERSAO`, `VersaoRemota.PREFIXO_DO_APK` e o gerador). O APK publicado é o
+  `nexus-field.apk`.
 - Suporte no campo: nunca mandar "Limpar armazenamento" nem desinstalar (os dois apagam o espelho, a última cópia do
   trabalho que não subiu). Para destravar o login, o "limpar só o login" do próprio App.
 
@@ -92,9 +106,11 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   quatro de uma chave descartável (assinado, `apksigner verify` passa).
 - **Dois FileProvider, de propósito.** `${applicationId}.fileprovider` é o do template do Capacitor, e o
   `BridgeWebChromeClient` o exige para a foto do `<input capture>` (a reserva da câmera interna): não remova.
-  `br.com.gridco.campo.arquivos` (classe `ArquivosProvider`, caminhos em `caminhos_arquivos.xml`) é só do instalador da
+  `${applicationId}.arquivos` (classe `ArquivosProvider`, caminhos em `caminhos_arquivos.xml`) é só do instalador da
   atualização e expõe apenas `cache/atualizacao/`. A subclasse é prevenção: o AGP 8.13.0 aceitou os dois com a mesma
-  classe no mesmo arquivo (medido em 16/10/2026), mas para o sistema o `android:name` repetido é o mesmo componente.
+  classe no mesmo arquivo (medido em 16/10/2026), mas para o sistema o `android:name` repetido é o mesmo componente. O
+  `Atualizador` monta a autoridade com o `BuildConfig.APPLICATION_ID` (escrita à mão, ela ficava para trás na troca do
+  `applicationId`, e o instalador procuraria um provider que não existe).
 - **As fotos da reserva da câmera têm faxina** (`FaxinaDaCamera`, chamada uma vez por processo pelo `CascaPlugin`, na
   thread do espelho): o `BridgeWebChromeClient` grava cada foto do `<input capture>` num `JPEG_*.jpg` em
   `getExternalFilesDir(Pictures)` (ou no cache, sem armazenamento externo) e nunca apaga. Eram MB por foto para sempre,
@@ -102,9 +118,24 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   Sai o que tem mais de 48 h (a página já copiou a foto para o IndexedDB): na pasta das fotos, todo arquivo; no cache,
   só o `JPEG_*.jpg` da raiz (lá moram a WebView e o instalador). O arquivo "do futuro" (a hora voltou) fica.
 - **`regras_dados.xml` exclui todos os domínios** nos dois blocos, porque a exclusão vale só para o domínio citado.
-- **Ícone:** gerado do `icon-512.png` do site (`/api/icon-512.png`). O adaptativo tem fundo `#191528`, e o logo ocupa 60%
-  da tela de 108dp (a zona segura do sistema é 66dp); os `ic_launcher*.png` antigos são o quadrado e o redondo do
-  mesmo logo. O rótulo na tela inicial é o `title_activity_main` ("Campo GridCo"); o `app_name` é o nome completo.
+- **Ícone (17/10/2026):** o G da Grid em BRANCO sobre o navy do Nexus (`#090d18`, o `ic_launcher_background`). A
+  fonte é o `docs/marca/grid-g-branco.png`: o `grid-icon.png` verde do Nexus (`nexus/torres/oscreator/os_creator/assets/`,
+  1147 x 1146) recolorido para branco puro com o alfa do original. Os PNG saem do `ferramentas/gerar-icones.py`
+  (Pillow; `--verde <grid-icon.png>` refaz também a cópia branca, só lendo o original): o primeiro plano do adaptativo
+  (`ic_launcher_foreground`, 108 dp), o mesmo G no ícone monocromático do Android 13+ (o `<monochrome>` dos dois XML do
+  `mipmap-anydpi-v26`) e os antigos do Android 7 (`ic_launcher` quadrado e `ic_launcher_round`, 48 dp, que mostram os
+  72 dp visíveis do quadro), nas cinco densidades. O G ocupa 52% da largura do quadro: ele é quase um círculo (o pixel
+  mais longe do centro fica a 1,002 da meia largura), e o raio dele (~28,1 dp) cabe no círculo de 66 dp que toda
+  máscara mostra (círculo, squircle, gota). O ícone de antes (o logo do site em 61,6% do quadro) passava dessa zona. O
+  `testes/icone.test.mjs` lê os PNG pixel a pixel (pelo `testes/png.mjs`, um leitor de PNG só com o zlib do Node): o G
+  inteiro dentro do círculo de 66 dp, no máximo 56% do quadro, centrado e branco puro, em toda densidade. O `lint`
+  avisa `IconLauncherShape` nos quadrados antigos (preenchem o quadro, como os de antes): é aviso, não erro.
+- **A abertura (splash):** o navy do ícone com o G pequeno no centro (decisão: cor sólida COM o G, ~100 dp). O tema
+  `AppTheme.NoActionBarLaunch` define o `windowSplashScreenBackground` (o navy) e o `windowSplashScreenAnimatedIcon`
+  (`drawable/splash_icone.xml`: o primeiro plano com 48 dp de margem, porque o sistema o desenha num quadro de 288 dp e
+  o G sairia com ~150 dp); sem eles, o padrão do androidx era o fundo do tema e o ícone genérico do Android. O
+  `android:background` do tema é o `drawable/splash.xml` (o navy e o G num quadro de 192 dp, o mesmo tamanho). Os
+  `splash.png` do template saíram. O aspecto exato no Android 12+ é do sistema e se confere no aparelho.
 - **`android/app/src/main/assets/public/`, `capacitor.config.json` e `capacitor.plugins.json` (em `assets/`) e
   `res/xml/config.xml` são gerados** pelo `cap sync` e ficam fora do git. O `local.properties` também.
 - **O espelho nativo** (`android/app/src/main/java/br/com/gridco/campo/`): `EspelhoSqlite` guarda no `espelho.db` e em
@@ -283,7 +314,7 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   - Lê o `versao.json` de `releases/latest/download/` (não conta no limite da API do GitHub), com as chaves `versionCode`
     (inteiro), `versionName`, `apk`, `sha256` (64 dígitos hex) e `novidades` (lista de textos). O `ferramentas/versao-json.mjs`
     da Release tem de gerar exatamente isso. Falta de campo, tipo errado, SHA que não seja hex de 64 ou `apk` fora de
-    `https://github.com/Grid-Co-CODE/app-campo-android/releases/download/<pedaços simples>` (sem `..`, `?`, `%`) é recusado:
+    `https://github.com/Grid-Co-CODE/nexus-field/releases/download/<pedaços simples>` (sem `..`, `?`, `%`) é recusado:
     o SHA que o próprio JSON traz não protegeria de um link para outro lugar.
   - A hora da checagem vai ao SharedPreferences ANTES da rede: falhar também conta as 6 h, senão o campo sem sinal esperaria
     15 s a cada volta ao app. A checagem é silêncio: rede e JSON torto vão só ao log, sem endereço nem nome de arquivo.
@@ -291,7 +322,7 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     nenhum por vários MB de dados móveis, o técnico ia a outro app), e o download que não termina, o SHA errado e o erro
     antes do instalador avisam no toast de sempre (`casca_atualizacao_sha_toast`). Sem nova tentativa em laço.
   - Um fluxo por vez em todo o processo (`DONO_DO_PROCESSO`; a tela recriada do renderer que morreu é outra instância, e dois
-    downloads para `cache/atualizacao/app-campo.apk` o corromperiam). O `load()` e o resume que vem logo depois caem aí.
+    downloads para `cache/atualizacao/nexus-field.apk` o corromperiam). O `load()` e o resume que vem logo depois caem aí.
   - **A pendência ("falta só instalar": versionCode, SHA e a hora do download do APK que ficou no cache)** vai ao
     SharedPreferences, porque o Android pode matar o processo e o resume seguinte seria de um processo novo. Nasce em dois
     casos: o toque em "Abrir ajustes" da permissão de instalar (o diálogo fechado sem o toque não deixa nada), e o
@@ -323,22 +354,33 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   origens; os cookies ficam), mostra um toast, espera 3 s e recria a tela, que abre o App como sempre e cai na perda.
   O espelho nativo não é tocado. O extra chega pelo **atalho do ícone** (tocar e segurar: "Prova: apagar WebView",
   `src/debug/res/xml/atalhos_depuracao.xml`, posto pelo `src/debug/AndroidManifest.xml`), para a prova sem o cabo e
-  sem o shell do adb, que a regra do aparelho de prova não permite; ou pelo `am start ... --ez gc_apagar_webview true`
-  num aparelho de prova. Com a tela aberta o atalho só a traz para a frente (`singleTask`): tire o App dos recentes
-  antes. Os textos dela ficam em `src/debug/res/values/depuracao.xml`, sem o prefixo `casca_` e fora da prévia (quem
+  sem o shell do adb, que a regra do aparelho de prova não permite; ou pelo
+  `am start -n br.com.gridco.nexusfield/br.com.gridco.campo.MainActivity --ez gc_apagar_webview true` num aparelho de
+  prova (a classe com o nome inteiro: o `.MainActivity` curto procuraria no `applicationId`). Com a tela aberta o atalho
+  só a traz para a frente (`singleTask`): tire o Nexus Field dos recentes antes. Os textos dela ficam em
+  `src/debug/res/values/depuracao.xml`, sem o prefixo `casca_` e fora da prévia (quem
   os vê é quem faz a prova). Quem prova: o `testes/depuracao.test.mjs` (nada do caminho, nem o nome do extra nem o
   atalho, no `src/main` ou no `src/release`; a do release vazia; a do debug sem tocar no espelho; a ordem no
-  `MainActivity`; o `targetPackage` do atalho igual ao `applicationId`, que muda junto com ele) e o `DepuracaoTest`
+  `MainActivity`; o `targetPackage` do atalho igual ao `applicationId`, que muda junto com ele; o `am start` do roteiro
+  com o componente inteiro) e o `DepuracaoTest`
   (em `src/testDebug`, porque o release nem tem a classe; lê o XML do atalho pelo `Intent.parseIntent`, como o
   launcher, e confere que o `android:value="true"` chega como booleano). Medido em 17/10/2026: o
   `app-release-unsigned.apk` não tem o atalho no manifesto nem `gc_apagar_webview`/`deleteAllData` no dex, e o
   `aapt2 dump xmltree` do de depuração mostra o `value` compilado como booleano.
-- **A prévia das telas novas** (`docs/previas/telas.html`, fora do APK): uma página só, autocontida, com os diálogos do
-  `strings.xml`, os toasts, o `www/erro.html` num iframe e a camada do Fracttal, cada um numa moldura de 360 px, para o
-  dono da casca aprovar texto e visual antes de ir ao campo. **Os textos estão PENDENTES de aprovação do dono da casca**
+- **A prévia das telas novas** (`docs/previas/telas.html`, fora do APK; título "Telas novas do Nexus Field"): uma página
+  só, autocontida, com o ícone e o nome (no topo), a abertura, os diálogos do `strings.xml`, os toasts, o `www/erro.html`
+  num iframe e a camada do Fracttal, cada tela numa moldura de 360 px, para o dono da casca aprovar texto e visual antes
+  de ir ao campo. **O ícone, o nome e os textos estão PENDENTES de aprovação do dono da casca**
   (a página é publicada como Artifact privado do claude.ai e ele aprova por lá); quando ele aprovar, esta frase e os
   cabeçalhos do `strings.xml` passam a dizer "aprovados", com a data. O texto vive no arquivo-fonte, não na prévia:
   pedido de mudança se faz no `strings.xml`, no `erro.html` ou no `inicio.js` e a prévia acompanha.
+  - **Ícone e nome:** o PNG do APK (o `ic_launcher_foreground` de xxxhdpi, byte a byte) embutido UMA vez como `data:` URI
+    num `<image id="g-nexus-field">`, e cada cópia é um `<use>` (oito ícones e a abertura sem repetir 9 KB de base64).
+    Cada ícone é um SVG com `viewBox="18 18 72 72"` (os 72 dp que o launcher mostra do quadro de 108), o fundo pelo token
+    `--icone-fundo` (igual ao `ic_launcher_background`) e a máscara por `clip-path`: `circle(50%)` e a squircle do AOSP
+    em pontos. Nos papéis de parede claro e escuro, em 48 px e 144 px, com o rótulo do `title_activity_main`. A abertura
+    é o G num quadro de 192 px, como o `drawable/splash.xml`. Depois de rodar o `gerar-icones.py`, troque o `data:` (o
+    teste compara os bytes e diz).
   - O `testes/previas.test.mjs` falha se um diálogo da prévia não for um grupo do `strings.xml` (título, texto e botões
     no conjunto e na ordem do aplicativo: negativo à esquerda, positivo à direita, como a `MainActivity`, o `CascaPlugin`
     e o `Atualizador` os montam; o teste lê os `AlertDialog.Builder` do Java), se os toasts da prévia não forem, no
@@ -407,11 +449,12 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     e o `ferramentas/certificado.mjs` exige exatamente um signatário e o SHA-256 dele igual ao da variável do repositório
     `CASCA_CERT_SHA256` (aceita o formato do `keytool`, maiúsculo e com `:`); sem a variável, nada é publicado. Os
     aparelhos confiam para sempre na chave da primeira versão: um APK com outra chave (a de teste, uma regerada) seria
-    oferecido a cada 6 h e recusado pelo instalador, e o "desinstale" apagaria o espelho. A Release leva
-    `app-campo.apk`, `app-campo.apk.sha256` e `versao.json`.
+    oferecido a cada 6 h e recusado pelo instalador, e o "desinstale" apagaria o espelho. A Release ("Nexus Field
+    <versão>") leva `nexus-field.apk`, `nexus-field.apk.sha256` e `versao.json`; o APK de depuração do CI sobe como o
+    artifact `nexus-field-debug`.
   - **O `ferramentas/versao-json.mjs`** gera o `versao.json` com as MESMAS regras do `VersaoRemota.java` (o
     `testes/versao-json.test.mjs` lê o `.java` e compara o prefixo, o padrão do link e o SHA; o SHA tem 64 hex minúsculos,
-    o `versionName` é o semver, o `apk` sai de `v<versão>/app-campo.apk`). O SHA-256 vem do próprio APK; o workflow ainda
+    o `versionName` é o semver, o `apk` sai de `v<versão>/nexus-field.apk`). O SHA-256 vem do próprio APK; o workflow ainda
     confere com o `sha256sum`. Sem nenhuma linha `- ` nas novidades o arquivo sai com a lista vazia (o app mostra só
     "Versão X."). Os subcomandos `tipo-da-versao` e `conferir-crescimento` são os dos passos 2 e 3 acima.
   - **O contrato com o site (`testes/contrato.mjs`):** um GET do `/api/app`, só leitura. Importa do `www/casca/inicio.js`
@@ -457,12 +500,10 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     atividade" não: o projeto mais usado que fazia isso foi desativado pelo GitHub por violar os termos. A primeira prova
     de que o PUT segura é nossa: conferir na aba Actions, uns 70 dias depois do último commit, que o contrato ainda roda
     (e não ignorar o e-mail "The workflow will be disabled soon", se ele vier).
-- **A splash** ainda é a do template do Capacitor (os `splash.png`): trocar por cor sólida ou pelo ícone fica pendente, e
-  se confere no aparelho.
 
 ## Distribuição
 
-- **Primeira instalação:** o link fixo `https://github.com/Grid-Co-CODE/app-campo-android/releases/latest/download/app-campo.apk`,
+- **Primeira instalação:** o link fixo `https://github.com/Grid-Co-CODE/nexus-field/releases/latest/download/nexus-field.apk`,
   mandado pelo supervisor (mensagem ou QR). Na primeira vez o técnico autoriza "instalar apps desconhecidos" para o
   navegador. Depois, o próprio app se atualiza pelo `versao.json` (seção "A atualização da casca").
 - **Verificação de desenvolvedor do Android:** no Brasil, desde 30/09/2026, vale para instalações vindas das lojas; o

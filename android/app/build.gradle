@@ -18,10 +18,13 @@ def casca_assinatura = casca_vars_faltando.isEmpty()
 def casca_keystore = System.getenv('CASCA_KEYSTORE')
 
 android {
+    // O pacote Java fica br.com.gridco.campo; o applicationId é o do Nexus Field (17/10/2026), mudado antes da primeira
+    // Release: depois dela, outro applicationId é outro aplicativo para o Android, e cada técnico teria de desinstalar
+    // (o que apaga o espelho). O que depende dele o lê daqui: ${applicationId} no manifesto, BuildConfig.APPLICATION_ID.
     namespace = "br.com.gridco.campo"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "br.com.gridco.campo"
+        applicationId "br.com.gridco.nexusfield"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode casca_versionCode
@@ -34,8 +37,9 @@ android {
         }
     }
     buildFeatures {
-        // O AGP 8 não gera mais o BuildConfig sozinho; o plugin da casca lê dele a versionName (o fim do user agent,
-        // GridcoCampoApp/<versão>) e o DEBUG (o registro das navegações só na versão de teste).
+        // O AGP 8 não gera mais o BuildConfig sozinho; a casca lê dele a versionName (o fim do user agent,
+        // NexusField/<versão>), o DEBUG (o registro das navegações só na versão de teste) e o APPLICATION_ID (a
+        // autoridade do provider do instalador).
         buildConfig = true
     }
     signingConfigs {

@@ -67,7 +67,7 @@ jobs:
       - name: APK de depuração
         uses: actions/upload-artifact@v7
         with:
-          name: app-campo-debug
+          name: nexus-field-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
           if-no-files-found: error
@@ -232,9 +232,9 @@ jobs:
             echo "Não saiu o APK assinado (app-release.apk): confira se as quatro variáveis CASCA_* chegaram ao build." >&2
             exit 1
           fi
-          cp "$apk" app-campo.apk
+          cp "$apk" nexus-field.apk
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)"
-          "$apksigner" verify --print-certs app-campo.apk > "$RUNNER_TEMP/certificados.txt"
+          "$apksigner" verify --print-certs nexus-field.apk > "$RUNNER_TEMP/certificados.txt"
           node ferramentas/certificado.mjs "$RUNNER_TEMP/certificados.txt"
 
       # O SHA-256 vai em dois lugares (o arquivo .sha256 e o versao.json) calculados por programas diferentes
@@ -242,9 +242,9 @@ jobs:
       - name: SHA-256 e versao.json
         run: |
           set -euo pipefail
-          sha256sum app-campo.apk > app-campo.apk.sha256
-          node ferramentas/versao-json.mjs --apk app-campo.apk --novidades "novidades/${VERSAO_CASCA}.md" --saida versao.json
-          test "$(cut -d' ' -f1 app-campo.apk.sha256)" = "$(node -p "require('./versao.json').sha256")"
+          sha256sum nexus-field.apk > nexus-field.apk.sha256
+          node ferramentas/versao-json.mjs --apk nexus-field.apk --novidades "novidades/${VERSAO_CASCA}.md" --saida versao.json
+          test "$(cut -d' ' -f1 nexus-field.apk.sha256)" = "$(node -p "require('./versao.json').sha256")"
 
       # Versão com pré-versão (1.1.0-rc.1) sai como pré-lançamento: a releases/latest/ que o app lê não a enxerga. O tipo
       # veio do passo "Versão da tag" (o hífen do metadado de build, como em 1.0.0+ci-7, não conta).
@@ -263,9 +263,9 @@ jobs:
               exit 1
               ;;
           esac
-          gh release create "$GITHUB_REF_NAME" app-campo.apk app-campo.apk.sha256 versao.json \
+          gh release create "$GITHUB_REF_NAME" nexus-field.apk nexus-field.apk.sha256 versao.json \
             --verify-tag \
-            --title "App de Campo ${VERSAO_CASCA}" \
+            --title "Nexus Field ${VERSAO_CASCA}" \
             --notes-file "novidades/${VERSAO_CASCA}.md" \
             "${extras[@]}"
 

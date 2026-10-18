@@ -97,9 +97,16 @@ test('o MainActivity troca o config pelo sem o App antes do super.onCreate e só
     'a ordem: pergunta, troca o config (o App não abre nesta tela), cria a tela, apaga');
 });
 
-test('o roteiro da prova no aparelho cita o extra que o código lê', () => {
+test('o roteiro da prova no aparelho cita o extra que o código lê, no componente deste pacote', () => {
   const roteiro = ler(join(RAIZ, 'docs', 'prova-no-aparelho.md'));
   assert.ok(roteiro.includes('--ez gc_apagar_webview true'), 'o comando de abertura com o extra');
+  // O applicationId (br.com.gridco.nexusfield) não é o pacote Java (br.com.gridco.campo): o atalho ".MainActivity" do am
+  // start procuraria a classe dentro do applicationId e não acharia. O componente vai com o nome inteiro da classe.
+  const applicationId = BUILD_GRADLE.match(/applicationId\s+"([^"]+)"/)[1];
+  const namespace = BUILD_GRADLE.match(/namespace\s*=\s*"([^"]+)"/)[1];
+  const componentes = [...roteiro.matchAll(/am start -n (\S+)/g)].map((m) => m[1]);
+  assert.ok(componentes.length >= 1, 'o roteiro tem o am start');
+  for (const c of componentes) assert.equal(c, `${applicationId}/${namespace}.MainActivity`);
   assert.match(roteiro, /- \[ \] /, 'o roteiro é uma lista de caixas de seleção');
 });
 

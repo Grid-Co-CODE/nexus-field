@@ -138,7 +138,7 @@ public class CascaPlugin extends Plugin {
 
         // 4. Os logs do servidor separam o app do navegador por aqui, sem mudar o site.
         WebSettings ajustes = webView.getSettings();
-        ajustes.setUserAgentString(ajustes.getUserAgentString() + " GridcoCampoApp/" + BuildConfig.VERSION_NAME);
+        ajustes.setUserAgentString(userAgent(ajustes.getUserAgentString(), BuildConfig.VERSION_NAME));
 
         if (origem == null || origem.isEmpty()) {
             Log.e(TAG, "sem server.url: a casca fica sem espelho nesta partida");
@@ -170,6 +170,14 @@ public class CascaPlugin extends Plugin {
         // cai no "um fluxo por vez" ou nas 6 h, e não repete.
         atualizador = new Atualizador(getActivity());
         atualizador.verificar();
+    }
+
+    /**
+     * O user agent da WebView com o fim que identifica o aplicativo: " NexusField/<versionName>". Mudou com o nome do
+     * aplicativo em 17/10/2026, antes da primeira Release; o site não depende dele.
+     */
+    static String userAgent(String doSistema, String versao) {
+        return doSistema + " NexusField/" + versao;
     }
 
     /**

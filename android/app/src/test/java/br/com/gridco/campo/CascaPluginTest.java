@@ -22,6 +22,14 @@ public class CascaPluginTest {
     }
 
     @Test
+    public void userAgentTerminaComNexusFieldEAVersao() {
+        // Os logs do servidor separam o app do navegador por este fim (o nome do aplicativo é Nexus Field desde 17/10).
+        assertEquals("Mozilla/5.0 (Linux; Android 14) Chrome/130 Mobile Safari/537.36 NexusField/1.2.3",
+            CascaPlugin.userAgent("Mozilla/5.0 (Linux; Android 14) Chrome/130 Mobile Safari/537.36", "1.2.3"));
+        assertEquals("x NexusField/0.0.0-dev", CascaPlugin.userAgent("x", "0.0.0-dev"));
+    }
+
+    @Test
     public void semQueryNemFragmentoOEnderecoVaiInteiro() {
         assertEquals("https://gridco-campo-mw.azurewebsites.net/api/app",
             log("https://gridco-campo-mw.azurewebsites.net/api/app"));

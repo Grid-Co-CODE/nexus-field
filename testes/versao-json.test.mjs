@@ -24,7 +24,7 @@ const base = { versionCode: 7, versionName: '1.0.0', sha256: SHA, novidadesMd: '
 
 test('versao.json aponta para a Release da versão', () => {
   const v = montarVersaoJson(base);
-  assert.equal(v.apk, 'https://github.com/Grid-Co-CODE/app-campo-android/releases/download/v1.0.0/app-campo.apk');
+  assert.equal(v.apk, 'https://github.com/Grid-Co-CODE/nexus-field/releases/download/v1.0.0/nexus-field.apk');
   assert.deepEqual(v.novidades, ['Primeira versão']);
 });
 
@@ -114,6 +114,19 @@ test('o gerador usa o prefixo e o padrão do apk que o VersaoRemota.java usa', (
   assert.equal(javaSha, '[0-9A-Fa-f]{64}');
 });
 
+test('o repositório é o Grid-Co-CODE/nexus-field nos três lados: onde o app lê o versao.json, de onde aceita o APK e o que o gerador escreve', () => {
+  // O app lê a releases/latest/download/ deste repositório e só aceita o APK das Releases dele. Com o nome trocado num
+  // lado só, a Release sai e o app não a vê, em silêncio.
+  const atualizador = readFileSync(join(raiz, 'android/app/src/main/java/br/com/gridco/campo/Atualizador.java'), 'utf8');
+  const urlVersao = atualizador.match(/URL_VERSAO =\s*"([^"]+)"/)?.[1];
+  assert.equal(urlVersao, 'https://github.com/Grid-Co-CODE/nexus-field/releases/latest/download/versao.json');
+  assert.equal(javaPrefixo, 'https://github.com/Grid-Co-CODE/nexus-field/releases/download/');
+  assert.equal(PREFIXO_DO_APK, javaPrefixo);
+  assert.match(montarVersaoJson(base).apk, /\/nexus-field\.apk$/, 'o APK publicado é o nexus-field.apk');
+  // O APK que o app guarda no cache para o instalador também leva o nome novo.
+  assert.match(atualizador, /NOME_DO_APK = "nexus-field\.apk";/);
+});
+
 // A regra do apkValido do Java, refeita a partir das constantes lidas do arquivo.
 function oAppAceitaOApk(apk) {
   if (!apk.startsWith(javaPrefixo)) return false;
@@ -125,11 +138,11 @@ function oAppAceitaOApk(apk) {
 test('apkValidoParaOApp decide como o apkValido do Java, em links bons e maus', () => {
   const P = javaPrefixo;
   const links = [
-    `${P}v1.0.0/app-campo.apk`, `${P}v1.0.0-rc.1/app-campo.apk`, `${P}v1.0.0+7/app-campo.apk`, `${P}a`, `${P}a/b/c.apk`, `${P}_x/~y`,
+    `${P}v1.0.0/nexus-field.apk`, `${P}v1.0.0-rc.1/nexus-field.apk`, `${P}v1.0.0+7/nexus-field.apk`, `${P}a`, `${P}a/b/c.apk`, `${P}_x/~y`,
     P, `${P}/`, `${P}a/`, `${P}/a`, `${P}a//b`, `${P}.`, `${P}..`, `${P}a/./b`, `${P}a/../b`, `${P}../a`, `${P}...`, `${P}a..b`,
     `${P}a?b`, `${P}a#b`, `${P}a%2e%2e/b`, `${P}a%20b`, `${P}a b`, `${P}a\\b`, `${P}a\nb`, `${P}á`, `${P}a;b`, `${P}a:b`, `${P}a@b`,
-    'https://github.com/outro/repo/releases/download/v1/app-campo.apk', 'http://github.com/Grid-Co-CODE/app-campo-android/releases/download/v1/x',
-    'https://github.com/Grid-Co-CODE/app-campo-android/releases/latest/download/app-campo.apk', '', 'x',
+    'https://github.com/outro/repo/releases/download/v1/nexus-field.apk', 'http://github.com/Grid-Co-CODE/nexus-field/releases/download/v1/x',
+    'https://github.com/Grid-Co-CODE/nexus-field/releases/latest/download/nexus-field.apk', '', 'x',
   ];
   for (const link of links) {
     assert.equal(apkValidoParaOApp(link), oAppAceitaOApk(link), `divergiu do Java em ${JSON.stringify(link)}`);
@@ -146,7 +159,7 @@ test('tudo o que o gerador escreve, o app aceita (e o que o app recusaria, o ger
   for (const nome of nomes) {
     let escrito = null;
     try { escrito = montarVersaoJson({ ...base, versionName: nome }); } catch { /* recusado */ }
-    const apk = `${javaPrefixo}v${nome}/app-campo.apk`;
+    const apk = `${javaPrefixo}v${nome}/nexus-field.apk`;
     const appAceita = nome.trim() !== '' && oAppAceitaOApk(apk);
     if (escrito) {
       assert.ok(appAceita, `o gerador escreveu a versão ${JSON.stringify(nome)} que o app recusaria`);
@@ -173,7 +186,7 @@ function pastaComApk() {
   const dir = mkdtempSync(join(tmpdir(), 'versao-json-'));
   const conteudo = Buffer.from('um apk de mentira, só para o SHA-256');
   const notas = '# 1.2.3\n\n- Primeira\n- Segunda\n';
-  writeFileSync(join(dir, 'app-campo.apk'), conteudo);
+  writeFileSync(join(dir, 'nexus-field.apk'), conteudo);
   writeFileSync(join(dir, '1.2.3.md'), notas);
   mkdirSync(join(dir, 'novidades'));
   writeFileSync(join(dir, 'novidades', '1.2.3.md'), notas);
@@ -183,20 +196,20 @@ function pastaComApk() {
 test('linha de comando: gera o versao.json com o SHA-256 do APK, o número da execução e as novidades', () => {
   const { dir, sha } = pastaComApk();
   try {
-    const r = rodar(['--apk', 'app-campo.apk', '--novidades', '1.2.3.md', '--saida', 'versao.json'], { VERSAO_CASCA: '1.2.3', GITHUB_RUN_NUMBER: '41' }, dir);
+    const r = rodar(['--apk', 'nexus-field.apk', '--novidades', '1.2.3.md', '--saida', 'versao.json'], { VERSAO_CASCA: '1.2.3', GITHUB_RUN_NUMBER: '41' }, dir);
     assert.equal(r.status, 0, r.stderr);
     const v = JSON.parse(readFileSync(join(dir, 'versao.json'), 'utf8'));
     assert.deepEqual(v, {
       versionCode: 41,
       versionName: '1.2.3',
-      apk: 'https://github.com/Grid-Co-CODE/app-campo-android/releases/download/v1.2.3/app-campo.apk',
+      apk: 'https://github.com/Grid-Co-CODE/nexus-field/releases/download/v1.2.3/nexus-field.apk',
       sha256: sha,
       novidades: ['Primeira', 'Segunda'],
     });
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('linha de comando: sem argumentos usa app-campo.apk, novidades/<versão>.md e versao.json', () => {
+test('linha de comando: sem argumentos usa nexus-field.apk, novidades/<versão>.md e versao.json', () => {
   const { dir, sha } = pastaComApk();
   try {
     const r = rodar([], { VERSAO_CASCA: '1.2.3', GITHUB_RUN_NUMBER: '41' }, dir);
@@ -209,7 +222,7 @@ test('linha de comando: sem argumentos usa app-campo.apk, novidades/<versão>.md
 
 test('linha de comando: o que falta ou está torto para com erro e não deixa versao.json', () => {
   const { dir } = pastaComApk();
-  const comuns = ['--apk', 'app-campo.apk', '--novidades', '1.2.3.md', '--saida', 'versao.json'];
+  const comuns = ['--apk', 'nexus-field.apk', '--novidades', '1.2.3.md', '--saida', 'versao.json'];
   try {
     const casos = [
       [{ GITHUB_RUN_NUMBER: '41' }, comuns, /VERSAO_CASCA/],
@@ -219,7 +232,7 @@ test('linha de comando: o que falta ou está torto para com erro e não deixa ve
       [{ VERSAO_CASCA: '1.2.3', GITHUB_RUN_NUMBER: '1.5' }, comuns, /GITHUB_RUN_NUMBER/],
       [{ VERSAO_CASCA: '../1', GITHUB_RUN_NUMBER: '41' }, comuns, /versionName/],
       [{ VERSAO_CASCA: '1.2.3', GITHUB_RUN_NUMBER: '41' }, ['--apk', 'nao-existe.apk', '--novidades', '1.2.3.md', '--saida', 'versao.json'], /nao-existe\.apk/],
-      [{ VERSAO_CASCA: '1.2.3', GITHUB_RUN_NUMBER: '41' }, ['--apk', 'app-campo.apk', '--novidades', 'nao-existe.md', '--saida', 'versao.json'], /nao-existe\.md/],
+      [{ VERSAO_CASCA: '1.2.3', GITHUB_RUN_NUMBER: '41' }, ['--apk', 'nexus-field.apk', '--novidades', 'nao-existe.md', '--saida', 'versao.json'], /nao-existe\.md/],
       [{ VERSAO_CASCA: '1.2.3', GITHUB_RUN_NUMBER: '41' }, [...comuns, '--outra-coisa', 'x'], /--outra-coisa/],
     ];
     for (const [env, args, esperado] of casos) {

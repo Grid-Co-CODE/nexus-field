@@ -303,7 +303,7 @@ async function lerOSite({ buscar, url, esperasMs }) {
       res = await buscar(url, {
         method: 'GET',
         redirect: 'follow',
-        headers: { accept: 'text/html', 'user-agent': 'app-campo-android-contrato' },
+        headers: { accept: 'text/html', 'user-agent': 'nexus-field-contrato' },
         signal: AbortSignal.timeout(TEMPO_LIMITE_MS),
       });
     } catch (e) {

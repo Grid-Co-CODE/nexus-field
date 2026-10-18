@@ -4,7 +4,9 @@
 //   1. cada diálogo da prévia é um grupo do strings.xml (título, texto, botões no conjunto e na ordem em que a
 //      MainActivity, o CascaPlugin e o Atualizador os montam), e cada toast é um do strings.xml que o Java mostra;
 //   2. a tela de erro é o www/erro.html, byte a byte (a prévia o embute num iframe);
-//   3. a camada do Fracttal é a que o www/casca/inicio.js monta de verdade, com o HTML que o campo.html escreve na aba.
+//   3. a camada do Fracttal é a que o www/casca/inicio.js monta de verdade, com o HTML que o campo.html escreve na aba;
+//   4. o ícone é o PNG que vai ao APK (o primeiro plano de xxxhdpi, byte a byte, embutido como data: URI) sobre a cor do
+//      fundo do ícone, e o rótulo embaixo dele é o do strings.xml.
 // Quando o dono da casca pedir outro texto, o arquivo-fonte muda (strings.xml, erro.html ou inicio.js) e a prévia
 // acompanha; este teste falha enquanto uma das duas estiver para trás.
 //
@@ -46,6 +48,12 @@ const textoDe = (nome) => {
   const achada = stringsDaCasca().find((s) => s.nome === nome);
   assert.ok(achada, `${nome} não existe no strings.xml`);
   return achada.texto;
+};
+// Uma string do aplicativo fora das da casca (o nome: app_name, title_activity_main).
+const stringDoApp = (nome) => {
+  const achada = STRINGS.match(new RegExp(`<string name="${nome}">([^<]*)</string>`));
+  assert.ok(achada, `${nome} não existe no strings.xml`);
+  return achada[1];
 };
 
 // O `%1$s` do strings.xml vira "qualquer coisa": a versão (%1) é uma palavra só; a lista de novidades (%2) pode ter várias.
@@ -250,6 +258,7 @@ test('os links "Ver" da lista têm alvo de toque de pelo menos 44 px', () => {
 test('os nomes entre aspas da lista "O que aprovar" são textos de verdade do aplicativo', () => {
   // A lista é uma terceira cópia dos títulos e dos botões; sem esta conferência ela envelhece sozinha.
   const permitidos = new Set(stringsDaCasca().map((s) => s.texto));
+  for (const nome of ['app_name', 'title_activity_main']) permitidos.add(stringDoApp(nome)); // o nome, Nexus Field
   const erro = new JSDOM(ERRO_HTML).window.document;
   for (const el of erro.querySelectorAll('h1, p, button')) permitidos.add(compactar(el.textContent));
   const j = criarJanela();
@@ -315,6 +324,67 @@ test('a camada do Fracttal é a que o inicio.js monta com o HTML que o campo.htm
     'estilo, atributos e botão da prévia devem ser os do inicio.js (montarCamada): é o que vai ao aparelho');
 });
 
+test('Ícone e nome, no topo: o PNG do APK sobre o navy, nas máscaras redonda e squircle, nos dois papéis de parede, em 48 dp e ampliado', () => {
+  const d = doc();
+  const secao = d.querySelector('section.grupo');
+  assert.equal(secao?.id, 't-icone', 'a primeira seção de telas é a do ícone e nome');
+  assert.equal(compactar(secao.querySelector('h2').textContent), 'Ícone e nome');
+
+  // A imagem é o primeiro plano de xxxhdpi, byte a byte, e entra uma vez só: as cópias da página a usam por <use>.
+  const imagens = d.querySelectorAll('image');
+  assert.equal(imagens.length, 1, 'o G entra uma vez só na página');
+  const png = readFileSync(new URL('../android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png', import.meta.url));
+  assert.equal(imagens[0].getAttribute('href'), 'data:image/png;base64,' + png.toString('base64'),
+    'o data: URI tem de ser o PNG que vai ao APK (refaça a cópia depois do ferramentas/gerar-icones.py)');
+  const id = imagens[0].getAttribute('id');
+  assert.ok(id, 'a imagem tem id para o <use>');
+
+  // O fundo é a cor do ic_launcher_background do APK.
+  const navy = lerArquivo('../android/app/src/main/res/values/ic_launcher_background.xml').match(/>\s*(#[0-9a-fA-F]{6})\s*</)[1];
+  const f = folha();
+  assert.equal(regraDe(f, ':root').decl['--icone-fundo'].toLowerCase(), navy.toLowerCase());
+  assert.equal(regraDe(f, '.icone-fundo').decl.fill, 'var(--icone-fundo)');
+
+  const papeis = [...secao.querySelectorAll('.papel')];
+  const tipo = (el, opcoes) => opcoes.find((o) => el.classList.contains(o)) ?? '?';
+  assert.deepEqual(papeis.map((p) => tipo(p, ['papel-claro', 'papel-escuro'])).sort(), ['papel-claro', 'papel-escuro']);
+  for (const papel of papeis) {
+    const icones = [...papel.querySelectorAll('svg.icone')];
+    const vistos = icones.map((s) => `${tipo(s, ['icone-redondo', 'icone-squircle'])}/${tipo(s, ['icone-real', 'icone-ampliado'])}`);
+    assert.deepEqual(vistos.sort(), ['icone-redondo/icone-ampliado', 'icone-redondo/icone-real', 'icone-squircle/icone-ampliado',
+      'icone-squircle/icone-real'], 'as duas máscaras, em tamanho real e ampliado, em cada papel de parede');
+    for (const svg of icones) {
+      // A máscara mostra os 72 dp do meio do quadro de 108 dp, como o launcher.
+      assert.equal(svg.getAttribute('viewBox'), '18 18 72 72');
+      const fundo = svg.querySelector('rect.icone-fundo');
+      assert.deepEqual([fundo?.getAttribute('width'), fundo?.getAttribute('height')], ['108', '108']);
+      assert.equal(svg.querySelector('use')?.getAttribute('href'), '#' + id);
+      assert.ok(svg.getAttribute('aria-label'), 'o ícone tem nome acessível');
+      const rotulo = svg.closest('figure')?.querySelector('figcaption');
+      assert.equal(compactar(rotulo?.textContent ?? ''), stringDoApp('title_activity_main'), 'o rótulo embaixo do ícone é o do aplicativo');
+    }
+  }
+  assert.equal(regraDe(f, '.icone-real').decl.width, '48px', 'o tamanho real é 48 dp');
+  assert.ok(parseFloat(regraDe(f, '.icone-ampliado').decl.width) >= 96, 'o ampliado é ao menos o dobro');
+  assert.equal(regraDe(f, '.icone-redondo').decl['clip-path'], 'circle(50%)');
+  assert.match(regraDe(f, '.icone-squircle').decl['clip-path'], /^polygon\(/);
+});
+
+test('a abertura na prévia é a do APK: o navy do ícone com o G no quadro de 192 dp do res/drawable/splash.xml', () => {
+  const d = doc();
+  const abertura = d.getElementById('t-abertura');
+  assert.ok(abertura, 'figure#t-abertura');
+  assert.ok(abertura.closest('#t-icone'), 'na seção do ícone e nome');
+  const svg = abertura.querySelector('.celular.abertura svg.abertura-g');
+  assert.ok(svg, 'o G dentro da moldura do celular');
+  assert.equal(svg.getAttribute('viewBox'), '0 0 108 108', 'o quadro inteiro, como o item do layer-list');
+  assert.equal(svg.querySelector('use')?.getAttribute('href'), '#' + d.querySelector('image').getAttribute('id'));
+  const quadro = lerArquivo('../android/app/src/main/res/drawable/splash.xml').match(/android:width="(\d+)dp"/)[1];
+  const f = folha();
+  assert.equal(regraDe(f, '.abertura-g').decl.width, `${quadro}px`);
+  assert.equal(regraDe(f, '.celular.abertura').decl.background, 'var(--icone-fundo)');
+});
+
 test('só o iframe do erro.html é dimensionado pela folha da página: o da camada fica com o estilo inline do inicio.js', () => {
   const d = doc();
   const quadroDaCamada = d.querySelector('#gc-casca-aviso iframe');
@@ -340,8 +410,9 @@ test('contrato da página do Artifact: sem doctype, html, head nem body; abre co
   // O publicador embrulha a página; o srcdoc do erro.html tem o doctype dele, por isso sai da conta.
   const semSrcdoc = HTML.replace(/srcdoc="[^"]*"/g, 'srcdoc=""');
   assert.ok(!/<!doctype|<\/?(html|head|body)[\s>]/i.test(semSrcdoc), 'a página não tem doctype, html, head nem body próprios');
-  assert.match(HTML, /^\s*<title>Telas novas do App de Campo<\/title>\s*<meta name="claude:viewport-fit-sides" content="cover">\s*<style>/);
-  assert.equal(d.title, 'Telas novas do App de Campo');
+  assert.match(HTML, /^\s*<title>Telas novas do Nexus Field<\/title>\s*<meta name="claude:viewport-fit-sides" content="cover">\s*<style>/);
+  assert.equal(d.title, 'Telas novas do Nexus Field');
+  assert.equal(d.title, `Telas novas do ${stringDoApp('app_name')}`, 'o título acompanha o nome do aplicativo');
   assert.equal(d.querySelector('meta[name="claude:viewport-fit-sides"]').getAttribute('content'), 'cover');
 
   const pagina = d.querySelector('.pagina');
@@ -397,7 +468,9 @@ test('cores só por token: o :root claro define todos, o escuro redefine igual p
 test('a página é autocontida, sem emoji e com a lista "O que aprovar" no topo', () => {
   const d = doc();
   assert.equal(d.querySelectorAll('script').length, 0, 'sem script: nada para quebrar e nada de CDN');
-  for (const el of d.querySelectorAll('[src], link, [href]:not([href^="#"])')) {
+  // A única imagem é o ícone, embutido como data: URI (a página continua autocontida).
+  const embutida = '[src^="data:image/png;base64,"], [href^="data:image/png;base64,"]';
+  for (const el of d.querySelectorAll(`[src]:not(${embutida}), link, [href]:not([href^="#"]):not(${embutida})`)) {
     assert.fail('recurso externo ou link na prévia: ' + el.outerHTML.slice(0, 80));
   }
   assert.ok(!/@import|url\(/.test(d.querySelector('style').textContent), 'sem fonte nem imagem externa');

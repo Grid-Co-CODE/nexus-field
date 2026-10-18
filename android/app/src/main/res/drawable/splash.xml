@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  O fundo da tela enquanto o Nexus Field abre (o android:background do tema da abertura): o navy do ícone com o G
+  pequeno no centro. O quadro de 192 dp dá ao G ~100 dp, o mesmo tamanho do splash_icone (288 dp menos 48 dp de cada
+  lado) que o sistema desenha antes. Trocou as imagens padrão do Capacitor (os splash.png).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item
+        android:drawable="@mipmap/ic_launcher_foreground"
+        android:gravity="center"
+        android:width="192dp"
+        android:height="192dp" />
+</layer-list>

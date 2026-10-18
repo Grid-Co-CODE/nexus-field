@@ -45,10 +45,43 @@ test('allowNavigation só tem hosts da Microsoft e nunca o Fracttal', () => {
   assert.ok(!cfg.server.allowNavigation.some(h => /fracttal/i.test(h)));
 });
 
+// O nome do aplicativo é Nexus Field (pedido do dono da casca, 17/10/2026); o site que ele abre continua sendo o App de
+// Campo. O applicationId mudou antes da primeira Release, quando ainda era de graça: depois dela, mudar o pacote faria
+// cada técnico desinstalar (e o desinstalar apaga o espelho). O pacote Java e o namespace ficam br.com.gridco.campo.
+const BUILD_GRADLE = ler('android/app/build.gradle');
+const STRINGS = lerXml(ler('android/app/src/main/res/values/strings.xml'));
+const textoDaString = (nome) => {
+  const achada = [...STRINGS.getElementsByTagName('string')].find((s) => s.getAttribute('name') === nome);
+  assert.ok(achada, `falta a string ${nome}`);
+  return achada.textContent;
+};
+const APPLICATION_ID = BUILD_GRADLE.match(/applicationId\s+"([^"]+)"/)?.[1];
+
 test('CapacitorHttp desligado e pacote certo', () => {
   assert.notEqual(cfg.plugins?.CapacitorHttp?.enabled, true);
-  assert.equal(cfg.appId, 'br.com.gridco.campo');
-  assert.equal(cfg.appName, 'App de Campo Grid Co.');
+  assert.equal(APPLICATION_ID, 'br.com.gridco.nexusfield');
+  assert.equal(cfg.appId, APPLICATION_ID, 'o appId do Capacitor é o applicationId do build.gradle');
+  assert.equal(BUILD_GRADLE.match(/namespace\s*=\s*"([^"]+)"/)?.[1], 'br.com.gridco.campo', 'o pacote Java fica');
+  assert.equal(textoDaString('package_name'), APPLICATION_ID);
+  assert.equal(textoDaString('custom_url_scheme'), APPLICATION_ID);
+});
+
+test('o nome é Nexus Field: no Capacitor, em Configurações > Apps (app_name) e embaixo do ícone (o rótulo da activity)', () => {
+  assert.equal(cfg.appName, 'Nexus Field');
+  assert.equal(textoDaString('app_name'), 'Nexus Field');
+  assert.equal(textoDaString('title_activity_main'), 'Nexus Field');
+  const app = lerXml(manifesto).getElementsByTagName('application')[0];
+  assert.equal(app.getAttribute('android:label'), '@string/app_name');
+  const atividade = [...app.getElementsByTagName('activity')].find((a) => a.getAttribute('android:name') === '.MainActivity');
+  assert.equal(atividade.getAttribute('android:label'), '@string/title_activity_main', 'o launcher mostra o rótulo da activity');
+});
+
+test('o user agent termina em NexusField/<versionName>, e o nome antigo não sobra no código', () => {
+  // Os logs do servidor separam o app do navegador por aqui (o CascaPluginTest prova a função na JVM).
+  const plugin = ler('android/app/src/main/java/br/com/gridco/campo/CascaPlugin.java');
+  assert.match(plugin, /static String userAgent\(String doSistema, String versao\) \{\s*return doSistema \+ " NexusField\/" \+ versao;/);
+  assert.match(plugin, /setUserAgentString\(userAgent\(ajustes\.getUserAgentString\(\), BuildConfig\.VERSION_NAME\)\)/);
+  assert.ok(!plugin.includes('GridcoCampoApp'), 'o sufixo antigo saiu');
 });
 
 test('manifesto: permissões, backup desligado e FileProvider', () => {
@@ -56,23 +89,25 @@ test('manifesto: permissões, backup desligado e FileProvider', () => {
     assert.match(manifesto, new RegExp(`android.permission.${p}"`));
   assert.match(manifesto, /android:allowBackup="false"/);
   assert.match(manifesto, /android:dataExtractionRules="@xml\/regras_dados"/);
-  assert.match(manifesto, /br\.com\.gridco\.campo\.arquivos/);
+  assert.match(manifesto, /android:authorities="\$\{applicationId\}\.arquivos"/);
   assert.match(manifesto, /android.media.action.IMAGE_CAPTURE/);
   assert.match(manifesto, /android.media.action.VIDEO_CAPTURE/);
 });
 
 test('FileProvider do instalador: autoridade, só cache/atualizacao/ e não exportado', () => {
   // O JUnit do Windows não consegue provar isto (o FileProvider espera "/" nos caminhos), então a configuração é
-  // conferida aqui: o Atualizador abre o instalador com content://<autoridade>/atualizacao/app-campo.apk.
+  // conferida aqui: o Atualizador abre o instalador com content://<autoridade>/atualizacao/nexus-field.apk. A autoridade
+  // sai do applicationId nos dois lados (o ${applicationId} do manifesto e o BuildConfig.APPLICATION_ID do código): com
+  // o pacote escrito à mão, a troca do applicationId deixava o instalador apontando para um provider que não existe.
   const atualizador = ler('android/app/src/main/java/br/com/gridco/campo/Atualizador.java');
-  const autoridade = atualizador.match(/AUTORIDADE_DOS_ARQUIVOS = "([^"]+)"/)?.[1];
+  assert.match(atualizador, /AUTORIDADE_DOS_ARQUIVOS = BuildConfig\.APPLICATION_ID \+ "\.arquivos";/);
   const pasta = atualizador.match(/PASTA_NO_CACHE = "([^"]+)"/)?.[1];
-  assert.equal(autoridade, 'br.com.gridco.campo.arquivos');
   assert.equal(pasta, 'atualizacao');
+  assert.ok(!/"br\.com\.gridco\.[a-z]+\.arquivos"/.test(atualizador), 'nenhuma autoridade escrita à mão');
 
   const provider = manifesto.match(/<provider[^>]*android:name="\.ArquivosProvider"[^>]*>/)?.[0];
   assert.ok(provider, 'falta o <provider> .ArquivosProvider');
-  assert.match(provider, new RegExp(`android:authorities="${autoridade.replace(/\./g, '\\.')}"`));
+  assert.match(provider, /android:authorities="\$\{applicationId\}\.arquivos"/);
   assert.match(provider, /android:exported="false"/);
   assert.match(provider, /android:grantUriPermissions="true"/);
 

@@ -55,7 +55,7 @@ public class AtualizadorTest {
     // 200 000 bytes, o byte i valendo i % 251: passa de longe o buffer da leitura em pedaços.
     private static final String SHA_GRANDE = "e24bc62381f1224fbbb74688663f8f9743b9680b193edd666835e97b06e730eb";
     private static final String APK_CERTO =
-        "https://github.com/Grid-Co-CODE/app-campo-android/releases/download/v1.2.0/app-campo.apk";
+        "https://github.com/Grid-Co-CODE/nexus-field/releases/download/v1.2.0/nexus-field.apk";
     private static final long UMA_HORA_MS = 3_600_000L;
     private static final long SEIS_HORAS_MS = 21_600_000L;
 
@@ -121,29 +121,29 @@ public class AtualizadorTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void recusaApkDeOutroEndereco() {
-        VersaoRemota.ler(json(12, "1.2.0", "https://exemplo.com.br/app-campo.apk", SHA_ABC, "x"));
+        VersaoRemota.ler(json(12, "1.2.0", "https://exemplo.com.br/nexus-field.apk", SHA_ABC, "x"));
     }
 
     @Test
     public void recusaApkForaDaPastaDeReleasesDoRepositorio() throws Exception {
-        String base = "https://github.com/Grid-Co-CODE/app-campo-android/releases/download/";
+        String base = "https://github.com/Grid-Co-CODE/nexus-field/releases/download/";
         for (String apk : new String[] {
-                "http://github.com/Grid-Co-CODE/app-campo-android/releases/download/v1/app-campo.apk", // sem TLS
-                "https://github.com/Grid-Co-CODE/outro-repo/releases/download/v1/app-campo.apk",
-                "https://github.com/Grid-Co-CODE/app-campo-android/releases/latest/download/app-campo.apk",
-                "https://github.com.exemplo.com.br/Grid-Co-CODE/app-campo-android/releases/download/v1/a.apk",
-                "https://github.com/grid-co-code/app-campo-android/releases/download/v1/app-campo.apk", // caixa
-                " " + base + "v1/app-campo.apk",
+                "http://github.com/Grid-Co-CODE/nexus-field/releases/download/v1/nexus-field.apk", // sem TLS
+                "https://github.com/Grid-Co-CODE/outro-repo/releases/download/v1/nexus-field.apk",
+                "https://github.com/Grid-Co-CODE/nexus-field/releases/latest/download/nexus-field.apk",
+                "https://github.com.exemplo.com.br/Grid-Co-CODE/nexus-field/releases/download/v1/a.apk",
+                "https://github.com/grid-co-code/nexus-field/releases/download/v1/nexus-field.apk", // caixa
+                " " + base + "v1/nexus-field.apk",
                 base, // nada depois da pasta
                 base + "../../../../outro/repo/releases/download/v1/a.apk", // sobe de pasta
-                base + "v1/./app-campo.apk",
-                base + "v1/app-campo.apk?token=x",
-                base + "v1/app-campo.apk#x",
-                base + "v1//app-campo.apk",
-                base + "v1/app campo.apk",
-                base + "v1\\app-campo.apk",
-                base + "%2e%2e/app-campo.apk",
-                base + "v1/app-campo.apk\n",
+                base + "v1/./nexus-field.apk",
+                base + "v1/nexus-field.apk?token=x",
+                base + "v1/nexus-field.apk#x",
+                base + "v1//nexus-field.apk",
+                base + "v1/nexus field.apk",
+                base + "v1\\nexus-field.apk",
+                base + "%2e%2e/nexus-field.apk",
+                base + "v1/nexus-field.apk\n",
         }) {
             recusa(com("apk", apk), apk); // pelo JSONObject: a barra invertida e a quebra de linha vão com o escape
         }
@@ -351,7 +351,7 @@ public class AtualizadorTest {
         assertEquals(APK_CERTO, rede.ultimaUrl);
         assertEquals(1, telas.instalados.size());
         File apk = telas.instalados.get(0);
-        assertEquals(new File(pasta, "app-campo.apk"), apk);
+        assertEquals(new File(pasta, "nexus-field.apk"), apk);
         assertArrayEquals(bytes("abc"), Files.readAllBytes(apk.toPath()));
         assertEquals(0, telas.avisosDeFalha);
         assertEquals(0, telas.pedidosDePermissao);
@@ -367,7 +367,7 @@ public class AtualizadorTest {
         assertEquals(1, telas.avisosDeFalha);
         assertEquals(0, telas.instalados.size());
         assertEquals(0, telas.pedidosDePermissao);
-        assertFalse(new File(pasta, "app-campo.apk").exists());
+        assertFalse(new File(pasta, "nexus-field.apk").exists());
         assertNull(dono.get());
     }
 
@@ -378,7 +378,7 @@ public class AtualizadorTest {
         telas.resposta = Resposta.ACEITAR;
         novo().verificar();
         assertEquals(1, rede.downloads);
-        assertFalse("o pedaço baixado não fica", new File(pasta, "app-campo.apk").exists());
+        assertFalse("o pedaço baixado não fica", new File(pasta, "nexus-field.apk").exists());
         assertEquals(1, telas.avisosDeFalha);
         assertEquals(0, telas.instalados.size());
         assertEquals(0, telas.pedidosDePermissao);
@@ -461,7 +461,7 @@ public class AtualizadorTest {
     @Test
     public void pendenciaComArquivoSumidoNaoInstala() {
         deixarPendente();
-        assertTrue(new File(pasta, "app-campo.apk").delete());
+        assertTrue(new File(pasta, "nexus-field.apk").delete());
         telas.pode = true;
         novo().verificar();
         assertEquals(0, telas.instalados.size());
@@ -471,7 +471,7 @@ public class AtualizadorTest {
     @Test
     public void pendenciaComArquivoAlteradoNaoInstalaEApagaOArquivo() throws IOException {
         deixarPendente();
-        File apk = new File(pasta, "app-campo.apk");
+        File apk = new File(pasta, "nexus-field.apk");
         Files.write(apk.toPath(), bytes("abd")); // o cache do app é de todos os processos do aparelho: mudou
         telas.pode = true;
         novo().verificar();
@@ -487,7 +487,7 @@ public class AtualizadorTest {
         novo().verificar();
         telas.tocarAbrirAjustes();
         assertEquals(1, telas.ajustesAbertos);
-        assertTrue(new File(pasta, "app-campo.apk").isFile());
+        assertTrue(new File(pasta, "nexus-field.apk").isFile());
     }
 
     @Test
@@ -524,18 +524,18 @@ public class AtualizadorTest {
     @Test
     public void apagaOsApksVelhosAntesDeAbrirOInstalador() {
         // As sobras aparecem durante o download (o que a checagem já tinha limpado não conta): só o APK novo fica.
-        rede.sobras = new String[] {"app-campo-antigo.apk", "app-campo.apk.parcial"};
+        rede.sobras = new String[] {"nexus-field-antigo.apk", "nexus-field.apk.parcial"};
         telas.resposta = Resposta.ACEITAR;
         novo().verificar();
         assertEquals(1, telas.instalados.size());
         assertEquals("na hora de abrir o instalador só o APK novo está na pasta",
-            Arrays.asList("app-campo.apk"), telas.nomesNaPastaAoInstalar);
+            Arrays.asList("nexus-field.apk"), telas.nomesNaPastaAoInstalar);
     }
 
     @Test
     public void naChecagemApagaOQueSobrouDaUltimaAtualizacao() throws IOException {
         assertTrue(pasta.mkdirs());
-        Files.write(new File(pasta, "app-campo.apk").toPath(), bytes("abc")); // a que acabou de ser instalada
+        Files.write(new File(pasta, "nexus-field.apk").toPath(), bytes("abc")); // a que acabou de ser instalada
         telas.resposta = Resposta.ADIAR;
         novo().verificar();
         assertEquals(0, pasta.list().length);
@@ -612,7 +612,7 @@ public class AtualizadorTest {
         assertFalse("o teste devia ter gerado log", ShadowLog.getLogs().isEmpty());
         for (ShadowLog.LogItem item : ShadowLog.getLogs()) {
             String linha = item.tag + " " + item.msg + (item.throwable == null ? "" : " " + item.throwable);
-            for (String proibido : new String[] {"http", "://", "github", "token", "segredo", ".apk", "app-campo", "@"}) {
+            for (String proibido : new String[] {"http", "://", "github", "token", "segredo", ".apk", "nexus-field", "@"}) {
                 if (linha.contains(proibido)) fail("o log levou \"" + proibido + "\": " + linha);
             }
         }
@@ -654,7 +654,7 @@ public class AtualizadorTest {
         assertEquals(0, telas.instalados.size());
         assertEquals(1, telas.instalacoesNoFundo);
         assertNull("o fluxo solta: quem segue é o resume", dono.get());
-        assertTrue("o APK conferido fica no cache", new File(pasta, "app-campo.apk").isFile());
+        assertTrue("o APK conferido fica no cache", new File(pasta, "nexus-field.apk").isFile());
         assertEquals("tela no fundo não é falha", 0, telas.avisosDeFalha);
 
         // Volta ao app (outro processo, se o Android o matou): abre o instalador sem baixar nem ler o versao.json.
@@ -697,7 +697,7 @@ public class AtualizadorTest {
         // E não sobra: a checagem normal (as 6 h também passaram) segue, oferece de novo e limpa o cache.
         assertEquals(2, rede.leituras);
         assertEquals(2, telas.ofertas.size());
-        assertFalse(new File(pasta, "app-campo.apk").exists());
+        assertFalse(new File(pasta, "nexus-field.apk").exists());
         novo().verificar();
         assertEquals(0, telas.instalados.size());
     }
@@ -725,7 +725,7 @@ public class AtualizadorTest {
     public void pendenciaSemAHoraNaoInstala() throws IOException {
         // A pendência gravada sem a hora (uma versão de teste anterior da casca) não tem como provar que é recente.
         assertTrue(pasta.mkdirs());
-        Files.write(new File(pasta, "app-campo.apk").toPath(), bytes("abc"));
+        Files.write(new File(pasta, "nexus-field.apk").toPath(), bytes("abc"));
         prefs.edit().putInt("pendente_codigo", 12).putString("pendente_sha256", SHA_ABC).commit();
         telas.resposta = Resposta.ADIAR;
         novo().verificar();
@@ -761,11 +761,11 @@ public class AtualizadorTest {
     @Test
     public void textosExatosDoPlano() {
         Context c = RuntimeEnvironment.getApplication();
-        assertEquals("Nova versão do App de Campo", c.getString(R.string.casca_atualizacao_titulo));
+        assertEquals("Nova versão do Nexus Field", c.getString(R.string.casca_atualizacao_titulo));
         assertEquals("Atualizar agora", c.getString(R.string.casca_atualizacao_atualizar));
         assertEquals("Depois", c.getString(R.string.casca_atualizacao_depois));
         assertEquals("Permitir a atualização", c.getString(R.string.casca_instalar_titulo));
-        assertEquals("Para instalar a versão nova, libere Instalar apps desconhecidos para o App de Campo e volte para cá.",
+        assertEquals("Para instalar a versão nova, libere Instalar apps desconhecidos para o Nexus Field e volte para cá.",
             c.getString(R.string.casca_instalar_texto));
         assertEquals("Abrir ajustes", c.getString(R.string.casca_abrir_ajustes));
         assertEquals("Não consegui conferir o arquivo da atualização. Tento de novo mais tarde.",
@@ -784,8 +784,16 @@ public class AtualizadorTest {
     }
 
     @Test
+    public void aAutoridadeDoInstaladorSaiDoApplicationId() {
+        // Escrita à mão, a autoridade ficava para trás quando o applicationId mudou (br.com.gridco.campo virou
+        // br.com.gridco.nexusfield em 17/10/2026), e o instalador procuraria um provider que não existe.
+        assertEquals("br.com.gridco.nexusfield", BuildConfig.APPLICATION_ID);
+        assertEquals("br.com.gridco.nexusfield.arquivos", Atualizador.AUTORIDADE_DOS_ARQUIVOS);
+    }
+
+    @Test
     public void instaladorEUmVerComUriETipoDoApkEPermissaoDeLeitura() {
-        Uri uri = Uri.parse("content://br.com.gridco.campo.arquivos/atualizacao/app-campo.apk");
+        Uri uri = Uri.parse("content://br.com.gridco.nexusfield.arquivos/atualizacao/nexus-field.apk");
         Intent i = Atualizador.intentParaInstalar(uri);
         assertEquals(Intent.ACTION_VIEW, i.getAction());
         assertEquals("application/vnd.android.package-archive", i.getType());
@@ -797,12 +805,12 @@ public class AtualizadorTest {
     public void instaladorRecebeOUriDoProviderParaOApkDaPasta() throws IOException {
         semFileProviderNoWindows();
         Context c = RuntimeEnvironment.getApplication();
-        File apk = new File(new File(c.getCacheDir(), "atualizacao"), "app-campo.apk");
+        File apk = new File(new File(c.getCacheDir(), "atualizacao"), "nexus-field.apk");
         assertTrue(apk.getParentFile().mkdirs() || apk.getParentFile().isDirectory());
         Files.write(apk.toPath(), bytes("abc"));
 
         Intent i = Atualizador.intentDoInstalador(c, apk);
-        assertEquals("content://br.com.gridco.campo.arquivos/atualizacao/app-campo.apk", i.getData().toString());
+        assertEquals("content://br.com.gridco.nexusfield.arquivos/atualizacao/nexus-field.apk", i.getData().toString());
         assertEquals(Intent.ACTION_VIEW, i.getAction());
         assertEquals("application/vnd.android.package-archive", i.getType());
         assertTrue((i.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0);

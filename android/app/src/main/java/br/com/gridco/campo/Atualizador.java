@@ -49,11 +49,11 @@ import java.util.function.LongSupplier;
  *      espera de 15 s a cada volta ao app. Falha de rede é silêncio, e a próxima tentativa é daí a 6 h.
  *   2. Com versionCode maior que o instalado, oferece "Atualizar agora / Depois".
  *   3. No "Atualizar agora", um toast diz que está baixando (sem ele o técnico, sem retorno nenhum por vários MB de
- *      dados móveis, ia a outro app). Baixa para cache/atualizacao/app-campo.apk e confere o SHA-256. O download que
+ *      dados móveis, ia a outro app). Baixa para cache/atualizacao/nexus-field.apk e confere o SHA-256. O download que
  *      não termina e o SHA que não bate apagam o arquivo e avisam num toast: a pessoa pediu, não pode ficar em silêncio.
  *   4. Sem a permissão "Instalar apps desconhecidos", o diálogo manda para os ajustes, e a volta ao app (o resume)
  *      segue dali, sem baixar de novo.
- *   5. Abre o instalador: ACTION_VIEW com o URI do FileProvider br.com.gridco.campo.arquivos. Com a tela no fundo (o
+ *   5. Abre o instalador: ACTION_VIEW com o URI do FileProvider &lt;applicationId&gt;.arquivos. Com a tela no fundo (o
  *      técnico saiu do app durante o download), o Android 10+ bloquearia em silêncio o instalador, e a próxima
  *      checagem, 6 h depois, apagaria e baixaria tudo de novo: o instalador fica para o próximo resume.
  *
@@ -72,10 +72,12 @@ import java.util.function.LongSupplier;
 public final class Atualizador {
 
     static final String URL_VERSAO =
-        "https://github.com/Grid-Co-CODE/app-campo-android/releases/latest/download/versao.json";
+        "https://github.com/Grid-Co-CODE/nexus-field/releases/latest/download/versao.json";
     /** Entre uma checagem e a seguinte: 6 h. */
     static final long INTERVALO_MS = 21_600_000L;
-    static final String AUTORIDADE_DOS_ARQUIVOS = "br.com.gridco.campo.arquivos";
+    // A do ArquivosProvider no manifesto (${applicationId}.arquivos): escrita à mão, ficaria para trás numa troca do
+    // applicationId, e o instalador procuraria um provider que não existe.
+    static final String AUTORIDADE_DOS_ARQUIVOS = BuildConfig.APPLICATION_ID + ".arquivos";
     static final String TIPO_DO_APK = "application/vnd.android.package-archive";
 
     private static final String TAG = CascaPlugin.TAG;
@@ -87,7 +89,7 @@ public final class Atualizador {
     /** Quanto vale a pendência, a partir do download: 6 h (21 600 000 ms). */
     static final long PRAZO_DA_PENDENCIA_MS = 21_600_000L;
     private static final String PASTA_NO_CACHE = "atualizacao"; // a única que o ArquivosProvider expõe
-    private static final String NOME_DO_APK = "app-campo.apk";
+    private static final String NOME_DO_APK = "nexus-field.apk";
 
     // Um fluxo por processo, como o espelho e o disjuntor do plugin.
     private static final AtomicReference<Object> DONO_DO_PROCESSO = new AtomicReference<>();

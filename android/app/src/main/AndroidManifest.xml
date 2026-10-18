@@ -50,11 +50,12 @@
           cache/atualizacao/, nada além. Tem subclasse própria porque, para o sistema, dois <provider> com o mesmo
           android:name são o mesmo componente, e um plugin que declare o FileProvider de novo conflita na mesclagem.
           (Medido em 16/10/2026: o AGP 8.13.0 aceita os dois com a mesma classe no mesmo arquivo; a subclasse é
-          prevenção, não correção de erro.)
+          prevenção, não correção de erro.) A autoridade sai do applicationId, como a do outro: o Atualizador a monta
+          com o BuildConfig.APPLICATION_ID.
         -->
         <provider
             android:name=".ArquivosProvider"
-            android:authorities="br.com.gridco.campo.arquivos"
+            android:authorities="${applicationId}.arquivos"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

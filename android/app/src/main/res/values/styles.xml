@@ -16,7 +16,14 @@
     </style>
 
 
+    <!--
+      A abertura do Nexus Field: o navy do ícone com o G pequeno no centro. O Android 12+ desenha a abertura sozinho
+      com os dois windowSplashScreen*; o Theme.SplashScreen do androidx faz o mesmo desenho do 7 ao 11 (o fundo da
+      janela). Sem eles, o padrão do androidx é o fundo do tema e o ícone genérico do Android.
+    -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icone</item>
         <item name="android:background">@drawable/splash</item>
     </style>
 </resources>

@@ -208,15 +208,19 @@ test('a Release confere a assinatura e o pino do certificado antes de publicar, 
   const c = release.steps[conferir].run;
   assert.match(c, /app-release\.apk/);
   assert.match(c, /build-tools\/\*\/apksigner/);
-  assert.match(c, /"\$apksigner" verify --print-certs app-campo\.apk > "\$RUNNER_TEMP\/certificados\.txt"/);
+  assert.match(c, /"\$apksigner" verify --print-certs nexus-field\.apk > "\$RUNNER_TEMP\/certificados\.txt"/);
   assert.match(c, /node ferramentas\/certificado\.mjs "\$RUNNER_TEMP\/certificados\.txt"/);
   const v = release.steps[versaoJson].run;
-  assert.match(v, /sha256sum app-campo\.apk > app-campo\.apk\.sha256/);
-  assert.match(v, /^test "\$\(cut -d' ' -f1 app-campo\.apk\.sha256\)" = /m, 'duas contas do SHA-256 têm de bater');
+  assert.match(v, /sha256sum nexus-field\.apk > nexus-field\.apk\.sha256/);
+  assert.match(v, /^test "\$\(cut -d' ' -f1 nexus-field\.apk\.sha256\)" = /m, 'duas contas do SHA-256 têm de bater');
   const p = release.steps[publicar].run;
-  assert.match(p, /gh release create "\$GITHUB_REF_NAME" app-campo\.apk app-campo\.apk\.sha256 versao\.json/);
+  assert.match(p, /gh release create "\$GITHUB_REF_NAME" nexus-field\.apk nexus-field\.apk\.sha256 versao\.json/);
   assert.match(p, /--notes-file "novidades\/\$\{VERSAO_CASCA\}\.md"/);
   assert.match(p, /--verify-tag/);
+  // O nome do aplicativo é Nexus Field, e o APK publicado é o nexus-field.apk, o mesmo que o versao.json aponta
+  // (ferramentas/versao-json.mjs) e que o app aceita (VersaoRemota.java): nome trocado num lado só, e o app não atualiza.
+  assert.match(p, /--title "Nexus Field \$\{VERSAO_CASCA\}"/);
+  assert.ok(!/app-campo/.test(textoMontar), 'o nome antigo do APK não sobra no montar.yml');
 });
 
 test('CI de PR: Node 22.x, npm test, os testes de JVM, o APK de depuração, o lint e os dois testes do FileProvider', () => {
@@ -231,6 +235,7 @@ test('CI de PR: Node 22.x, npm test, os testes de JVM, o APK de depuração, o l
   assert.ok(npmTest >= 0 && gradle > npmTest && pulados > gradle, 'ordem: npm test, Gradle, conferência dos testes pulados');
   assert.match(job.steps[gradle].run, /npx cap sync android/);
   assert.equal(passo(job, 'APK de depuração').with.path, 'android/app/build/outputs/apk/debug/app-debug.apk');
+  assert.equal(passo(job, 'APK de depuração').with.name, 'nexus-field-debug');
   // Os nomes dos dois testes têm de existir no AtualizadorTest.java: renomear um deles sem mexer aqui derrubaria o CI.
   const nomes = job.steps[pulados].run.trim().split(/\s+/).slice(4);
   assert.deepEqual(nomes, ['instaladorRecebeOUriDoProviderParaOApkDaPasta', 'oProviderDoInstaladorNaoExpoeNadaAlemDeCacheAtualizacao']);
@@ -391,13 +396,13 @@ test('passo "Conferir a assinatura e o certificado": só passa a chave da variá
   const buildTools = join(dir, 'sdk/build-tools/99.0.0');
   mkdirSync(buildTools, { recursive: true });
   const CERTO = '3f'.repeat(32);
-  writeFileSync(join(buildTools, 'apksigner'), '#!/usr/bin/env bash\n[ "$1 $2 $3" = "verify --print-certs app-campo.apk" ] || exit 9\necho "Signer #1 certificate DN: CN=Exemplo"\necho "Signer #1 certificate SHA-256 digest: $FALSO_SHA"\n', { mode: 0o755 });
+  writeFileSync(join(buildTools, 'apksigner'), '#!/usr/bin/env bash\n[ "$1 $2 $3" = "verify --print-certs nexus-field.apk" ] || exit 9\necho "Signer #1 certificate DN: CN=Exemplo"\necho "Signer #1 certificate SHA-256 digest: $FALSO_SHA"\n', { mode: 0o755 });
   const script = passo(release, 'Conferir a assinatura e o certificado').run;
   const rodar = (env) => bash(script, { cwd: dir, env: { ANDROID_HOME: noBash(join(dir, 'sdk')), RUNNER_TEMP: noBash(dir), FALSO_SHA: CERTO, ...env } });
 
   const certo = rodar({ CERT_ESPERADO: CERTO.toUpperCase().match(/../g).join(':') });
   assert.equal(certo.status, 0, certo.stderr);
-  assert.ok(existsSync(join(dir, 'app-campo.apk')));
+  assert.ok(existsSync(join(dir, 'nexus-field.apk')));
   const outra = rodar({ CERT_ESPERADO: CERTO, FALSO_SHA: 'a1'.repeat(32) });
   assert.notEqual(outra.status, 0);
   assert.match(outra.stderr, /não é o esperado/);
@@ -418,7 +423,7 @@ test('passo "Publicar a Release": o pré-lançamento vem do tipo da versão, e t
   };
   const final = rodar({ TIPO_DA_VERSAO: 'final' });
   assert.equal(final.status, 0, final.stderr);
-  assert.match(final.gh, /^release create v1\.0\.0 app-campo\.apk app-campo\.apk\.sha256 versao\.json --verify-tag/);
+  assert.match(final.gh, /^release create v1\.0\.0 nexus-field\.apk nexus-field\.apk\.sha256 versao\.json --verify-tag/);
   assert.ok(!final.gh.includes('--prerelease'));
   assert.match(rodar({ TIPO_DA_VERSAO: 'pre-lancamento' }).gh, /--prerelease/);
   const nenhum = rodar({ TIPO_DA_VERSAO: '' });

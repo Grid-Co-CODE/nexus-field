@@ -7,5 +7,5 @@
 <resources>
     <string name="depuracao_atalho_apagar">Prova: apagar WebView</string>
     <string name="depuracao_atalho_apagar_longo">Prova: apagar o armazenamento da WebView</string>
-    <string name="depuracao_webview_apagada">Depuração: armazenamento da WebView apagado. O espelho fica, e o App abre em 3 s.</string>
+    <string name="depuracao_webview_apagada">Depuração: armazenamento da WebView apagado. O espelho fica, e a página do App de Campo abre em 3 s.</string>
 </resources>

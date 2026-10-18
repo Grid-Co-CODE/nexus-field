@@ -1,37 +1,42 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <!-- Nome completo, que aparece em Configurações > Apps. -->
-    <string name="app_name">App de Campo Grid Co.</string>
+    <!--
+      O aplicativo se chama Nexus Field (pedido do dono da casca, 17/10/2026); o site que ele abre continua sendo o App
+      de Campo. Texto da casca que fala do aplicativo diz Nexus Field (o testes/nome.test.mjs confere).
+    -->
+    <!-- Nome que aparece em Configurações > Apps. -->
+    <string name="app_name">Nexus Field</string>
     <!-- Rótulo do ícone na tela inicial: o launcher usa o da activity. -->
-    <string name="title_activity_main">Campo GridCo</string>
-    <string name="package_name">br.com.gridco.campo</string>
-    <string name="custom_url_scheme">br.com.gridco.campo</string>
+    <string name="title_activity_main">Nexus Field</string>
+    <!-- O applicationId (o Capacitor escreve os dois no cap add). -->
+    <string name="package_name">br.com.gridco.nexusfield</string>
+    <string name="custom_url_scheme">br.com.gridco.nexusfield</string>
 
     <!--
       Os diálogos da casca. Vão ao campo, e os textos estão PENDENTES de aprovação do dono da casca na prévia
-      (docs/previas/telas.html). Quando ele aprovar, esta nota passa a dizer "aprovados", com a data; daí em diante
-      não se muda texto sem nova prévia.
+      (docs/previas/telas.html), também os que passaram a dizer Nexus Field em 17/10/2026. Quando ele aprovar, esta
+      nota passa a dizer "aprovados", com a data; daí em diante não se muda texto sem nova prévia.
     -->
 
     <!-- Primeira abertura: pede a câmera e a localização precisa. -->
     <string name="casca_permissoes_titulo">Antes de começar</string>
-    <string name="casca_permissoes_texto">O App de Campo usa a câmera para as fotos das OS e das rondas, e a localização precisa para registrar onde o serviço começou e terminou.</string>
+    <string name="casca_permissoes_texto">O Nexus Field usa a câmera para as fotos das OS e das rondas, e a localização precisa para registrar onde o serviço começou e terminou.</string>
     <string name="casca_permissoes_continuar">Continuar</string>
 
     <!-- O técnico escolheu a localização aproximada (Android 12+). -->
     <string name="casca_aproximada_titulo">Localização precisa desligada</string>
-    <string name="casca_aproximada_texto">Com a localização aproximada, a posição vem com erro de quilômetros e o App não consegue registrar o início e o fim do serviço. Nos ajustes, toque em Permissões &gt; Localização e ligue Usar localização precisa.</string>
+    <string name="casca_aproximada_texto">Com a localização aproximada, a posição vem com erro de quilômetros e o Nexus Field não consegue registrar o início e o fim do serviço. Nos ajustes, toque em Permissões &gt; Localização e ligue Usar localização precisa.</string>
 
     <!-- A câmera ou a localização negadas. -->
     <string name="casca_negadas_titulo">Permissões necessárias</string>
-    <string name="casca_negadas_texto">Sem a câmera e a localização, o App não consegue registrar as OS. Nos ajustes, toque em Permissões e libere Câmera e Localização.</string>
+    <string name="casca_negadas_texto">Sem a câmera e a localização, o Nexus Field não consegue registrar as OS. Nos ajustes, toque em Permissões e libere Câmera e Localização.</string>
 
     <string name="casca_abrir_ajustes">Abrir ajustes</string>
     <string name="casca_agora_nao">Agora não</string>
 
     <!-- A WebView sem o script de início antes da página (DOCUMENT_START_SCRIPT). -->
     <string name="casca_webview_titulo">Atualize o Android System WebView</string>
-    <string name="casca_webview_texto">O App de Campo precisa de uma versão mais nova do componente que mostra as telas. Atualize o Android System WebView na Play Store e abra o App de novo.</string>
+    <string name="casca_webview_texto">O Nexus Field precisa de uma versão mais nova do componente que mostra as telas. Atualize o Android System WebView na Play Store e abra o Nexus Field de novo.</string>
     <string name="casca_webview_abrir_loja">Abrir a Play Store</string>
 
     <!--
@@ -39,7 +44,7 @@
       O texto da versão leva o versionName e uma linha "- item" por novidade do versao.json; o "_simples" é o caso de
       uma Release sem nenhuma novidade (não aparece "Novidades:" com a lista vazia).
     -->
-    <string name="casca_atualizacao_titulo">Nova versão do App de Campo</string>
+    <string name="casca_atualizacao_titulo">Nova versão do Nexus Field</string>
     <string name="casca_atualizacao_texto">Versão %1$s. Novidades:\n%2$s</string>
     <string name="casca_atualizacao_texto_simples">Versão %1$s.</string>
     <string name="casca_atualizacao_atualizar">Atualizar agora</string>
@@ -51,7 +56,7 @@
 
     <!-- O Android pede a permissão "Instalar apps desconhecidos" para este app antes de abrir o instalador. -->
     <string name="casca_instalar_titulo">Permitir a atualização</string>
-    <string name="casca_instalar_texto">Para instalar a versão nova, libere Instalar apps desconhecidos para o App de Campo e volte para cá.</string>
+    <string name="casca_instalar_texto">Para instalar a versão nova, libere Instalar apps desconhecidos para o Nexus Field e volte para cá.</string>
 
     <!-- O arquivo baixado não bateu com o SHA-256 do versao.json (toast). -->
     <string name="casca_atualizacao_sha_toast">Não consegui conferir o arquivo da atualização. Tento de novo mais tarde.</string>

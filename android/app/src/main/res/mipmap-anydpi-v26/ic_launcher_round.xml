@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  O ícone adaptativo do Nexus Field: o navy do Nexus atrás e o G da Grid em branco na frente, inteiro dentro do círculo
+  de 66 dp do quadro de 108 dp (o que toda máscara mostra). O monocromático (ícones temáticos do Android 13+) é o mesmo
+  G: o sistema usa só o alfa dele. Os PNG saem do ferramentas/gerar-icones.py; o testes/icone.test.mjs os mede.
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background"/>
     <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground"/>
 </adaptive-icon>

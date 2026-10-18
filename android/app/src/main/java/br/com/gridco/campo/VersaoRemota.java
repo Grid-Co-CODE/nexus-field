@@ -20,7 +20,7 @@ import org.json.JSONObject;
 public final class VersaoRemota {
 
     /** Tudo o que o apk tem de ter na frente. */
-    static final String PREFIXO_DO_APK = "https://github.com/Grid-Co-CODE/app-campo-android/releases/download/";
+    static final String PREFIXO_DO_APK = "https://github.com/Grid-Co-CODE/nexus-field/releases/download/";
 
     // O resto do link: pedaços de caminho só com o que um nome de tag e de arquivo usam, separados por uma barra. Fora
     // daqui ficam a query, o fragmento, o espaço, a barra invertida, a quebra de linha e o "%" (que esconderia "..").

@@ -2,7 +2,7 @@
 // atualização se ele passar nas regras do VersaoRemota.java: este gerador aplica as MESMAS regras antes de escrever, para
 // um erro aparecer no CI da Release e não no celular do técnico (que apenas ignoraria o arquivo, em silêncio).
 //
-//   VERSAO_CASCA=1.0.1 GITHUB_RUN_NUMBER=12 node ferramentas/versao-json.mjs [--apk app-campo.apk]
+//   VERSAO_CASCA=1.0.1 GITHUB_RUN_NUMBER=12 node ferramentas/versao-json.mjs [--apk nexus-field.apk]
 //                                            [--novidades novidades/<versão>.md] [--saida versao.json]
 //   node ferramentas/versao-json.mjs tipo-da-versao 1.0.1        imprime "final" ou "pre-lancamento"; falha sem semver
 //   GITHUB_RUN_NUMBER=12 node ferramentas/versao-json.mjs conferir-crescimento <versao.json da última Release>
@@ -15,7 +15,7 @@ import { executadoDireto } from './executado-direto.mjs';
 
 // Tudo o que o apk tem de ter na frente, e o padrão do resto do link (pedaços simples separados por barra). Iguais aos do
 // VersaoRemota.java; o testes/versao-json.test.mjs lê o .java e falha se um dos lados mudar sem o outro.
-export const PREFIXO_DO_APK = 'https://github.com/Grid-Co-CODE/app-campo-android/releases/download/';
+export const PREFIXO_DO_APK = 'https://github.com/Grid-Co-CODE/nexus-field/releases/download/';
 export const PADRAO_RESTO_DO_APK = '[A-Za-z0-9._~+-]+(?:/[A-Za-z0-9._~+-]+)*';
 // O Java aceita maiúsculas e lê em minúsculas. O contrato do arquivo é minúsculo (é o que o sha256sum escreve).
 export const PADRAO_SHA256 = '[0-9a-f]{64}';
@@ -24,7 +24,7 @@ export const PADRAO_SHA256 = '[0-9a-f]{64}';
 export const PADRAO_VERSAO = '\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?';
 
 const INT_MAX_DO_JAVA = 2147483647;
-const NOME_DO_APK = 'app-campo.apk';
+const NOME_DO_APK = 'nexus-field.apk';
 
 /**
  * O `apkValido` do VersaoRemota.java: o link começa no prefixo das Releases deste repositório e o resto são pedaços simples

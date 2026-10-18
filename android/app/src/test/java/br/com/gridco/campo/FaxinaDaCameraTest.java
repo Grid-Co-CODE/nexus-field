@@ -80,7 +80,7 @@ public class FaxinaDaCameraTest {
         File semExtensao = arquivo(cache, "JPEG_20261010_101010_56", 100 * HORA_MS);
         File atualizacao = new File(cache, "atualizacao");
         assertTrue(atualizacao.mkdir());
-        File apk = arquivo(atualizacao, "app-campo.apk", 100 * HORA_MS);
+        File apk = arquivo(atualizacao, "nexus-field.apk", 100 * HORA_MS);
         File capturaNova = arquivo(cache, "JPEG_20261017_101010_57.jpg", HORA_MS);
 
         assertEquals(1, FaxinaDaCamera.apagarVelhas(fotos, cache, AGORA));

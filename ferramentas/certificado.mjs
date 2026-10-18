@@ -5,7 +5,7 @@
 // só publica se o certificado do APK for o da variável CASCA_CERT_SHA256 do repositório (o SHA-256 público da chave, o
 // mesmo que o registro de desenvolvedor do Android pede).
 //
-//   apksigner verify --print-certs app-campo.apk > certificados.txt
+//   apksigner verify --print-certs nexus-field.apk > certificados.txt
 //   CERT_ESPERADO=<sha256> node ferramentas/certificado.mjs certificados.txt
 //
 // Sai com 0 e imprime o SHA conferido, ou com 1 e diz por quê. Nada aqui é segredo: o SHA-256 do certificado é público.

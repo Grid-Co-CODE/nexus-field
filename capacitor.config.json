@@ -1,6 +1,6 @@
 {
-  "appId": "br.com.gridco.campo",
-  "appName": "App de Campo Grid Co.",
+  "appId": "br.com.gridco.nexusfield",
+  "appName": "Nexus Field",
   "webDir": "www",
   "server": {
     "url": "https://gridco-campo-mw.azurewebsites.net",

@@ -418,6 +418,8 @@ test('executarContrato: sai com 0 quando o site tem tudo e faz um GET só', asyn
   assert.equal(chamadas.length, 1);
   assert.equal(chamadas[0].url, URL_DO_APP);
   assert.ok([undefined, 'GET'].includes(chamadas[0].opcoes?.method), 'só leitura');
+  // O log do site distingue a leitura do contrato pelo nome do repositório (Grid-Co-CODE/nexus-field).
+  assert.equal(chamadas[0].opcoes?.headers?.['user-agent'], 'nexus-field-contrato');
   assert.ok(r.linhas.join('\n').includes('ok'));
 });
 

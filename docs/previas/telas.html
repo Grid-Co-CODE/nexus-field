@@ -1,10 +1,11 @@
-<title>Telas novas do App de Campo</title>
+<title>Telas novas do Nexus Field</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
-  /* Prévia para aprovar os textos e o visual das telas novas da casca antes de irem ao campo. Fora do APK: nada daqui
-     é empacotado. Os textos são cópia do strings.xml, do erro.html, do inicio.js e do campo.html, e o
-     testes/previas.test.mjs falha se um deles mudar e esta página ficar para trás. Autocontida: sem CDN, sem fonte nem
-     imagem de fora, sem script.
+  /* Prévia para aprovar o ícone, o nome, os textos e o visual das telas novas do Nexus Field (a casca Android do App
+     de Campo) antes de irem ao campo. Fora do APK: nada daqui é empacotado. Os textos são cópia do strings.xml, do
+     erro.html, do inicio.js e do campo.html, o ícone é o PNG do APK, e o testes/previas.test.mjs falha se um deles
+     mudar e esta página ficar para trás. Autocontida: sem CDN, sem fonte nem imagem de fora, sem script; o ícone vai
+     embutido uma vez como data: URI e as cópias dele são <use>.
 
      É uma página de Artifact (página privada do claude.ai): o publicador a embrulha, por isso o arquivo não tem doctype,
      html, head nem body. O gutter lateral fica no envoltório .pagina, com a área segura do aparelho.
@@ -40,6 +41,16 @@
     --dlg-sombra:0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14), 0 9px 46px 8px rgba(0, 0, 0, 0.12);
     --toast-fundo:#323232;
     --toast-texto:#ffffff;
+
+    /* Ícone e nome: o fundo do ícone (o ic_launcher_background do APK, o navy do Nexus) e dois papéis de parede, um
+       claro e um escuro, com a cor que o launcher dá ao rótulo em cada um. Não mudam com o tema da página. */
+    --icone-fundo:#090d18;
+    --papel-claro-topo:#eef2f7;
+    --papel-claro-base:#c3d0e0;
+    --papel-escuro-topo:#2d3549;
+    --papel-escuro-base:#121722;
+    --rotulo-claro:#1b1f27;
+    --rotulo-escuro:#ffffff;
   }
   /* A página, no escuro: pelo sistema, a menos que a página peça o claro... */
   @media (prefers-color-scheme: dark) {
@@ -105,6 +116,40 @@
   .aprovar .ver { flex:none; display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; font-size:14px; }
   .cita { font-weight:700; }
 
+  /* Ícone e nome. O ícone é o do APK: o G branco (o primeiro plano de xxxhdpi, embutido uma vez no <image> do
+     .defs-do-icone) sobre o navy, recortado como o launcher recorta: os 72 dp do meio do quadro de 108 dp (o viewBox
+     18 18 72 72) na máscara redonda ou na squircle do AOSP (o caminho "M50,0 C10,0 0,10 0,50 ...", aqui em pontos). */
+  .defs-do-icone { position:absolute; width:0; height:0; overflow:hidden; }
+  .papeis { display:grid; gap:16px; margin-top:20px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+  /* Duas colunas: em cima o tamanho real (redondo e squircle), embaixo o ampliado. Cabe em 375 px de tela. */
+  .papel {
+    display:grid; grid-template-columns:repeat(2, max-content); justify-content:center; justify-items:center; align-items:end;
+    gap:24px 16px; padding:28px 12px 24px; border-radius:16px;
+  }
+  .papel-claro { background:linear-gradient(160deg, var(--papel-claro-topo), var(--papel-claro-base)); }
+  .papel-escuro { background:linear-gradient(160deg, var(--papel-escuro-topo), var(--papel-escuro-base)); }
+  .atalho { margin:0; display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .atalho figcaption { font:500 13px/1.2 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .papel-claro figcaption { color:var(--rotulo-claro); }
+  .papel-escuro figcaption { color:var(--rotulo-escuro); }
+  .icone { display:block; flex:none; }
+  .icone-real { width:48px; height:48px; }
+  .icone-ampliado { width:144px; height:144px; }
+  .icone-redondo { clip-path:circle(50%); }
+  .icone-squircle {
+    clip-path:polygon(
+      50% 0%, 38.88% 0.32%, 29.44% 1.36%, 21.56% 3.24%, 15.12% 6.08%, 10% 10%, 6.08% 15.12%, 3.24% 21.56%,
+      1.36% 29.44%, 0.32% 38.88%, 0% 50%, 0.32% 61.12%, 1.36% 70.56%, 3.24% 78.44%, 6.08% 84.88%, 10% 90%,
+      15.12% 93.92%, 21.56% 96.76%, 29.44% 98.64%, 38.88% 99.68%, 50% 100%, 61.12% 99.68%, 70.56% 98.64%, 78.44% 96.76%,
+      84.88% 93.92%, 90% 90%, 93.92% 84.88%, 96.76% 78.44%, 98.64% 70.56%, 99.68% 61.12%, 100% 50%, 99.68% 38.88%,
+      98.64% 29.44%, 96.76% 21.56%, 93.92% 15.12%, 90% 10%, 84.88% 6.08%, 78.44% 3.24%, 70.56% 1.36%, 61.12% 0.32%
+    );
+  }
+  .icone-fundo { fill:var(--icone-fundo); }
+  /* A abertura: o G no quadro de 192 dp do res/drawable/splash.xml (o G sai com ~100 dp), no navy do ícone. */
+  .celular.abertura { display:flex; align-items:center; justify-content:center; background:var(--icone-fundo); }
+  .abertura-g { display:block; flex:none; width:192px; height:192px; }
+
   .aparelho { margin:0 0 8px; padding:0; border:0; display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; }
   .aparelho legend { float:left; padding:0; margin-right:16px; font-weight:600; }
   .aparelho label { display:inline-flex; align-items:center; gap:8px; min-height:44px; }
@@ -156,8 +201,8 @@
 <div class="pagina" lang="pt-BR">
 <main>
   <header>
-    <h1>Prévia das telas novas da casca</h1>
-    <p class="intro suave">Os avisos que a casca Android do App de Campo acrescenta, para aprovar os textos e o visual antes de irem ao campo. Cada moldura tem 360 px, a largura de um celular comum. Os textos são os do aplicativo (strings.xml, erro.html e inicio.js) e, no aviso do Fracttal, os que a página do App escreve (campo.html); um teste confere que esta página e o aplicativo dizem o mesmo. Se algo mudar, muda no aplicativo e a página acompanha.</p>
+    <h1>Prévia das telas novas do Nexus Field</h1>
+    <p class="intro suave">O ícone, o nome e os avisos que o Nexus Field (a casca Android do App de Campo) acrescenta, para aprovar os textos e o visual antes de irem ao campo. Cada moldura tem 360 px, a largura de um celular comum. Os textos são os do aplicativo (strings.xml, erro.html e inicio.js) e, no aviso do Fracttal, os que a página do App de Campo escreve (campo.html); o ícone é o mesmo arquivo do aplicativo. Um teste confere que esta página e o aplicativo dizem o mesmo. Se algo mudar, muda no aplicativo e a página acompanha.</p>
     <p class="intro suave">O desenho dos diálogos é uma aproximação do Android: o que se aprova são os textos, os botões e quando cada aviso aparece. O aspecto exato varia um pouco com a versão do Android.</p>
   </header>
 
@@ -165,18 +210,50 @@
     <h2 id="titulo-aprovar">O que aprovar</h2>
     <p class="suave">Marque conforme conferir. O link de cada item leva à tela.</p>
     <ul>
+      <li><input type="checkbox" id="ok-icone"><label for="ok-icone">O ícone: o G da Grid em branco no navy, inteiro nas duas máscaras e nos dois papéis de parede, e o nome <b class="cita">Nexus Field</b> embaixo dele.</label><a class="ver" href="#t-icone">Ver</a></li>
+      <li><input type="checkbox" id="ok-abertura"><label for="ok-abertura">A abertura: o navy com o G pequeno no centro, enquanto o Nexus Field abre.</label><a class="ver" href="#t-abertura">Ver</a></li>
       <li><input type="checkbox" id="ok-antes"><label for="ok-antes"><b class="cita">Antes de começar</b>: o texto e o botão <b class="cita">Continuar</b>.</label><a class="ver" href="#t-antes">Ver</a></li>
       <li><input type="checkbox" id="ok-aproximada"><label for="ok-aproximada"><b class="cita">Localização precisa desligada</b>: o texto e os botões <b class="cita">Abrir ajustes</b> e <b class="cita">Agora não</b>.</label><a class="ver" href="#t-aproximada">Ver</a></li>
       <li><input type="checkbox" id="ok-negadas"><label for="ok-negadas"><b class="cita">Permissões necessárias</b>: o texto e os mesmos dois botões.</label><a class="ver" href="#t-negadas">Ver</a></li>
       <li><input type="checkbox" id="ok-webview"><label for="ok-webview"><b class="cita">Atualize o Android System WebView</b>: o texto e o botão <b class="cita">Abrir a Play Store</b>.</label><a class="ver" href="#t-webview">Ver</a></li>
-      <li><input type="checkbox" id="ok-nova"><label for="ok-nova"><b class="cita">Nova versão do App de Campo</b>: o texto, com e sem novidades, e os botões <b class="cita">Atualizar agora</b> e <b class="cita">Depois</b>.</label><a class="ver" href="#t-nova-com">Ver</a></li>
+      <li><input type="checkbox" id="ok-nova"><label for="ok-nova"><b class="cita">Nova versão do Nexus Field</b>: o texto, com e sem novidades, e os botões <b class="cita">Atualizar agora</b> e <b class="cita">Depois</b>.</label><a class="ver" href="#t-nova-com">Ver</a></li>
       <li><input type="checkbox" id="ok-instalar"><label for="ok-instalar"><b class="cita">Permitir a atualização</b>: o texto e o botão <b class="cita">Abrir ajustes</b>.</label><a class="ver" href="#t-instalar">Ver</a></li>
       <li><input type="checkbox" id="ok-baixando"><label for="ok-baixando">Novo: o aviso rápido (toast) de quando o download da versão nova começa: o texto <b class="cita">Baixando a versão nova…</b>.</label><a class="ver" href="#t-baixando">Ver</a></li>
       <li><input type="checkbox" id="ok-sha"><label for="ok-sha">O aviso rápido (toast) de quando a atualização não deu certo (o download não terminou ou o arquivo não confere): o texto.</label><a class="ver" href="#t-sha">Ver</a></li>
       <li><input type="checkbox" id="ok-erro"><label for="ok-erro"><b class="cita">Sem internet</b>: o título, os dois textos e o botão <b class="cita">Tentar de novo</b>.</label><a class="ver" href="#t-erro">Ver</a></li>
-      <li><input type="checkbox" id="ok-fracttal"><label for="ok-fracttal">O aviso do Fracttal: o botão <b class="cita">Fechar</b> e o visual da camada. O texto da explicação vem da página do App.</label><a class="ver" href="#t-fracttal">Ver</a></li>
+      <li><input type="checkbox" id="ok-fracttal"><label for="ok-fracttal">O aviso do Fracttal: o botão <b class="cita">Fechar</b> e o visual da camada. O texto da explicação vem da página do App de Campo.</label><a class="ver" href="#t-fracttal">Ver</a></li>
       <li><input type="checkbox" id="ok-visual"><label for="ok-visual">O visual: os diálogos seguem o tema claro ou escuro do aparelho, e os botões usam a cor de destaque padrão do Android (verde-azulado), porque a casca não define uma cor própria.</label></li>
     </ul>
+  </section>
+
+  <section class="grupo" id="t-icone" aria-labelledby="g-icone">
+    <h2 id="g-icone">Ícone e nome</h2>
+    <p class="suave">O ícone na tela inicial, nas duas máscaras mais comuns do Android (a redonda e a squircle), num papel de parede claro e num escuro, em tamanho real (48 dp) e ampliado três vezes. O G é o do aplicativo e cabe inteiro na parte do ícone que toda máscara mostra; o nome embaixo é o que o aparelho mostra.</p>
+    <svg class="defs-do-icone" aria-hidden="true" focusable="false"><defs><image id="g-nexus-field" width="108" height="108" href="data:image/png;base64,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"/></defs></svg>
+    <div class="papeis">
+      <div class="papel papel-claro" role="group" aria-label="Papel de parede claro">
+        <figure class="atalho"><svg class="icone icone-redondo icone-real" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field, máscara redonda, tamanho real, no papel de parede claro"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><figcaption>Nexus Field</figcaption></figure>
+        <figure class="atalho"><svg class="icone icone-squircle icone-real" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field, máscara squircle, tamanho real, no papel de parede claro"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><figcaption>Nexus Field</figcaption></figure>
+        <figure class="atalho"><svg class="icone icone-redondo icone-ampliado" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field, máscara redonda, ampliado três vezes, no papel de parede claro"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><figcaption>Nexus Field</figcaption></figure>
+        <figure class="atalho"><svg class="icone icone-squircle icone-ampliado" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field, máscara squircle, ampliado três vezes, no papel de parede claro"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><figcaption>Nexus Field</figcaption></figure>
+      </div>
+      <div class="papel papel-escuro" role="group" aria-label="Papel de parede escuro">
+        <figure class="atalho"><svg class="icone icone-redondo icone-real" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field, máscara redonda, tamanho real, no papel de parede escuro"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><figcaption>Nexus Field</figcaption></figure>
+        <figure class="atalho"><svg class="icone icone-squircle icone-real" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field, máscara squircle, tamanho real, no papel de parede escuro"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><figcaption>Nexus Field</figcaption></figure>
+        <figure class="atalho"><svg class="icone icone-redondo icone-ampliado" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field, máscara redonda, ampliado três vezes, no papel de parede escuro"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><figcaption>Nexus Field</figcaption></figure>
+        <figure class="atalho"><svg class="icone icone-squircle icone-ampliado" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field, máscara squircle, ampliado três vezes, no papel de parede escuro"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><figcaption>Nexus Field</figcaption></figure>
+      </div>
+    </div>
+    <div class="galeria">
+
+      <figure class="item" id="t-abertura">
+        <div class="celular abertura" role="group" aria-label="Tela do aparelho na abertura do Nexus Field">
+          <svg class="abertura-g" viewBox="0 0 108 108" aria-hidden="true" focusable="false"><use href="#g-nexus-field"/></svg>
+        </div>
+        <figcaption><strong>Abertura.</strong> Aparece por um instante ao tocar no ícone, antes do App de Campo: o navy do ícone com o G pequeno no centro (no Android 12 ou mais novo é o próprio sistema que a desenha, e o tamanho pode variar um pouco). Troca a imagem padrão do Capacitor.</figcaption>
+      </figure>
+
+    </div>
   </section>
 
   <fieldset class="aparelho">
@@ -196,7 +273,7 @@
           <div class="veu">
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-antes" aria-describedby="dx-antes">
               <div class="dialogo-titulo" id="dt-antes">Antes de começar</div>
-              <p class="dialogo-texto" id="dx-antes">O App de Campo usa a câmera para as fotos das OS e das rondas, e a localização precisa para registrar onde o serviço começou e terminou.</p>
+              <p class="dialogo-texto" id="dx-antes">O Nexus Field usa a câmera para as fotos das OS e das rondas, e a localização precisa para registrar onde o serviço começou e terminou.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Continuar</span></div>
             </div>
           </div>
@@ -210,12 +287,12 @@
           <div class="veu">
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-aproximada" aria-describedby="dx-aproximada">
               <div class="dialogo-titulo" id="dt-aproximada">Localização precisa desligada</div>
-              <p class="dialogo-texto" id="dx-aproximada">Com a localização aproximada, a posição vem com erro de quilômetros e o App não consegue registrar o início e o fim do serviço. Nos ajustes, toque em Permissões &gt; Localização e ligue Usar localização precisa.</p>
+              <p class="dialogo-texto" id="dx-aproximada">Com a localização aproximada, a posição vem com erro de quilômetros e o Nexus Field não consegue registrar o início e o fim do serviço. Nos ajustes, toque em Permissões &gt; Localização e ligue Usar localização precisa.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Agora não</span><span class="dialogo-botao">Abrir ajustes</span></div>
             </div>
           </div>
         </div>
-        <figcaption><strong>Depois do pedido.</strong> Aparece quando o técnico escolheu a localização aproximada (Android 12 ou mais novo). Abrir ajustes leva à tela do App nas configurações do Android.</figcaption>
+        <figcaption><strong>Depois do pedido.</strong> Aparece quando o técnico escolheu a localização aproximada (Android 12 ou mais novo). Abrir ajustes leva à tela do Nexus Field nas configurações do Android.</figcaption>
       </figure>
 
       <figure class="item" id="t-negadas">
@@ -224,7 +301,7 @@
           <div class="veu">
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-negadas" aria-describedby="dx-negadas">
               <div class="dialogo-titulo" id="dt-negadas">Permissões necessárias</div>
-              <p class="dialogo-texto" id="dx-negadas">Sem a câmera e a localização, o App não consegue registrar as OS. Nos ajustes, toque em Permissões e libere Câmera e Localização.</p>
+              <p class="dialogo-texto" id="dx-negadas">Sem a câmera e a localização, o Nexus Field não consegue registrar as OS. Nos ajustes, toque em Permissões e libere Câmera e Localização.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Agora não</span><span class="dialogo-botao">Abrir ajustes</span></div>
             </div>
           </div>
@@ -238,12 +315,12 @@
           <div class="veu">
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-webview" aria-describedby="dx-webview">
               <div class="dialogo-titulo" id="dt-webview">Atualize o Android System WebView</div>
-              <p class="dialogo-texto" id="dx-webview">O App de Campo precisa de uma versão mais nova do componente que mostra as telas. Atualize o Android System WebView na Play Store e abra o App de novo.</p>
+              <p class="dialogo-texto" id="dx-webview">O Nexus Field precisa de uma versão mais nova do componente que mostra as telas. Atualize o Android System WebView na Play Store e abra o Nexus Field de novo.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Abrir a Play Store</span></div>
             </div>
           </div>
         </div>
-        <figcaption><strong>WebView velha demais.</strong> O App não abre nesse aparelho. O aviso não fecha: o botão abre a Play Store e o aviso continua na tela.</figcaption>
+        <figcaption><strong>WebView velha demais.</strong> O Nexus Field não abre nesse aparelho. O aviso não fecha: o botão abre a Play Store e o aviso continua na tela.</figcaption>
       </figure>
 
     </div>
@@ -251,15 +328,15 @@
 
   <section class="grupo" aria-labelledby="g-atualizacao">
     <h2 id="g-atualizacao">Atualização da casca</h2>
-    <p class="suave">Avisos de quando sai uma versão nova do aplicativo pela página de Releases do GitHub. A web do App não passa por aqui: ela atualiza sozinha.</p>
+    <p class="suave">Avisos de quando sai uma versão nova do aplicativo pela página de Releases do GitHub. O site do App de Campo não passa por aqui: ele atualiza sozinho.</p>
     <div class="galeria">
 
       <figure class="item" id="t-nova-com">
-        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Nova versão do App de Campo, com novidades">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Nova versão do Nexus Field, com novidades">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-nova-com" aria-describedby="dx-nova-com">
-              <div class="dialogo-titulo" id="dt-nova-com">Nova versão do App de Campo</div>
+              <div class="dialogo-titulo" id="dt-nova-com">Nova versão do Nexus Field</div>
               <p class="dialogo-texto" id="dx-nova-com">Versão 1.2.0. Novidades:
 - Melhorias de estabilidade
 - Ajuste no envio das fotos</p>
@@ -271,11 +348,11 @@
       </figure>
 
       <figure class="item" id="t-nova-sem">
-        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Nova versão do App de Campo, sem novidades">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Nova versão do Nexus Field, sem novidades">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-nova-sem" aria-describedby="dx-nova-sem">
-              <div class="dialogo-titulo" id="dt-nova-sem">Nova versão do App de Campo</div>
+              <div class="dialogo-titulo" id="dt-nova-sem">Nova versão do Nexus Field</div>
               <p class="dialogo-texto" id="dx-nova-sem">Versão 1.2.0.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Depois</span><span class="dialogo-botao">Atualizar agora</span></div>
             </div>
@@ -290,12 +367,12 @@
           <div class="veu">
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-instalar" aria-describedby="dx-instalar">
               <div class="dialogo-titulo" id="dt-instalar">Permitir a atualização</div>
-              <p class="dialogo-texto" id="dx-instalar">Para instalar a versão nova, libere Instalar apps desconhecidos para o App de Campo e volte para cá.</p>
+              <p class="dialogo-texto" id="dx-instalar">Para instalar a versão nova, libere Instalar apps desconhecidos para o Nexus Field e volte para cá.</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Abrir ajustes</span></div>
             </div>
           </div>
         </div>
-        <figcaption><strong>Depois do Atualizar agora.</strong> Aparece se o Android ainda não deixa o App instalar apps desconhecidos. Abrir ajustes leva à tela do Android para este App; ao voltar, a atualização segue de onde parou (por até 6 horas depois do download; depois disso, o App oferece a versão de novo).</figcaption>
+        <figcaption><strong>Depois do Atualizar agora.</strong> Aparece se o Android ainda não deixa o Nexus Field instalar apps desconhecidos. Abrir ajustes leva à tela do Android para o Nexus Field; ao voltar, a atualização segue de onde parou (por até 6 horas depois do download; depois disso, o Nexus Field oferece a versão de novo).</figcaption>
       </figure>
 
       <figure class="item" id="t-baixando">
@@ -303,7 +380,7 @@
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="toast" role="status" aria-labelledby="baixando-nome">Baixando a versão nova…</div>
         </div>
-        <figcaption><strong id="baixando-nome">Aviso rápido (toast), novo.</strong> Aparece logo depois do Atualizar agora, enquanto o arquivo baixa. Se o técnico sair do App durante o download, o instalador abre quando ele voltar.</figcaption>
+        <figcaption><strong id="baixando-nome">Aviso rápido (toast), novo.</strong> Aparece logo depois do Atualizar agora, enquanto o arquivo baixa. Se o técnico sair do Nexus Field durante o download, o instalador abre quando ele voltar.</figcaption>
       </figure>
 
       <figure class="item" id="t-sha">
@@ -318,8 +395,8 @@
   </section>
 
   <section class="grupo" aria-labelledby="g-paginas">
-    <h2 id="g-paginas">Telas dentro do App</h2>
-    <p class="suave">A tela de erro sem internet e o aviso do Fracttal, que cobre o App por cima.</p>
+    <h2 id="g-paginas">Telas dentro do Nexus Field</h2>
+    <p class="suave">A tela de erro sem internet e o aviso do Fracttal, que cobre o App de Campo por cima.</p>
     <div class="galeria">
 
       <figure class="item" id="t-erro">
@@ -329,10 +406,10 @@
 <head>
   <meta charset=&quot;utf-8&quot;>
   <meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1, viewport-fit=cover&quot;>
-  <title>Sem internet</title>
+  <title>Nexus Field: sem internet</title>
   <style>
-    /* Fundo igual ao do App de Campo e ao do ícone (#191528): a tela de erro não pode parecer outro app. Cor só
-       aqui, em variável; nenhuma regra abaixo escreve cor por extenso. */
+    /* Fundo igual ao do App de Campo (#191528), o site que esta tela substitui: a troca de uma para a outra não
+       parece outro aplicativo. Cor só aqui, em variável; nenhuma regra abaixo escreve cor por extenso. */
     :root {
       --fundo:#191528;
       --texto:#f2f0fa;
@@ -356,8 +433,8 @@
 <body>
   <main>
     <h1>Sem internet</h1>
-    <p>Abra o App de Campo uma vez com internet para ele ficar guardado neste aparelho.</p>
-    <p class=&quot;suave&quot;>Seus registros estão guardados neste aparelho. O App volta quando houver internet.</p>
+    <p>Abra o Nexus Field uma vez com internet para ele ficar guardado neste aparelho.</p>
+    <p class=&quot;suave&quot;>Seus registros estão guardados neste aparelho. O Nexus Field volta quando houver internet.</p>
     <button type=&quot;button&quot; id=&quot;tentar&quot;>Tentar de novo</button>
   </main>
   <script>
@@ -369,18 +446,18 @@
 </html>
 "></iframe>
         </div>
-        <figcaption><strong>Sem internet.</strong> É o www/erro.html de verdade, sem mudar nada (o botão não funciona nesta prévia). Aparece só na primeira abertura sem sinal, antes de o App ficar guardado no aparelho.</figcaption>
+        <figcaption><strong>Sem internet.</strong> É o www/erro.html de verdade, sem mudar nada (o botão não funciona nesta prévia). Aparece só na primeira abertura sem sinal, antes de o Nexus Field ficar guardado no aparelho.</figcaption>
       </figure>
 
       <figure class="item" id="t-fracttal">
-        <div class="celular" role="group" aria-label="Tela do aparelho com o aviso do Fracttal por cima do App">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o aviso do Fracttal por cima do App de Campo">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <!-- No aparelho a camada é modal (aria-modal="true"). Nesta página estática um aria-modal ativo esconderia o
                resto da página da acessibilidade (leitor de tela, lista de elementos), por isso a prévia usa "false"; é a
                única diferença em relação ao que o inicio.js monta, e o teste a normaliza antes de comparar. -->
           <div id="gc-casca-aviso" role="dialog" aria-modal="false" aria-label="Aviso" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;margin:0;padding:16px;box-sizing:border-box;background:rgba(0,0,0,0.6)"><div style="display:flex;flex-direction:column;width:100%;max-width:560px;height:100%;max-height:640px;margin:0;padding:0;box-sizing:border-box;overflow:hidden;border-radius:12px;background:#ffffff;color:#14181d;box-shadow:0 8px 32px rgba(0,0,0,0.35)"><iframe sandbox="" title="Aviso" style="display:block;flex:1 1 auto;width:100%;min-height:0;margin:0;padding:0;border:0;background:#ffffff" srcdoc="<meta charset=&quot;utf-8&quot;><meta name=&quot;viewport&quot; content=&quot;width=device-width,initial-scale=1&quot;><title>Conectar Fracttal</title><div style=&quot;font:15px/1.55 -apple-system,system-ui,sans-serif;padding:26px 22px;max-width:34em;color:#14181d&quot;><h2 style=&quot;font-size:19px;margin:0 0 12px;line-height:1.3&quot;>Sua sessão da Microsoft expirou</h2><p>Para reconectar o Fracttal, o app precisa primeiro que você <b>entre de novo com a conta Microsoft</b>. Isso não apaga nada do que você já registrou.</p><p style=&quot;background:#f3f4f6;border-radius:10px;padding:13px 15px&quot;><b>O que fazer:</b><br>1. Volte para o app<br>2. Toque no seu nome, no topo<br>3. Toque em <b>Sair</b><br>4. Entre de novo com <b>o mesmo e-mail</b><br>5. Aí sim, toque em Conectar conta Fracttal</p><p style=&quot;margin-top:22px;color:#6b7280;font-size:13px&quot;>Pode fechar esta aba.</p></div>"></iframe><button type="button" style="display:block;flex:0 0 auto;width:100%;min-height:52px;margin:0;padding:14px 16px;box-sizing:border-box;border:0;border-top:1px solid #e5e7eb;border-radius:0;background:#f3f4f6;color:#14181d;font:600 16px/1.2 system-ui,-apple-system,sans-serif;cursor:pointer">Fechar</button></div></div>
         </div>
-        <figcaption><strong>Aviso do Fracttal.</strong> Aparece quando o Conectar conta Fracttal escreve uma explicação em vez de abrir o Fracttal, por exemplo quando a sessão da Microsoft expirou. A camada (o estilo e o botão Fechar) é a do inicio.js, sem mudar nada além do aria-modal. O texto de dentro é o que o campo.html escreve na aba nesse caso (função conectarFracttal, no App v282, lido em 17/10/2026); no aparelho vem da página do App, e pode mudar com ela. Fechar tira a camada.</figcaption>
+        <figcaption><strong>Aviso do Fracttal.</strong> Aparece quando o Conectar conta Fracttal escreve uma explicação em vez de abrir o Fracttal, por exemplo quando a sessão da Microsoft expirou. A camada (o estilo e o botão Fechar) é a do inicio.js, sem mudar nada além do aria-modal. O texto de dentro é o que o campo.html escreve na aba nesse caso (função conectarFracttal, no App de Campo v282, lido em 17/10/2026); no aparelho vem da página do App de Campo, e pode mudar com ela. Fechar tira a camada.</figcaption>
       </figure>
 
     </div>
