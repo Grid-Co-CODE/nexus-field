@@ -80,8 +80,8 @@ public class MainActivityTest {
         SharedPreferences push = app.getSharedPreferences("push", Context.MODE_PRIVATE);
         assertTrue("a marca é jaPediuNotificacao no SharedPreferences \"push\"", push.getBoolean("jaPediuNotificacao", false));
 
-        // O token novo do Firebase mexe no mesmo arquivo (token e registradoEm) e não pode devolver o pedido ao técnico
-        // que já o respondeu.
+        // O token novo do Firebase mexe no mesmo arquivo (a chave do token) e não pode devolver o pedido ao técnico que já
+        // o respondeu.
         MensagensDoFirebase.guardarTokenNovo(app, "token-de-teste");
         assertTrue(MainActivity.jaPediuNotificacao(app));
     }

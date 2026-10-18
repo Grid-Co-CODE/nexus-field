@@ -1,6 +1,7 @@
 package br.com.gridco.campo;
 
 import static br.com.gridco.campo.Notificacoes.montar;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -18,6 +19,10 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
+import android.provider.Settings;
+import android.util.Log;
 
 import br.com.gridco.campo.Notificacoes.Montada;
 
@@ -29,6 +34,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
+import org.robolectric.shadows.ShadowLog;
 import org.robolectric.shadows.ShadowNotificationManager;
 import org.robolectric.shadows.ShadowPendingIntent;
 
@@ -111,23 +117,46 @@ public class NotificacoesTest {
     }
 
     @Test
-    public void tipoOuCanalDesconhecidoNaoMostra() {
+    public void tipoDesconhecidoNaoMostra() {
+        // O tipo decide o que a mensagem é: fora do contrato, não se sabe nem em que canal mostrar.
         assertNull(montar(dados("promo", "resumo", "t", "x", null)));
-        assertNull(montar(dados("resumo", "outro", "t", "x", null)));
+        assertNull(montar(dados("promo", "emergencia", "t", "x", "12345")));
         assertNull("sem tipo", montar(dados(null, "resumo", "t", "x", null)));
-        assertNull("sem canal", montar(dados("resumo", null, "t", "x", null)));
         assertNull("caixa diferente não é o contrato", montar(dados("Resumo", "resumo", "t", "x", null)));
+        assertNull(montar(dados("Emergencia", "emergencia", "t", "x", "12345")));
         assertNull(montar(new HashMap<>()));
         assertNull(montar(null));
     }
 
     @Test
-    public void tipoECanalQueNaoCombinamNaoMostram() {
-        // O resumo no canal da emergência tocaria alto às 7h (o barulho que a spec chama de fracasso), e a emergência no
-        // canal do resumo é uma mensagem fora do contrato: o servidor escolhe entre os dois canais da emergência.
-        assertNull(montar(dados("resumo", "emergencia", "t", "x", null)));
-        assertNull(montar(dados("resumo", "emergencia_silenciosa", "t", "x", null)));
-        assertNull(montar(dados("emergencia", "resumo", "t", "x", "12345")));
+    public void aEmergenciaComCanalQueNaoEDelaVaiAoSilenciosoENaoSePerde() {
+        // Ruling N4: um canal errado do servidor não descarta a emergência. Ela vai ao canal silencioso: aparece na
+        // barra, com a OS no toque, sem tocar alto por um canal que ninguém escolheu (o do resumo, ou um que não existe).
+        for (String canal : new String[] {"resumo", "outro", "", null, "Emergencia"}) {
+            Montada m = montar(dados("emergencia", canal, "Emergência", "Corretiva emergencial: OS 12345", "12345"));
+            assertNotNull("canal " + canal, m);
+            assertEquals("canal " + canal, "emergencia_silenciosa", m.canal);
+            assertEquals("a OS segue no toque", "12345", m.os);
+            assertEquals("o id é o da mesma emergência no canal certo", montar(dadosEmerg("12345")).id, m.id);
+            assertNotNull("o motivo vai ao log", m.aviso);
+        }
+        // No canal dela, nada a avisar.
+        assertNull(montar(dadosEmerg("12345")).aviso);
+        assertNull(montar(dados("emergencia", "emergencia_silenciosa", "t", "x", "1")).aviso);
+    }
+
+    @Test
+    public void oResumoComCanalQueNaoEDeleVaiAoCanalDoResumo() {
+        // O resumo no canal da emergência tocaria alto às 7h (o barulho que a spec chama de fracasso): vai ao dele.
+        for (String canal : new String[] {"emergencia", "emergencia_silenciosa", "outro", "", null}) {
+            Montada m = montar(dados("resumo", canal, "Bom dia!", "Hoje: 4 tarefas.", null));
+            assertNotNull("canal " + canal, m);
+            assertEquals("canal " + canal, "resumo", m.canal);
+            assertEquals(Notificacoes.ID_RESUMO, m.id);
+            assertNull(m.os);
+            assertNotNull("o motivo vai ao log", m.aviso);
+        }
+        assertNull(montar(dados("resumo", "resumo", "t", "x", null)).aviso);
     }
 
     @Test
@@ -149,7 +178,7 @@ public class NotificacoesTest {
             montar(dados("resumo", "resumo", "t", null, null)).texto);
 
         // O corte não parte um caractere de dois pedaços (UTF-16) ao meio. O par vai escrito por escape (um rosto
-        // sorrindo, U+1F600): o repositório não leva emoji, e o literal dependeria da codificação do fonte.
+        // sorrindo, U+1F600): o escape independe da codificação do fonte.
         String par = "\uD83D\uDE00";
         // Com 238 letras antes, a metade alta cai no índice 238 e a baixa no 239: o corte em 239 (240 com o "…") levaria
         // só a metade alta. O corte recua uma posição e o par sai inteiro do texto.
@@ -213,6 +242,24 @@ public class NotificacoesTest {
         assertEquals(NotificationManager.IMPORTANCE_LOW, silenciosa.getImportance());
         assertNull("não toca", silenciosa.getSound());
         assertFalse("não vibra", silenciosa.shouldVibrate());
+    }
+
+    @Test
+    public void aEmergenciaTocaOAlarmeDoAparelhoEOResumoOSomDeNotificacao() {
+        // Ruling N5: a emergência não pode soar como o resumo. O canal dela toca o som de alarme padrão do aparelho
+        // (como notificação de evento, sem arquivo de som nosso) e vibra no padrão próprio; o resumo fica com o som
+        // padrão de notificação.
+        CanaisDeNotificacao.criar(app);
+        NotificationChannel emergencia = nm.getNotificationChannel("emergencia");
+        NotificationChannel resumo = nm.getNotificationChannel("resumo");
+
+        assertEquals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), emergencia.getSound());
+        assertEquals(AudioAttributes.USAGE_NOTIFICATION_EVENT, emergencia.getAudioAttributes().getUsage());
+        assertEquals(AudioAttributes.CONTENT_TYPE_SONIFICATION, emergencia.getAudioAttributes().getContentType());
+        assertArrayEquals(new long[] {0, 500, 250, 500, 250, 500}, emergencia.getVibrationPattern());
+
+        assertEquals(Settings.System.DEFAULT_NOTIFICATION_URI, resumo.getSound());
+        assertNotEquals("os dois soam diferente", resumo.getSound(), emergencia.getSound());
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -316,18 +363,42 @@ public class NotificacoesTest {
     }
 
     @Test
-    public void tokenNovoEGuardadoEOPedidoDeRegistroVolta() {
-        // Ruling N1: o token novo apaga o registradoEm; o script de início registra de novo (o servidor só conhece o
-        // token velho). O que não é do registro fica.
+    public void oServicoMostraAEmergenciaDeCanalErradoNoSilenciosoEOLogDizSoOMotivo() {
+        // O título, o texto e a OS são distintos de propósito: nenhum deles pode aparecer no log.
+        Map<String, String> d = dados("emergencia", "resumo", "TituloDeProvaX1", "TextoDeProvaY2", "987654");
+        ShadowLog.clear();
+        MensagensDoFirebase servico = Robolectric.setupService(MensagensDoFirebase.class);
+        servico.onMessageReceived(mensagem(d));
+
+        assertEquals("a emergência não se perde", 1, sombra.size());
+        Notification n = sombra.getNotification(montar(d).id);
+        assertNotNull(n);
+        assertEquals("emergencia_silenciosa", n.getChannelId());
+        assertEquals("987654", intentDoToque(n).getStringExtra(Notificacoes.EXTRA_OS));
+
+        boolean avisou = false;
+        for (ShadowLog.LogItem item : ShadowLog.getLogsForTag(CascaPlugin.TAG)) {
+            if (item.type == Log.WARN && item.msg.contains("canal fora do contrato")) avisou = true;
+            for (String proibido : new String[] {"TituloDeProvaX1", "TextoDeProvaY2", "987654"}) {
+                assertFalse("o log levou o conteúdo: " + item.msg, item.msg.contains(proibido));
+            }
+        }
+        assertTrue("o log avisou o canal trocado", avisou);
+    }
+
+    @Test
+    public void tokenNovoEGuardadoSemMexerNoRestoDoArquivo() {
+        // O token novo é guardado, e a próxima carga da página com alguém logado o registra (Ruling N3: toda carga
+        // registra o token de agora, e o nativo não guarda nada do registro). A marca da permissão de notificação, do
+        // mesmo arquivo, fica.
         SharedPreferences push = app.getSharedPreferences("push", Context.MODE_PRIVATE);
-        assertTrue(push.edit().putString("token", "velho").putLong("registradoEm", 123L)
-            .putBoolean("jaPediuNotificacao", true).commit());
+        assertTrue(push.edit().putString("token", "velho").putBoolean("jaPediuNotificacao", true).commit());
 
         MensagensDoFirebase servico = Robolectric.setupService(MensagensDoFirebase.class);
         servico.onNewToken("novo");
 
         assertEquals("novo", push.getString("token", null));
-        assertFalse(push.contains("registradoEm"));
         assertTrue(push.getBoolean("jaPediuNotificacao", false));
+        assertEquals("só o token e a marca", 2, push.getAll().size());
     }
 }

@@ -22,9 +22,9 @@ import java.util.regex.Pattern;
  *
  * A montagem é pura ({@link #montar}) para o teste de JVM provar as regras que evitam o barulho que a spec chama de
  * fracasso: o resumo da tarde SUBSTITUI o da manhã (id fixo), a mesma emergência chegando duas vezes substitui a
- * primeira (id estável pela OS) e mensagem fora do contrato não aparece. O texto é o do servidor, que só leva contagens e
- * o número da OS (nada de usina nem de pessoa: o Firebase passa pelo Google); a casca não acrescenta nada, e o log diz
- * só o canal.
+ * primeira (id estável pela OS), o tipo fora do contrato não aparece e o canal que não é do tipo é trocado pelo do tipo
+ * (a emergência nunca se perde). O texto é o do servidor, que só leva contagens e o número da OS (nada de usina nem de
+ * pessoa: o Firebase passa pelo Google); a casca não acrescenta nada, e o log diz só o canal e o motivo.
  */
 final class Notificacoes {
 
@@ -64,27 +64,37 @@ final class Notificacoes {
         String texto;
         String os;   // só na emergência, e só com o número válido; null no resto
         int id;
+        // O motivo de o canal ter sido trocado, para o log (um texto nosso, sem nada da mensagem); null sem troca.
+        String aviso;
     }
 
     private Notificacoes() {
     }
 
     /**
-     * Monta a notificação a partir dos dados da mensagem do Firebase, ou devolve null se ela não é para mostrar: tipo ou
-     * canal fora do contrato, ou os dois que não combinam (o resumo só no canal dele; a emergência só nos dois dela). O
-     * resumo no canal da emergência tocaria alto às 7h. Título vazio vira o nome do aplicativo; texto longo é cortado.
+     * Monta a notificação a partir dos dados da mensagem do Firebase, ou devolve null se ela não é para mostrar: o tipo
+     * fora do contrato. O canal que não é do tipo é trocado, com o motivo em {@link Montada#aviso} (Ruling N4,
+     * 18/10/2026): a emergência num canal que não é um dos dois dela vai ao silencioso, porque descartá-la perderia o
+     * aviso e o canal alto tocaria por um canal que ninguém escolheu; o resumo em outro canal vai ao dele, porque no da
+     * emergência tocaria alto às 7h. Título vazio vira o nome do aplicativo; texto longo é cortado.
      */
     static Montada montar(Map<String, String> dados) {
         if (dados == null) return null;
         String tipo = dados.get("tipo");
         String canal = dados.get("canal");
-        boolean resumo = TIPO_RESUMO.equals(tipo) && CANAL_RESUMO.equals(canal);
-        boolean emergencia = TIPO_EMERGENCIA.equals(tipo)
-            && (CANAL_EMERGENCIA.equals(canal) || CANAL_EMERGENCIA_SILENCIOSA.equals(canal));
-        if (!resumo && !emergencia) return null;
+        boolean resumo = TIPO_RESUMO.equals(tipo);
+        if (!resumo && !TIPO_EMERGENCIA.equals(tipo)) return null;
 
         Montada m = new Montada();
-        m.canal = canal;
+        if (resumo) {
+            m.canal = CANAL_RESUMO;
+            if (!CANAL_RESUMO.equals(canal)) m.aviso = "resumo com o canal fora do contrato: vai ao canal do resumo";
+        } else if (CANAL_EMERGENCIA.equals(canal) || CANAL_EMERGENCIA_SILENCIOSA.equals(canal)) {
+            m.canal = canal;
+        } else {
+            m.canal = CANAL_EMERGENCIA_SILENCIOSA;
+            m.aviso = "emergência com o canal fora do contrato: vai ao canal silencioso";
+        }
         String titulo = aparado(dados.get("titulo"));
         m.titulo = titulo.isEmpty() ? TITULO_PADRAO : titulo;
         m.texto = cortado(aparado(dados.get("texto")));

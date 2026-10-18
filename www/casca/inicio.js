@@ -1833,19 +1833,24 @@
 
   // O servidor do App de Campo manda os resumos e as emergências pelo Firebase ao token deste aparelho, e precisa saber
   // de quem ele é. Quem registra é a PRÓPRIA página, com o Bearer dela (o getTokenMW), como em toda chamada ao servidor:
-  // o nativo nunca vê token da Microsoft, e o script não guarda o Bearer (pede na hora a cada chamada). O nativo dá o
-  // token do Firebase e diz se ele já foi registrado há menos de 7 dias (o SharedPreferences "push"):
+  // o nativo nunca vê token da Microsoft, e o script não guarda o Bearer (pede na hora a cada chamada). O nativo só dá o
+  // token do Firebase:
   //   script -> nativo: {t:'pushPedirToken'}, 5 s depois do load (a página já definiu o que esta seção usa, e a carga
-  //                     já terminou); {t:'pushRegistrado', token}, quando o servidor aceitou o registro;
-  //   nativo -> script: {t:'pushToken', token (null: sem Firebase, ou o token ainda não saiu), jaRegistrado, versao}.
+  //                     já terminou);
+  //   nativo -> script: {t:'pushToken', token (null: sem Firebase, ou o token ainda não saiu), versao}.
   // As rotas (da sessão "App de campo"): POST {MIDDLEWARE_URL}/push/registrar {token, aparelho:'android',
   // app:'NexusField/<versao>'} e POST {MIDDLEWARE_URL}/push/esquecer {token}, as duas com o Bearer da página.
-  // Sem laço e sem nada na tela:
+  // UMA VEZ POR CARGA, SEM ATALHO (Ruling N3, 18/10/2026): toda carga registra, depois do login, com o Bearer da conta
+  // de agora, e o servidor guarda pelo token (o mesmo registro de novo não muda nada; o de outra conta passa o aparelho
+  // a ela). A primeira versão pulava o registro feito há menos de 7 dias, e o "já registrado" não sabia de QUEM: o
+  // técnico que trocava de conta sem o Sair seguia recebendo no e-mail anterior, e depois do Sair (que tira o aparelho
+  // do servidor) o nativo seguia achando que estava registrado, e o aparelho ficava sem aviso por até 7 dias. O custo é
+  // uma chamada ao servidor do App de Campo por abertura (não ao Fracttal). Sem laço e sem nada na tela:
   //   - ninguém logado (o Bearer null): tenta de novo no próximo `online` ou na volta ao app (visibilitychange);
   //   - 404: a rota ainda não está no ar; não tenta mais nesta carga;
   //   - outro erro, ou sem rede: tenta no próximo `online`, no máximo uma vez a cada 10 minutos (o online que chega
   //     dentro da espera tenta quando ela acaba);
-  //   - a carga seguinte pergunta ao nativo de novo.
+  //   - a carga seguinte pede o token e registra de novo.
   // O "Sair" (o aparelho dividido entre técnicos): antes do sair da página (que troca a tela e vai ao logout da
   // Microsoft, e a navegação cortaria a chamada), o servidor esquece o token, com prazo de 3 s; o sair da página roda
   // sempre, mesmo se o esquecer falhar. Todo aviso vai como {t:'erro', onde:'push'} com um texto nosso: nunca o token,
@@ -1898,8 +1903,8 @@
     var versao = '';
     var emCurso = false;
     // O que faz tentar de novo: 'login' (sem Bearer: o próximo online ou a volta ao app) ou 'rede' (erro ou sem rede: o
-    // próximo online, depois da espera). null é "nada mais nesta carga": registrado (agora, ou há menos de 7 dias), a
-    // rota que ainda não está no ar (404), ou a página sem o que esta seção usa.
+    // próximo online, depois da espera). null é "nada mais nesta carga": registrado, a rota que ainda não está no ar
+    // (404), ou a página sem o que esta seção usa.
     var aguardando = null;
     var esfriando = false;     // a última falha tem menos de 10 minutos
     var tentarDepois = false;  // um online chegou na espera: tenta quando ela acabar
@@ -1945,17 +1950,16 @@
           ': o aparelho não é registrado nesta carga');
         return;
       }
-      var esteToken = token;
       emCurso = true;
       pedirBearer().then(function (bearer) {
         if (!bearer) { aguardando = 'login'; return undefined; }
         // O gcQuieto é o do próprio campo.html (v284): a barra de carregamento conta só o que o técnico pediu, e o
         // registro é de fundo.
-        return postar(ROTA_REGISTRAR, bearer, { token: esteToken, aparelho: 'android', app: 'NexusField/' + versao },
+        return postar(ROTA_REGISTRAR, bearer, { token: token, aparelho: 'android', app: 'NexusField/' + versao },
           { gcQuieto: true }).then(function (resposta) {
-          if (resposta && resposta.ok) {
-            ctx.enviar({ t: 'pushRegistrado', token: esteToken }, 'push');
-          } else if (resposta && resposta.status === 404) {
+          // 2xx: registrado nesta carga, e nada mais até a próxima (o nativo não guarda nada do registro).
+          if (resposta && resposta.ok) return;
+          if (resposta && resposta.status === 404) {
             avisar('a rota de registro do aparelho ainda não está no ar (404): nada mais nesta carga');
           } else {
             esperarARede('o registro do aparelho respondeu ' + situacao(resposta) + '; tenta no próximo online');
@@ -2014,10 +2018,10 @@
       if (!m || typeof m !== 'object' || m.t !== 'pushToken') return;
       // Sem token (o Firebase não configurado, ou o token ainda não saiu): nada a registrar nem a esquecer.
       if (typeof m.token !== 'string' || !m.token) return;
+      // Uma vez por carga: o token é pedido uma vez, e só a primeira resposta com token vale.
+      if (token !== null) return;
       token = m.token;
       versao = typeof m.versao === 'string' ? m.versao : '';
-      // Registrado há menos de 7 dias: o token fica só para o sair esquecer.
-      if (m.jaRegistrado === true) return;
       registrar();
     });
 

@@ -35,12 +35,12 @@ import org.json.JSONObject;
  * <pre>
  *   ls {k, v} · lsDel {k} · idbPut {k, tipo, v} · idbDel {k} · idbPedaco {k, id, i, n, mime, b64} · sentinela
  *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila}
- *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken · pushRegistrado {token}
+ *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken
  * </pre>
  *
  * E a resposta do idbPedir, pela ponte da mesma mensagem: idbItem, idbPedaco e idbFim ({@link #enviarIdb}), ou
  * idbRecusado ({@link #recusarIdb}) quando o disjuntor do dia não deixa. A do pushPedirToken, também pela ponte dela, é
- * o pushToken {token, jaRegistrado, versao} ({@link RegistroDoPush#resposta}).
+ * o pushToken {token, versao} ({@link #respostaDoPush}).
  *
  * Regras que o código não mostra sozinho:
  * <ul>
@@ -117,13 +117,10 @@ public final class Mensageiro {
 
         /**
          * A página quer o token do Firebase para registrar o aparelho no servidor: peça-o ao Firebase e responda pela
-         * ponte da própria mensagem com o {@link RegistroDoPush#resposta} (o token null quando o Firebase não está
+         * ponte da própria mensagem com o {@link Mensageiro#respostaDoPush} (o token null quando o Firebase não está
          * configurado ou ainda não deu o token).
          */
         void pushPedirToken();
-
-        /** A página registrou este token no servidor: anote com o {@link RegistroDoPush#registrado}. */
-        void pushRegistrado(String token);
 
         /** Um aviso para o log. Nunca traz nome de chave, valor, URL com parâmetros nem e-mail. */
         void erro(String onde, String msg);
@@ -319,86 +316,22 @@ public final class Mensageiro {
     }
 
     /**
-     * O registro do aparelho no servidor para as notificações (spec 2026-10-18, seção 4.2), do lado nativo. Quem registra
-     * é a página, com o Bearer dela (o nativo nunca vê token da Microsoft); aqui só mora o token do Firebase e QUANDO ele
-     * foi registrado, no SharedPreferences "push" (as chaves do {@link MensagensDoFirebase}, cujo onNewToken grava o token
-     * e apaga o registradoEm), para a página não chamar a rota a cada carga.
+     * A resposta ao pushPedirToken (o registro do aparelho para as notificações, spec 2026-10-18, seção 4.2):
+     * {@code {t:'pushToken', token, versao}}. Quem registra é a página, com o Bearer dela (o nativo nunca vê token da
+     * Microsoft), e a CADA CARGA (Ruling N3, 18/10/2026): o nativo não guarda nada do registro. A primeira versão
+     * guardava a hora do registro e respondia "já registrado" por 7 dias, e isso não sabia de QUEM era o registro (o
+     * técnico que trocava de conta sem o Sair seguia recebendo no e-mail anterior) nem voltava depois do Sair, que tira
+     * o aparelho do servidor (o aparelho ficava sem aviso até os 7 dias passarem). Custo: uma chamada ao servidor do
+     * App de Campo por abertura do app.
      *
-     * O {@code jaRegistrado} vale só para o MESMO token registrado há menos de {@value #VALIDADE_DO_REGISTRO_MS} ms (7
-     * dias, no relógio de parede: atravessa a reinicialização). Passados os 7 dias a página registra de novo: o servidor
-     * que perdeu o registro (a tabela refeita, o token que ele descartou) volta a ter o aparelho em até uma semana. O
-     * registro "do futuro" (a hora do aparelho voltou) não vale. Custo de errar para o lado do não: um registro a mais.
-     *
-     * Nada de token no log: ele identifica o aparelho para o Firebase. Roda na thread do espelho; o commit (e não o
-     * apply) porque o processo pode morrer logo depois (o "Sair" navega para o logout da Microsoft).
+     * @param doFirebase o token que o Firebase deu agora, ou null (não configurado, ou o token ainda não saiu): aí vai
+     *                   {@code token: null}, e a página não registra nada nesta carga
+     * @param versao     o versionName do app, que a página manda ao servidor como "NexusField/&lt;versao&gt;"
      */
-    static final class RegistroDoPush {
-
-        static final long VALIDADE_DO_REGISTRO_MS = 7L * 24 * 60 * 60 * 1000;
-
-        private final SharedPreferences prefs;
-        private final LongSupplier relogioDeParede;
-        private final String versao;
-
-        /** @param versao o versionName do app, que a página manda ao servidor como "NexusField/&lt;versao&gt;" */
-        RegistroDoPush(SharedPreferences prefs, LongSupplier relogioDeParede, String versao) {
-            this.prefs = prefs;
-            this.relogioDeParede = relogioDeParede;
-            this.versao = versao == null ? "" : versao;
-        }
-
-        /**
-         * A resposta ao pushPedirToken: {@code {t:'pushToken', token, jaRegistrado, versao}}. {@code doFirebase} é o token
-         * que o Firebase deu agora, ou null (não configurado, ou o token ainda não saiu): aí vai {@code token: null}, e o
-         * que estava guardado fica. Um token diferente do guardado (o renovado, ou o primeiro) é guardado sem registro.
-         */
-        @SuppressLint("ApplySharedPref")
-        String resposta(String doFirebase) {
-            String token = doFirebase == null || doFirebase.isEmpty() ? null : doFirebase;
-            boolean jaRegistrado = false;
-            if (token != null) {
-                if (token.equals(tokenGuardado())) {
-                    jaRegistrado = registroValendo();
-                } else {
-                    // A mesma regra do onNewToken (MensagensDoFirebase.guardarTokenNovo): o servidor só conhece o velho.
-                    prefs.edit().putString(MensagensDoFirebase.CHAVE_TOKEN, token)
-                        .remove(MensagensDoFirebase.CHAVE_REGISTRADO_EM).commit();
-                }
-            }
-            return json("t", "pushToken", "token", token == null ? JSONObject.NULL : token, "jaRegistrado", jaRegistrado,
-                "versao", versao);
-        }
-
-        /**
-         * O pushRegistrado: a página registrou este token agora. Só vale para o token guardado, o que o pushToken deu: o
-         * registro de um token velho que chega atrasado (o Firebase renovou no meio) não marca o novo como registrado.
-         *
-         * @return true se a hora foi gravada
-         */
-        @SuppressLint("ApplySharedPref")
-        boolean registrado(String token) {
-            if (token == null || token.isEmpty() || !token.equals(tokenGuardado())) return false;
-            return prefs.edit().putLong(MensagensDoFirebase.CHAVE_REGISTRADO_EM, relogioDeParede.getAsLong()).commit();
-        }
-
-        private boolean registroValendo() {
-            long em;
-            try {
-                em = prefs.getLong(MensagensDoFirebase.CHAVE_REGISTRADO_EM, -1L);
-            } catch (ClassCastException e) {
-                return false; // um valor de outro tipo na chave conta como sem registro
-            }
-            long agora = relogioDeParede.getAsLong();
-            return em >= 0 && em <= agora && agora - em < VALIDADE_DO_REGISTRO_MS;
-        }
-
-        private String tokenGuardado() {
-            try {
-                return prefs.getString(MensagensDoFirebase.CHAVE_TOKEN, null);
-            } catch (ClassCastException e) {
-                return null;
-            }
-        }
+    static String respostaDoPush(String doFirebase, String versao) {
+        String token = doFirebase == null || doFirebase.isEmpty() ? null : doFirebase;
+        return json("t", "pushToken", "token", token == null ? JSONObject.NULL : token,
+            "versao", versao == null ? "" : versao);
     }
 
     private final ArmazemEspelho armazem;
@@ -512,12 +445,6 @@ public final class Mensageiro {
                 case "pushPedirToken":
                     acoes.pushPedirToken();
                     return true;
-                case "pushRegistrado": {
-                    String token = texto(m, "token");
-                    if (token == null || token.isEmpty()) return recusar(t);
-                    acoes.pushRegistrado(token);
-                    return true;
-                }
                 case "erro": {
                     // Só o rótulo e a contagem. O texto do erro nunca vai ao log: o QuotaExceededError do Chromium cita
                     // a chave entre aspas, e o do JSON.parse, o próprio texto (um nome, num rascunho que não é JSON).

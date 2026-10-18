@@ -1,9 +1,11 @@
 // Prova o registro do aparelho para as notificações, do lado do script de início (spec 2026-10-18, seção 4.2): o
 // nativo dá o token do Firebase, e a PRÓPRIA página o registra no servidor com o Bearer dela (o nativo nunca vê token da
-// Microsoft). O que se protege aqui: um registro só, com o corpo do contrato com o servidor; sem login, sem rede ou com
-// a rota ainda fora do ar, nada de laço nem de erro na tela; no "Sair", o servidor esquece o aparelho antes de a página
-// limpar a sessão, e o sair segue mesmo se o esquecer falhar (o aparelho dividido entre técnicos); e nada de token nem
-// de e-mail no aviso de erro ao nativo. O servidor é falso: as rotas são da sessão "App de campo".
+// Microsoft). O que se protege aqui: um registro por carga, com o Bearer da conta de agora e o corpo do contrato com o
+// servidor (Ruling N3: sem atalho de "já registrado", que não sabia de quem era o registro nem voltava depois do Sair);
+// sem login, sem rede ou com a rota ainda fora do ar, nada de laço nem de erro na tela; no "Sair", o servidor esquece o
+// aparelho antes de a página limpar a sessão, e o sair segue mesmo se o esquecer falhar (o aparelho dividido entre
+// técnicos); e nada de token nem de e-mail no aviso de erro ao nativo. O servidor é falso: as rotas são da sessão "App
+// de campo".
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -27,6 +29,15 @@ const DEZ_MIN_MS = 10 * 60 * 1000;
 const TOKEN = 'tokenFcmFicticio:APA91b_abc123';
 const EMAIL = 'tecnico.ficticio@exemplo.com.br';
 const BEARER = 'bearerFicticio.eyJ.' + EMAIL;
+// Duas contas do mesmo aparelho (o aparelho dividido, ou o técnico com duas contas), fictícias.
+const CONTA_A = 'bearerFicticio.contaA';
+const CONTA_B = 'bearerFicticio.contaB';
+
+// O que o nativo responde ao pushPedirToken (o Mensageiro.respostaDoPush): o token e a versão, e nada sobre registro.
+const doNativo = (token = TOKEN) => ({ t: 'pushToken', token, versao: '1.1.0' });
+// O que a primeira versão desta tarefa respondia na carga seguinte ao registro (o mesmo token, registrado há menos de 7
+// dias). As provas das cargas seguintes o mandam de propósito: o script não tem mais atalho, e o campo não muda nada.
+const doNativoAntigo = () => ({ ...doNativo(), jaRegistrado: true });
 
 const ok = () => Promise.resolve({ ok: true, status: 200 });
 const status = (n) => () => Promise.resolve({ ok: n >= 200 && n < 300, status: n });
@@ -48,14 +59,28 @@ function montar({ bearer = BEARER, servidor = ok, ...opcoes } = {}) {
   const casca = instalar(j.win, j.canal, j.retrato);
   const doTipo = (t) => j.enviados.filter((m) => m.t === t);
   const erros = () => j.enviados.filter((m) => m.t === 'erro');
-  return { ...j, casca, pedidos, estado, doTipo, erros };
+  // O que a seção 8 mandou ao nativo (menos os avisos): só o pedido do token, uma vez por carga.
+  const doPush = () => j.enviados.filter((m) => typeof m.t === 'string' && m.t.indexOf('push') === 0);
+  const registros = () => pedidos.filter((p) => p.url === MW + '/push/registrar');
+  const esquecimentos = () => pedidos.filter((p) => p.url === MW + '/push/esquecer');
+  return { ...j, casca, pedidos, estado, doTipo, erros, doPush, registros, esquecimentos };
+}
+
+// A carga seguinte na mesma WebView: o localStorage e o sessionStorage de antes (o script não guarda nada do registro
+// em nenhum dos dois, e esta prova o confirma).
+function recarregar(j, opcoes = {}) {
+  return montar({
+    ls: Object.fromEntries(j.win.localStorage._itens),
+    sessao: Object.fromEntries(j.win.sessionStorage._itens),
+    ...opcoes,
+  });
 }
 
 // O load da página, os 5 s e a resposta do nativo ao pushPedirToken.
 async function carregar(j, resposta) {
   j.win.dispatchEvent({ type: 'load' });
   j.avancar(ESPERA_MS);
-  j.responder({ t: 'pushToken', versao: '1.1.0', jaRegistrado: false, ...resposta });
+  j.responder({ ...doNativo(), ...resposta });
   await assentar();
 }
 
@@ -64,7 +89,7 @@ function mostrar(j) {
   j.win.document.dispatchEvent({ type: 'visibilitychange' });
 }
 
-test('registra uma vez com o Bearer da página e o corpo do contrato', async () => {
+test('registra uma vez por carga com o Bearer da página e o corpo do contrato', async () => {
   const j = montar();
   j.win.dispatchEvent({ type: 'load' });
   j.avancar(ESPERA_MS - 1);
@@ -72,7 +97,7 @@ test('registra uma vez com o Bearer da página e o corpo do contrato', async () 
   j.avancar(1);
   assert.deepEqual(j.doTipo('pushPedirToken'), [{ t: 'pushPedirToken' }]);
 
-  j.responder({ t: 'pushToken', token: TOKEN, jaRegistrado: false, versao: '1.1.0' });
+  j.responder(doNativo());
   await assentar();
   assert.equal(j.pedidos.length, 1);
   const { url, init, corpo } = j.pedidos[0];
@@ -83,16 +108,65 @@ test('registra uma vez com o Bearer da página e o corpo do contrato', async () 
   assert.deepEqual(corpo, { token: TOKEN, aparelho: 'android', app: 'NexusField/1.1.0' });
   // O registro é de fundo: o gcQuieto do campo.html (v284) o deixa fora da barra de carregamento.
   assert.equal(init.gcQuieto, true);
-  assert.deepEqual(j.doTipo('pushRegistrado'), [{ t: 'pushRegistrado', token: TOKEN }]);
 
-  // Registrado, nada mais chama a rota nesta carga: nem a rede que volta, nem a volta ao app.
+  // Registrado, nada mais chama a rota nesta carga: nem a rede que volta, nem a volta ao app, nem outra resposta do
+  // nativo (o token é pedido uma vez por carga, e só a primeira resposta com token vale).
   j.win.dispatchEvent({ type: 'online' });
   mostrar(j);
   j.avancar(DEZ_MIN_MS);
+  j.responder(doNativo('outroToken'));
   await assentar();
   assert.equal(j.pedidos.length, 1);
-  assert.equal(j.doTipo('pushPedirToken').length, 1, 'o token é pedido uma vez por carga');
+  // E o nativo não fica sabendo do registro: não há memória dele a consultar na carga seguinte.
+  assert.deepEqual(j.doPush(), [{ t: 'pushPedirToken' }], 'o token é pedido uma vez por carga, e nada mais vai ao nativo');
   assert.deepEqual(j.erros(), []);
+});
+
+test('cada carga registra de novo com a conta atual', async () => {
+  // O técnico que troca de conta sem passar pelo Sair (o "limpar só o login", a outra conta do "Há duas contas"): a
+  // carga seguinte registra o mesmo token com o Bearer da conta nova, e o servidor (upsert pelo token) passa o aparelho
+  // a ela. Com o atalho dos 7 dias, a emergência seguia indo ao e-mail anterior.
+  const primeira = montar({ bearer: CONTA_A });
+  await carregar(primeira, doNativo());
+  const segunda = recarregar(primeira, { bearer: CONTA_B });
+  await carregar(segunda, doNativoAntigo());
+
+  const registros = [...primeira.registros(), ...segunda.registros()];
+  assert.deepEqual(registros.map((p) => p.init.headers.Authorization), ['Bearer ' + CONTA_A, 'Bearer ' + CONTA_B]);
+  for (const p of registros) assert.deepEqual(p.corpo, { token: TOKEN, aparelho: 'android', app: 'NexusField/1.1.0' });
+  for (const j of [primeira, segunda]) {
+    assert.equal(j.pedidos.length, 1, 'um registro por carga');
+    assert.deepEqual(j.doPush(), [{ t: 'pushPedirToken' }]);
+    assert.deepEqual(j.erros(), []);
+  }
+});
+
+test('depois do Sair a carga seguinte registra', { timeout: 10000 }, async () => {
+  // O aparelho dividido entre técnicos: o Sair tira o aparelho do servidor antes do logout, e a carga que vem depois
+  // (o logout da Microsoft volta ao App) o registra de novo assim que alguém entra, com a conta de quem entrou. Com o
+  // atalho dos 7 dias, o nativo seguia achando que estava registrado, e o aparelho ficava sem aviso por até 7 dias.
+  const antes = montar({ bearer: CONTA_A });
+  antes.win.sair = async function () { return 'saiu'; };
+  await carregar(antes, doNativo());
+  assert.equal(await antes.win.sair(), 'saiu');
+  assert.deepEqual(antes.pedidos.map((p) => [p.url, p.init.headers.Authorization, p.corpo.token]), [
+    [MW + '/push/registrar', 'Bearer ' + CONTA_A, TOKEN],
+    [MW + '/push/esquecer', 'Bearer ' + CONTA_A, TOKEN],
+  ]);
+
+  // A carga seguinte abre na tela de login (ninguém logado): nada a registrar ainda.
+  const depois = recarregar(antes, { bearer: null });
+  await carregar(depois, doNativoAntigo());
+  assert.equal(depois.pedidos.length, 0);
+  // O outro técnico entra, e a volta ao app registra com a conta dele.
+  depois.estado.bearer = CONTA_B;
+  mostrar(depois);
+  await assentar();
+  assert.deepEqual(depois.pedidos.map((p) => [p.url, p.init.headers.Authorization, p.corpo.token]), [
+    [MW + '/push/registrar', 'Bearer ' + CONTA_B, TOKEN],
+  ]);
+  assert.deepEqual(depois.doPush(), [{ t: 'pushPedirToken' }]);
+  assert.deepEqual([...antes.erros(), ...depois.erros()], []);
 });
 
 test('não registra sem login e tenta no próximo online', async () => {
@@ -100,7 +174,6 @@ test('não registra sem login e tenta no próximo online', async () => {
   await carregar(j, { token: TOKEN });
   assert.equal(j.estado.bearers, 1, 'perguntou à página');
   assert.equal(j.pedidos.length, 0, 'sem Bearer não chama a rota');
-  assert.deepEqual(j.doTipo('pushRegistrado'), []);
   assert.deepEqual(j.erros(), [], 'ninguém logado não é erro');
 
   // Ainda sem login: a volta da rede pergunta de novo, sem chamar a rota.
@@ -115,7 +188,7 @@ test('não registra sem login e tenta no próximo online', async () => {
   await assentar();
   assert.equal(j.pedidos.length, 1);
   assert.equal(j.pedidos[0].init.headers.Authorization, 'Bearer ' + BEARER);
-  assert.deepEqual(j.doTipo('pushRegistrado'), [{ t: 'pushRegistrado', token: TOKEN }]);
+  assert.deepEqual(j.pedidos[0].corpo, { token: TOKEN, aparelho: 'android', app: 'NexusField/1.1.0' });
 
   // Registrado, a espera do login acabou: nem a rede nem a volta ao app chamam a rota de novo.
   j.win.dispatchEvent({ type: 'online' });
@@ -138,7 +211,6 @@ test('a página sem o getTokenMW ou sem o MIDDLEWARE_URL: um aviso, nenhuma cham
     }
     assert.equal(j.pedidos.length, 0, falta);
     assert.deepEqual(j.erros().map((e) => e.onde), ['push'], falta);
-    assert.deepEqual(j.doTipo('pushRegistrado'), [], falta);
   }
 });
 
@@ -153,26 +225,13 @@ test('sem login, a volta ao app (visibilitychange) também tenta de novo; o fund
   mostrar(j);
   await assentar();
   assert.equal(j.pedidos.length, 1);
-  assert.deepEqual(j.doTipo('pushRegistrado'), [{ t: 'pushRegistrado', token: TOKEN }]);
-});
-
-test('jaRegistrado: não chama a rota', async () => {
-  const j = montar();
-  await carregar(j, { token: TOKEN, jaRegistrado: true });
-  j.win.dispatchEvent({ type: 'online' });
-  mostrar(j);
-  await assentar();
-  assert.equal(j.pedidos.length, 0);
-  assert.equal(j.estado.bearers, 0, 'nem pede o Bearer');
-  assert.deepEqual(j.doTipo('pushRegistrado'), []);
-  assert.deepEqual(j.erros(), []);
+  assert.equal(j.registros().length, 1);
 });
 
 test('404: não tenta mais nesta sessão', async () => {
   const j = montar({ servidor: status(404) });
   await carregar(j, { token: TOKEN });
   assert.equal(j.pedidos.length, 1);
-  assert.deepEqual(j.doTipo('pushRegistrado'), []);
   assert.deepEqual(j.erros().map((e) => e.onde), ['push'], 'um aviso só');
 
   for (let i = 0; i < 3; i++) {
@@ -216,7 +275,7 @@ test('outro erro ou sem rede: tenta no próximo online, no máximo 1 vez a cada 
   j.win.dispatchEvent({ type: 'online' });
   await assentar();
   assert.equal(j.pedidos.length, 4);
-  assert.deepEqual(j.doTipo('pushRegistrado'), [{ t: 'pushRegistrado', token: TOKEN }]);
+  assert.equal(j.registros().length, 4, 'todas as tentativas são o registro');
   j.win.dispatchEvent({ type: 'online' });
   j.avancar(DEZ_MIN_MS);
   await assentar();
@@ -234,7 +293,6 @@ test('sem token do Firebase (null): não faz nada', async () => {
   await assentar();
   assert.equal(j.pedidos.length, 0);
   assert.equal(j.estado.bearers, 0);
-  assert.deepEqual(j.doTipo('pushRegistrado'), []);
   assert.deepEqual(j.erros(), []);
   // O sair, sem token a esquecer, é o da página na hora.
   assert.equal(await j.win.sair(), 'saiu');
@@ -251,22 +309,25 @@ test('sem token do Firebase (null): não faz nada', async () => {
 
 test('sair: esquece o token antes e chama o original mesmo se o esquecer falhar', { timeout: 10000 }, async () => {
   // A página define o sair enquanto carrega, antes do load (o script de início roda antes dela).
-  const j = montar({ servidor: semRede });
+  const j = montar();
   const ordem = [];
   j.win.sair = async function (...args) { ordem.push(['sair', this === j.win, ...args].join(':')); return 'saiu'; };
   const original = j.win.sair;
-  await carregar(j, { token: TOKEN, jaRegistrado: true });
+  await carregar(j, { token: TOKEN });
   assert.notEqual(j.win.sair, original, 'embrulhado no load');
+  assert.deepEqual(j.pedidos.map((p) => p.url), [MW + '/push/registrar'], 'a carga registrou');
 
+  // A rede caiu: o esquecer falha, e o sair segue.
+  j.estado.servidor = semRede;
   const r = j.win.sair('a');
   assert.deepEqual(ordem, [], 'o esquecer vem antes');
   assert.equal(await r, 'saiu', 'o que o original devolve');
-  assert.equal(j.pedidos.length, 1);
-  assert.equal(j.pedidos[0].url, MW + '/push/esquecer');
-  assert.equal(j.pedidos[0].init.method, 'POST');
-  assert.equal(j.pedidos[0].init.headers.Authorization, 'Bearer ' + BEARER);
-  assert.equal(j.pedidos[0].init.headers['Content-Type'], 'application/json');
-  assert.deepEqual(j.pedidos[0].corpo, { token: TOKEN });
+  assert.equal(j.esquecimentos().length, 1);
+  const esquecer = j.esquecimentos()[0];
+  assert.equal(esquecer.init.method, 'POST');
+  assert.equal(esquecer.init.headers.Authorization, 'Bearer ' + BEARER);
+  assert.equal(esquecer.init.headers['Content-Type'], 'application/json');
+  assert.deepEqual(esquecer.corpo, { token: TOKEN });
   assert.deepEqual(ordem, ['sair:true:a'], 'chamado com o this e os argumentos de antes');
   assert.deepEqual(j.erros().map((e) => e.onde), ['push']);
 
@@ -290,7 +351,8 @@ test('sair: esquece o token antes e chama o original mesmo se o esquecer falhar'
   j.estado.bearer = null;
   assert.equal(await j.win.sair(), 'saiu');
   assert.equal(ordem.length, 4);
-  assert.equal(j.pedidos.length, 3);
+  assert.equal(j.esquecimentos().length, 3);
+  assert.equal(j.registros().length, 1, 'o sair não registra de novo');
 
   // Um segundo load (o navegador não o dispara; o ouvinte é de uma vez só) não embrulha de novo nem pede outro token.
   const embrulho = j.win.sair;
@@ -303,9 +365,9 @@ test('sair: esquece o token antes e chama o original mesmo se o esquecer falhar'
 test('sair: o esquecer que dá certo não avisa nada, e o erro do original sobe como subiria', { timeout: 10000 }, async () => {
   const j = montar();
   j.win.sair = async function () { throw new Error('o logout falhou'); };
-  await carregar(j, { token: TOKEN, jaRegistrado: true });
+  await carregar(j, { token: TOKEN });
   await assert.rejects(j.win.sair(), /o logout falhou/);
-  assert.deepEqual(j.pedidos.map((p) => p.url), [MW + '/push/esquecer']);
+  assert.deepEqual(j.pedidos.map((p) => p.url), [MW + '/push/registrar', MW + '/push/esquecer']);
   assert.deepEqual(j.erros(), []);
 });
 
@@ -353,12 +415,12 @@ test('com a restauração das fotos em curso, o pushToken e as respostas do Inde
   j.win.dispatchEvent({ type: 'load' });
   j.avancar(ESPERA_MS);
   j.responder({ t: 'idbItem', k: 'f_1', tipo: 'texto', v: 'foto' });
-  j.responder({ t: 'pushToken', token: TOKEN, jaRegistrado: false, versao: '1.1.0' });
+  j.responder(doNativo());
   j.responder({ t: 'idbFim', n: 1 });
   await j.casca.pronto;
   await assentar();
   assert.deepEqual(await lerFotos(aparelho), { f_1: 'foto' });
-  assert.deepEqual(j.doTipo('pushRegistrado'), [{ t: 'pushRegistrado', token: TOKEN }]);
+  assert.equal(j.registros().length, 1);
   assert.deepEqual(j.erros(), []);
 });
 
@@ -426,10 +488,11 @@ test('na página de verdade: a const MIDDLEWARE_URL lida pelo nome e o async fun
   window.dispatchEvent(new window.Event('load'));
   await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(enviados.filter((m) => m.t === 'pushPedirToken'), [{ t: 'pushPedirToken' }]);
-  canal.onmessage({ data: JSON.stringify({ t: 'pushToken', token: 'T', jaRegistrado: false, versao: '9.9.9' }) });
+  canal.onmessage({ data: JSON.stringify({ t: 'pushToken', token: 'T', versao: '9.9.9' }) });
   await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(window.pedidos.map((p) => p.url), [MW + '/push/registrar']);
   assert.equal(window.pedidos[0].corpo.app, 'NexusField/9.9.9');
+  assert.deepEqual(enviados.filter((m) => m.t.indexOf('push') === 0), [{ t: 'pushPedirToken' }]);
 
   // O sair chamado pela própria página (o onclick do menu) passa pelo embrulho: a declaração de topo é a da janela.
   rodar('window.saiu = sair();');

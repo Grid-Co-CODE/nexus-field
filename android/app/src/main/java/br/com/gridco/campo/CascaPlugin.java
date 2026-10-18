@@ -53,7 +53,7 @@ import org.json.JSONObject;
  * agent, recria a tela quando o renderer morre, limpa o histórico depois do login e abre os endereços de fora numa
  * Custom Tab. Também dispara a checagem de atualização da casca ({@link Atualizador}) ao abrir e a cada volta ao app,
  * trata o voltar do Android ({@link Voltar}), dá à página o token do Firebase para ela registrar o aparelho
- * ({@link Mensageiro.RegistroDoPush}) e, uma vez por processo, apaga as fotos velhas da reserva da câmera
+ * ({@link Mensageiro#respostaDoPush}) e, uma vez por processo, apaga as fotos velhas da reserva da câmera
  * ({@link FaxinaDaCamera}).
  *
  * Ordem no Capacitor 8.5.3 (conferida no código dele): o construtor do Bridge roda initWebView, registerAllPlugins (o
@@ -105,7 +105,6 @@ public class CascaPlugin extends Plugin {
     private volatile boolean encerrado = false;
     private Handler ui;
     private Mensageiro mensageiro;
-    private Mensageiro.RegistroDoPush registroDoPush; // só na thread do espelho
     private String inicioJs;
     private Atualizador atualizador;              // null com a WebView antiga (o load() nem chega a criar)
     private ScriptHandler script;                 // só na thread de UI
@@ -216,10 +215,6 @@ public class CascaPlugin extends Plugin {
             return;
         }
         mensageiro = new Mensageiro(armazem, new AcoesDaCasca(), DISJUNTOR_DO_PROCESSO, perdas(getContext()));
-        // O relógio de parede: os 7 dias do registro atravessam a reinicialização do aparelho.
-        registroDoPush = new Mensageiro.RegistroDoPush(getContext().getApplicationContext()
-            .getSharedPreferences(MensagensDoFirebase.PREFERENCIAS, Context.MODE_PRIVATE), System::currentTimeMillis,
-            BuildConfig.VERSION_NAME);
 
         try {
             WebViewCompat.addWebMessageListener(webView, CANAL, Collections.singleton(origem), this::aoReceber);
@@ -540,24 +535,7 @@ public class CascaPlugin extends Plugin {
         public void pushPedirToken() {
             JavaScriptReplyProxy ponte = ponteDaMensagem;
             if (ponte == null) return;
-            tokenDoFirebase(token -> {
-                String resposta;
-                try {
-                    resposta = registroDoPush.resposta(token);
-                } catch (RuntimeException e) {
-                    Log.w(TAG, "push: o token não pôde ser conferido (" + e.getClass().getSimpleName() + ")");
-                    return;
-                }
-                responder(ponte, resposta);
-            });
-        }
-
-        @Override
-        public void pushRegistrado(String token) {
-            // Sem o token no aviso: ele identifica o aparelho para o Firebase.
-            if (!registroDoPush.registrado(token)) {
-                Log.w(TAG, "push: o registro não foi anotado (não é o token atual, ou o arquivo não gravou)");
-            }
+            tokenDoFirebase(token -> responder(ponte, Mensageiro.respostaDoPush(token, BuildConfig.VERSION_NAME)));
         }
 
         @Override
