@@ -155,3 +155,62 @@ test('manifesto: o backup antigo (Android 11 e anteriores) também desligado', (
   assert.equal(app.getAttribute('android:fullBackupContent'), 'false');
   assert.equal(app.getAttribute('android:dataExtractionRules'), '@xml/regras_dados');
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// As notificações (spec 2026-10-18): o Firebase Cloud Messaging entrega só dados, e a casca monta a notificação.
+// ---------------------------------------------------------------------------------------------------------------
+
+test('manifesto: a permissão de notificação e o serviço do Firebase, não exportado', () => {
+  const doc = lerXml(manifesto);
+  const permissoes = [...doc.getElementsByTagName('uses-permission')].map((p) => p.getAttribute('android:name'));
+  assert.ok(permissoes.includes('android.permission.POST_NOTIFICATIONS'), 'Android 13+: sem ela nada aparece');
+
+  const servicos = [...doc.getElementsByTagName('service')].filter((s) => s.getAttribute('android:name') === '.MensagensDoFirebase');
+  assert.equal(servicos.length, 1, 'um <service> .MensagensDoFirebase');
+  const servico = servicos[0];
+  assert.equal(servico.parentNode.tagName, 'application');
+  // Exportado, qualquer app do aparelho poderia mandar uma "emergência" para ele; o Firebase o chama por dentro.
+  assert.equal(servico.getAttribute('android:exported'), 'false');
+  const acoes = [...servico.getElementsByTagName('action')].map((a) => a.getAttribute('android:name'));
+  assert.deepEqual(acoes, ['com.google.firebase.MESSAGING_EVENT']);
+});
+
+test('manifesto: o canal e o ícone padrão do Firebase são os da casca', () => {
+  const app = lerXml(manifesto).getElementsByTagName('application')[0];
+  const meta = (nome) => [...app.getElementsByTagName('meta-data')].find((m) => m.getAttribute('android:name') === nome);
+  const canal = meta('com.google.firebase.messaging.default_notification_channel_id');
+  assert.ok(canal, 'falta o canal padrão');
+  assert.equal(canal.getAttribute('android:value'), 'resumo');
+  // O mesmo id do canal do resumo no código: o canal padrão que não existe vira o "Miscellaneous" do Firebase.
+  assert.match(ler('android/app/src/main/java/br/com/gridco/campo/Notificacoes.java'), /static final String CANAL_RESUMO = "resumo";/);
+  const icone = meta('com.google.firebase.messaging.default_notification_icon');
+  assert.ok(icone, 'falta o ícone padrão');
+  assert.equal(icone.getAttribute('android:resource'), '@drawable/ic_notificacao');
+});
+
+test('o ícone das notificações é um vetor monocromático branco (o G)', () => {
+  const doc = lerXml(ler('android/app/src/main/res/drawable/ic_notificacao.xml'));
+  const vetor = doc.documentElement;
+  assert.equal(vetor.tagName, 'vector');
+  assert.equal(vetor.getAttribute('android:width'), '24dp');
+  assert.equal(vetor.getAttribute('android:height'), '24dp');
+  const caminhos = [...doc.getElementsByTagName('path')];
+  assert.ok(caminhos.length >= 1);
+  // O Android usa só o alfa do ícone pequeno; cor que não seja branca some ou vira um quadrado cinza em alguns aparelhos.
+  for (const c of caminhos) {
+    assert.equal(c.getAttribute('android:fillColor'), '#FFFFFFFF');
+    assert.equal(c.getAttribute('android:strokeColor'), null);
+    assert.ok((c.getAttribute('android:pathData') ?? '').length > 50, 'o desenho do G');
+  }
+});
+
+test('Gradle: o Firebase Messaging pelo BOM com versão fixa, e o plugin do google-services só com o arquivo', () => {
+  const raizGradle = ler('android/build.gradle');
+  assert.match(raizGradle, /classpath 'com\.google\.gms:google-services:\d+\.\d+\.\d+'/);
+  assert.match(BUILD_GRADLE, /implementation platform\("com\.google\.firebase:firebase-bom:\d+\.\d+\.\d+"\)/);
+  assert.match(BUILD_GRADLE, /^\s*implementation "com\.google\.firebase:firebase-messaging"\s*$/m, 'a versão vem do BOM');
+  assert.ok(!/firebase[^\n]*[:@]\+/.test(BUILD_GRADLE), 'nada de versão dinâmica');
+  // Sem o arquivo (o CI de PR, a máquina do desenvolvedor antes de o dono criar o projeto), o build passa sem o plugin.
+  assert.match(BUILD_GRADLE, /if \(file\('google-services\.json'\)\.exists\(\)\) \{\s*apply plugin: 'com\.google\.gms\.google-services'\s*\}/);
+  assert.equal(BUILD_GRADLE.match(/apply plugin: 'com\.google\.gms\.google-services'/g).length, 1);
+});

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  O ícone pequeno das notificações (spec 2026-10-18): o G da Grid, o mesmo do ícone do Nexus Field, em vetor. Na barra
+  do Android o ícone pequeno é só uma máscara (o sistema usa o alfa e pinta com a cor dele): por isso branco puro e
+  sem fundo, e não o PNG do ícone do app, que viraria um quadrado. Quadro de 24 dp com o G em 22 (1 dp de margem, a
+  área viva dos ícones da barra).
+
+  O desenho saiu do docs/marca/grid-g-branco.png (18/10/2026): o contorno do alfa, com os trechos nos dois círculos do G
+  como arcos (raio de fora 11, de dentro 7,83, centro em 12,12; arco de mais de 120 graus em pedaços) e o resto (os
+  cortes, a onda e as quinas arredondadas dela) como polígono simplificado. Conferido contra o PNG: 99,3% da área
+  igual, e nenhuma borda a mais de 0,04 dp da original.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M1.04,12.00L4.14,12.00L4.17,12.00A7.83,7.83 0 0,0 10.25,19.63A7.83,7.83 0 0,0 19.05,15.41L14.43,15.40L14.24,15.38L13.99,15.30L13.72,15.13L13.50,14.87L11.97,12.00L4.21,12.00L4.17,12.00A7.83,7.83 0 0,1 4.94,8.62L1.58,8.61L1.54,8.60A11.00,11.00 0 0,1 12.00,1.00A11.00,11.00 0 0,1 22.46,8.60L19.10,8.61L19.06,8.62A7.83,7.83 0 0,0 12.02,4.17A7.83,7.83 0 0,0 4.95,8.59L9.61,8.60L9.86,8.64L10.05,8.72L10.30,8.89L10.52,9.15L12.03,12.00L22.96,12.00L23.00,12.00A11.00,11.00 0 0,1 12.00,23.00A11.00,11.00 0 0,1 1.00,12.00Z" />
+</vector>

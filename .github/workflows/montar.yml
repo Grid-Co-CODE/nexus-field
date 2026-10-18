@@ -142,6 +142,17 @@ jobs:
             exit 1
           fi
 
+      # As notificações (resumos e emergência) chegam pelo Firebase, e o APK só o tem com o android/app/google-services.json
+      # (o projeto do Firebase; não é segredo). Sem ele o build passa e o APK sai sem Firebase: é o esperado no job dos
+      # testes e no PR, mas na Release seria um APK que nunca recebe aviso indo aos aparelhos, sem erro em lugar nenhum.
+      - name: O Firebase do app está no repositório
+        run: |
+          set -euo pipefail
+          if [ ! -s android/app/google-services.json ]; then
+            echo "Falta o android/app/google-services.json (o projeto do Firebase), ou ele está vazio: o APK sairia sem as notificações. Nada foi publicado." >&2
+            exit 1
+          fi
+
       # Sem o cache do npm: o APK que vai ao campo sai de dependências baixadas agora.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

@@ -120,6 +120,9 @@ public class CascaPlugin extends Plugin {
         // sai junto com a tela (o dono do ciclo de vida é ela).
         ligarVoltar();
         faxinaDaCamera();
+        // Os canais das notificações (resumo, emergência e a silenciosa) a cada abertura, também com a WebView antiga:
+        // são do sistema, não da página, e criar de novo não desfaz o que o técnico ajustou (CanaisDeNotificacao).
+        CanaisDeNotificacao.criar(getContext());
 
         // 2. Sem o script de início antes da página não há espelho, e sem o canal por regra de origem a ponte cairia no
         // addJavascriptInterface, exposto a todo frame. A WebView antiga para aqui, com o aviso, e a página do App não

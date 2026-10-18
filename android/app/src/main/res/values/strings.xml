@@ -60,4 +60,15 @@
 
     <!-- O arquivo baixado não bateu com o SHA-256 do versao.json (toast). -->
     <string name="casca_atualizacao_sha_toast">Não consegui conferir o arquivo da atualização. Tento de novo mais tarde.</string>
+
+    <!--
+      Os canais das notificações (spec 2026-10-18), com os nomes que o técnico vê nos ajustes do Android (Apps > Nexus
+      Field > Notificações) e ao segurar uma notificação. PENDENTES de aprovação do dono da casca na prévia, na seção das
+      notificações. Os ids (resumo, emergencia, emergencia_silenciosa) são o contrato com o servidor e ficam no código
+      (Notificacoes); só o nome sai daqui. Sem o prefixo casca_: não são diálogo nem toast, e o testes/previas.test.mjs
+      exige um quadro de diálogo ou de toast para cada casca_*.
+    -->
+    <string name="notificacao_canal_resumo">Resumo do dia</string>
+    <string name="notificacao_canal_emergencia">Emergências</string>
+    <string name="notificacao_canal_emergencia_silenciosa">Emergências fora do expediente</string>
 </resources>

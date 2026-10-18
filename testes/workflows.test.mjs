@@ -217,6 +217,23 @@ test('antes de a chave sair do secret: o commit da tag na main, a versão da tag
   assert.match(release.steps[cresce].run, /node ferramentas\/versao-json\.mjs conferir-crescimento "\$anterior"/);
 });
 
+// As notificações (spec 2026-10-18) dependem do android/app/google-services.json: sem ele o plugin do google-services não
+// é aplicado e o APK sai sem Firebase. No CI de PR isso é o esperado (o arquivo chega quando o dono criar o projeto); na
+// Release, seria um APK que nunca recebe aviso nenhum indo aos ~50 aparelhos, sem erro em lugar nenhum.
+const PASSO_DO_FIREBASE = 'O Firebase do app está no repositório';
+
+test('a Release falha sem o android/app/google-services.json, antes de a chave sair do secret', () => {
+  const firebase = indiceDoNome(release, PASSO_DO_FIREBASE);
+  assert.ok(firebase > indiceDoUses(release, 'actions/checkout@'), 'depois do checkout (o arquivo vem do repositório)');
+  assert.ok(firebase < indiceDoNome(release, 'Decodificar a chave de assinatura'), 'antes de a chave sair do secret');
+  assert.ok(firebase < indiceDoNome(release, 'APK assinado'));
+  const p = release.steps[firebase];
+  assert.ok(!p.env && !p.uses && !p.if, 'só um script, que roda sempre');
+  assert.match(p.run, /android\/app\/google-services\.json/);
+  // O job dos testes (o PR) passa sem o arquivo: nenhum passo dele o exige.
+  assert.ok(!passos(montar.jobs.montar).some((x) => typeof x.run === 'string' && x.run.includes('google-services')));
+});
+
 test('a Release confere a assinatura e o pino do certificado antes de publicar, e leva o APK, o SHA-256 e o versao.json', () => {
   const conferir = indiceDoNome(release, 'Conferir a assinatura e o certificado');
   const versaoJson = indiceDoRun(release, 'node ferramentas/versao-json.mjs --apk');
@@ -433,6 +450,21 @@ test('passo "O versionCode cresce": compara com a última Release, e o 404 só v
   assert.equal(primeira.status, 0, `a primeira Release: ${primeira.stderr}`);
   assert.notEqual(rodar({ GITHUB_RUN_NUMBER: '41', FALSO_CODIGO: '404', FALSO_CORPO: 'Not Found', FALSO_PUBLICADAS: '1' }).status, 0, 'há Release, mas sem versao.json');
   assert.notEqual(rodar({ GITHUB_RUN_NUMBER: '41', FALSO_CODIGO: '500', FALSO_CORPO: 'x' }).status, 0, 'o GitHub fora do ar');
+});
+
+test('passo "O Firebase do app está no repositório": sem o arquivo, ou com ele vazio, nada é publicado', pularSemBash, (t) => {
+  const dir = pastaTemporaria(t);
+  const script = passo(release, PASSO_DO_FIREBASE).run;
+  const sem = bash(script, { cwd: dir });
+  assert.notEqual(sem.status, 0, 'sem o arquivo');
+  assert.match(sem.stderr, /android\/app\/google-services\.json/, 'a mensagem diz qual arquivo falta');
+  assert.match(sem.stderr, /notificações/, 'e por que ele importa');
+  mkdirSync(join(dir, 'android/app'), { recursive: true });
+  writeFileSync(join(dir, 'android/app/google-services.json'), '');
+  assert.notEqual(bash(script, { cwd: dir }).status, 0, 'o arquivo vazio');
+  writeFileSync(join(dir, 'android/app/google-services.json'), '{"project_info":{"project_id":"exemplo"}}');
+  const com = bash(script, { cwd: dir });
+  assert.equal(com.status, 0, com.stderr);
 });
 
 test('passo "Conferir a assinatura e o certificado": só passa a chave da variável', pularSemBash, (t) => {

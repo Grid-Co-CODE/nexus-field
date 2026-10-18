@@ -62,6 +62,31 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/caminhos_arquivos" />
         </provider>
+
+        <!--
+          As notificações (spec 2026-10-18): o servidor do App de Campo manda pelo Firebase só mensagens de dados, e é este
+          serviço que monta e mostra a notificação (MensagensDoFirebase, Notificacoes), com o app aberto ou fechado. Não
+          exportado: o Firebase o chama por dentro do app; exportado, qualquer app do aparelho poderia mandar uma
+          "emergência". Ele vence o serviço padrão do Firebase, que vem com prioridade -500 no mesmo filtro.
+        -->
+        <service
+            android:name=".MensagensDoFirebase"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!--
+          Se um dia chegar uma mensagem com notificação (e não só dados), o próprio Firebase a mostra: no canal do resumo
+          (o mais calmo dos três), e não no "Miscellaneous" que ele criaria, e com o G branco no lugar do quadrado cinza.
+        -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="resumo" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notificacao" />
     </application>
 
     <!-- Permissions -->
@@ -75,6 +100,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Para abrir o instalador do sistema na atualização da casca. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Android 13+: sem ela, nem o resumo nem a emergência aparecem. É pedida em tempo de execução. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Sem o required="false", a permissão CAMERA faz a câmera parecer obrigatória (lint
          PermissionImpliesUnsupportedChromeOsHardware). As duas são pedidas em tempo de execução. -->

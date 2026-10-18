@@ -99,6 +99,12 @@ dependencies {
     // O script de início, o canal por regra de origem e o ScriptHandler. O capacitor-android já usa a mesma versão,
     // mas como `implementation`, e não a repassa ao app.
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
+    // As notificações (spec 2026-10-18): o Firebase Cloud Messaging, que é grátis e é o que o Android entrega com o app
+    // fechado. Só o Messaging (nada de Analytics). O BOM escolhe as versões que funcionam juntas, e o número fixo faz o
+    // APK de hoje e o de daqui a um mês saírem das mesmas bibliotecas. O 34.19.0 é de 09/09/2026: o 35 tinha 11 dias
+    // quando a dependência entrou (18/10/2026), e uma versão maior nova não vai aos ~50 aparelhos antes de assentar.
+    implementation platform("com.google.firebase:firebase-bom:34.19.0")
+    implementation "com.google.firebase:firebase-messaging"
     testImplementation "junit:junit:$junitVersion"
     testImplementation "org.robolectric:robolectric:4.17"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
@@ -108,11 +114,13 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
-    }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+// O google-services.json identifica o projeto do Firebase; não é segredo (a chave de serviço mora só no servidor) e entra
+// no repositório quando o dono da casca criar o projeto. Sem ele o plugin não é aplicado, e o build de depuração e o do
+// CI de PR saem sem Firebase: o app roda e não recebe aviso. O job release do montar.yml FALHA sem o arquivo, para
+// nenhuma Release ir ao campo sem as notificações. O arquivo que existe vazio ou torto aplica o plugin e derruba o build
+// (melhor que o try/catch do template, que soltava um APK sem Firebase em silêncio).
+if (file('google-services.json').exists()) {
+    apply plugin: 'com.google.gms.google-services'
+} else {
+    logger.info('Sem o android/app/google-services.json: o APK sai sem o Firebase (sem notificações).')
 }
