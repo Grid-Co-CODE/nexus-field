@@ -10,8 +10,8 @@
 //   - a tela de login conta como ocupada: toda partida a frio cai nela, e o Entrar recarrega a página pelo
 //     loginRedirect (a busca posta ali se perdia); a pendência atravessa a recarga e abre com a tela do App na frente;
 //   - livre, troca para Tarefas (só se não estiver nela) e preenche o campo ANTES do setBusca, e avisa o nativo
-//     ({t:'osAberta', os}), que repete a OS a cada carga até ouvir isso; a mesma OS entregue de novo na mesma carga não
-//     reabre;
+//     ({t:'osAberta', os}), que repete a OS a cada carga até ouvir isso; a mesma OS entregue de novo na mesma carga é um
+//     pedido novo (livre, volta à busca; ocupado, fica pendente), e o osAberta só sai com a OS mostrada;
 //   - só entra número de OS (1 a 12 dígitos ASCII), porque o nativo valida mas o extra do Intent vem de fora e o texto
 //     vai parar numa busca; a página sem o campo ou sem o setBusca devolve false sem lançar e sem tocar em nada; e o
 //     setBusca que quebra vira só o rótulo `abrirOS` ao nativo.
@@ -261,24 +261,48 @@ test('na tela de login: fica pendente, atravessa o loginRedirect e abre com a te
   assert.deepEqual(s.chamadas, []);
 });
 
-test('a mesma OS entregue de novo na mesma carga não reabre; o nativo ouve o osAberta outra vez', () => {
-  // O nativo repete a OS a cada carga até ouvir o osAberta, e o técnico pode tocar duas vezes na mesma notificação antes de
-  // ela sair da barra. Reabrir puxaria a busca de novo por baixo do que ele abriu depois.
+test('a mesma OS entregue de novo na mesma carga é um pedido novo: livre, volta à busca; ocupado, fica pendente', () => {
+  // O técnico toca de novo numa emergência de uma OS que já foi mostrada nesta carga, ou o responsável pela prova usa o
+  // Testar avisos, que manda sempre a mesma OS, item depois de item, sem recarregar. Caso que criou a regra: a página
+  // guardava as OS abertas na carga e devolvia 'aberta' sem fazer nada (sem a aba, sem a busca, sem pendência), e o
+  // osAberta tirava da barra uma emergência que ninguém viu.
   const j = montar();
+  comSetTab(j);
   assert.equal(j.abrir('4521'), 'aberta');
-  const modal = abrirOs(j); // ele abriu a OS que a busca trouxe
-  assert.equal(j.abrir('4521'), 'aberta', 'já aberta nesta carga');
-  assert.deepEqual(j.chamadas, ['setBusca:4521'], 'uma busca só');
-  assert.equal(j.pendente(), null, 'e não vira pendência');
-  assert.equal(j.timersAtivos(), 0);
-  assert.deepEqual(j.abertas(), ['4521', '4521']);
-  assert.ok(modal.classList.contains('open'));
-  // Outra OS, com ele na OS: pendente, como sempre.
-  assert.equal(j.abrir('77'), 'pendente');
+  // Ele limpou a busca e foi à lista da Zeladoria: a mesma OS volta à aba Tarefas, com o número no campo.
+  j.campo.value = '';
+  const zl = tela(j, 'tela-zl');
+  assert.equal(j.abrir('4521'), 'aberta');
+  assert.deepEqual(j.chamadas, ['setBusca:4521', 'setTab:tarefas', 'setBusca:4521']);
+  assert.deepEqual(j.buscas[1], { v: '4521', noCampo: '4521' }, 'o campo preenchido antes do setBusca');
+  assert.equal(zl.classList.contains('on'), false);
+  // Em Tarefas, com a busca ainda nela: a busca de novo, sem trocar de aba (o toque é o pedido de ver a OS).
+  assert.equal(j.abrir('4521'), 'aberta');
+  assert.deepEqual(j.chamadas.slice(3), ['setBusca:4521']);
+  assert.deepEqual(j.abertas(), ['4521', '4521', '4521'], 'cada vez que a OS é mostrada, o nativo fica sabendo');
 
-  // A carga seguinte não sabe da anterior: a OS que o nativo ainda repete abre de novo (melhor duas vezes que nenhuma).
+  // Ele abriu a OS que a busca trouxe (ou outra), e a mesma OS chega de novo: pendente, nada vai por baixo da OS dele, e
+  // o nativo não ouve o osAberta (a emergência fica na barra) até ela ser mostrada.
+  const modal = abrirOs(j);
+  j.campo.value = '';
+  assert.equal(j.abrir('4521'), 'pendente');
+  assert.deepEqual(j.pendente(), { os: '4521', dia: HOJE });
+  assert.equal(j.campo.value, '');
+  assert.deepEqual(j.abertas(), ['4521', '4521', '4521'], 'pendente não é aberta');
+  j.avancar(4000);
+  assert.deepEqual(j.chamadas.slice(4), [], 'com a OS aberta, nada');
+  modal.classList.remove('open');
+  j.avancar(2000);
+  assert.deepEqual(j.chamadas.slice(4), ['setBusca:4521']);
+  assert.equal(j.campo.value, '4521');
+  assert.deepEqual(j.abertas(), ['4521', '4521', '4521', '4521'], 'mostrada pela pendência, o osAberta');
+  assert.equal(j.pendente(), null);
+  assert.equal(j.timersAtivos(), 0);
+
+  // O nativo entrega de novo na carga seguinte a OS cujo osAberta não chegou: abre como sempre.
   const k = recarregar(j);
   assert.equal(k.abrir('4521'), 'aberta');
+  assert.deepEqual(k.chamadas, ['setBusca:4521']);
 });
 
 test('com um serviço da Zeladoria aberto: fica pendente; na lista dos serviços, não', () => {

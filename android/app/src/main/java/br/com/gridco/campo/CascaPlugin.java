@@ -628,7 +628,8 @@ public class CascaPlugin extends Plugin {
      *
      * A OS pedida fica guardada no processo ({@link OsDoToque}) e vai de novo a CADA carga do App, até a página dizer que
      * a abriu (o osAberta) ou o dia acabar: a pendência da página mora no sessionStorage dela, e a tela recriada pelo
-     * renderer que morreu começa sem ele (e com outra instância daqui). A página não reabre a mesma OS na mesma carga.
+     * renderer que morreu começa sem ele (e com outra instância daqui). Cada entrega é um pedido novo para a página, mesmo
+     * o de uma OS que ela já mostrou nesta carga (o toque de novo): o osAberta só vem com a OS mostrada.
      */
     static final class AberturaDaOS extends EntregaNaPagina {
 

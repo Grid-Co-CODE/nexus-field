@@ -297,8 +297,8 @@ public class CascaPluginTest {
     @Test
     public void aOsEntregueVoltaACadaCargaAteAPaginaDizerQueAbriu() {
         // A página pode ter deixado a OS pendente (o técnico estava ocupado), e a pendência mora no sessionStorage dela:
-        // a carga seguinte (a tela recriada pelo renderer que morreu começa sem ele) recebe a OS de novo. A página não
-        // reabre a mesma OS na mesma carga, e diz quando abriu (o osAberta, que esquece a guardada).
+        // a carga seguinte (a tela recriada pelo renderer que morreu começa sem ele) recebe a OS de novo. A página diz
+        // quando a mostrou (o osAberta, que esquece a guardada).
         assertTrue(abertura.pedir("12345"));
         abertura.carregou();
         agenda.rodar();

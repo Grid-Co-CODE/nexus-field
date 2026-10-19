@@ -335,7 +335,7 @@ public class PushNaCascaTest {
         assertNotNull("a outra emergência fica", outra);
         assertNull("e não volta na próxima carga", osDoToque.aEntregar());
 
-        // A página repete o osAberta (a mesma OS entregue de novo na mesma carga): nada quebra.
+        // A página repete o osAberta (a mesma OS mostrada de novo na mesma carga, num toque repetido): nada quebra.
         push.osAberta("4521");
         assertEquals(1, sombra.size());
     }

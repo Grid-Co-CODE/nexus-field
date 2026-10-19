@@ -2458,8 +2458,11 @@
   //   - livre: vai à aba Tarefas pelo setTab da página (só se estiver noutra aba), preenche o #busca-os ANTES do setBusca
   //     (a ordem do phTrazer do site, v284: o setBusca recebe o valor por argumento e não escreve no campo; sem isso a
   //     lista ficaria filtrada com a caixa de busca vazia), busca e avisa o nativo ({t:'osAberta', os}). Devolve 'aberta'.
-  //     A mesma OS entregue de novo na mesma carga (o nativo repete, o técnico toca duas vezes) não reabre: devolve
-  //     'aberta' e repete só o aviso;
+  //     Toda entrega é um pedido novo, mesmo a de uma OS já mostrada nesta carga (ele toca de novo; o Testar avisos manda
+  //     sempre a mesma OS): livre, ela volta à busca; ocupado, fica pendente. Caso que criou a regra: a página guardava as
+  //     OS abertas na carga e devolvia 'aberta' sem fazer nada, e o osAberta tirava da barra uma emergência que ninguém
+  //     viu. A busca repetida não pesa: o site guarda, na carga, a resposta da busca ao vivo de cada número e não pergunta
+  //     ao Fracttal de novo (v287); e o ocupado já impede que ela vá por baixo da OS que ele abriu depois;
   //   - ocupado: nada é fechado e nenhuma aba é trocada. A OS fica PENDENTE no sessionStorage (SESSAO_OS_PENDENTE, com o
   //     dia), e uma conferência a cada 2 s, que só existe enquanto houver pendência, a abre como acima assim que ele
   //     ficar livre. Devolve 'pendente'. A pendência vale só no dia em que chegou (a emergência de ontem não é o que ele
@@ -2525,7 +2528,6 @@
     var cancelar = win.clearTimeout.bind(win);
     var conferencia = null;  // o timer da conferência; só existe enquanto houver pendência
     var naPagina = null;     // a pendência que o sessionStorage não guardou: { os, dia }
-    var abertas = new Set(); // as OS abertas nesta carga
 
     function deHoje(p) {
       return !!p && typeof p === 'object' && typeof p.os === 'string' && OS_DO_TOQUE.test(p.os) && p.dia === diaDeHoje(win);
@@ -2591,7 +2593,6 @@
       if (cima && typeof irParaAba === 'function') irParaAba.call(win, ABRIR_OS.aba);
       pecas.campo.value = os;
       pecas.buscar.call(win, os);
-      abertas.add(os);
       ctx.enviar({ t: 'osAberta', os: os }, 'abrirOS');
     }
 
@@ -2618,11 +2619,6 @@
     function abrir(os) {
       try {
         if (typeof os !== 'string' || !OS_DO_TOQUE.test(os)) return false;
-        // Já aberta nesta carga: não reabre (puxaria a busca de novo por baixo do que ele abriu depois).
-        if (abertas.has(os)) {
-          ctx.enviar({ t: 'osAberta', os: os }, 'abrirOS');
-          return 'aberta';
-        }
         var pecas = pecasDaBusca();
         if (!pecas) return false;
         var cima = camadaDeCima(ctx);

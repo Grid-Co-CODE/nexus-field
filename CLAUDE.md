@@ -564,8 +564,11 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     - Livre: `setTab('tarefas')` se ele está noutra aba, o número no `#busca-os` e `setBusca(os)`, nessa ordem (a do
       `phTrazer` do site); a busca local e, sem achar, ao vivo no Fracttal é a do próprio site. Avisa o nativo
       (`{t:'osAberta', os}`, que ele espera para cancelar a notificação e parar de repetir a OS a cada carga) e devolve
-      `'aberta'`. A mesma OS entregue de novo na mesma carga (o nativo repete; o técnico toca duas vezes) não reabre:
-      devolve `'aberta'` e repete só o aviso (reabrir puxaria a busca por baixo do que ele abriu depois).
+      `'aberta'`. Toda entrega é um pedido novo, mesmo a de uma OS já mostrada nesta carga: livre, ela volta à busca;
+      ocupado, fica pendente, e o `osAberta` só sai com a OS mostrada. Caso que criou a regra: a página guardava as OS
+      abertas na carga e devolvia `'aberta'` sem fazer nada; quem tocava de novo numa OS já vista (ou a prova, com o
+      Testar avisos, que manda sempre a mesma OS) não via nada, e o `osAberta` tirava da barra uma emergência que ninguém
+      viu. A busca repetida não pergunta ao Fracttal de novo (o site guarda a resposta de cada número na carga).
     - Ocupado: nada é fechado, nenhuma aba trocada, nenhuma tela nova (a notificação já foi o aviso). A OS fica no
       sessionStorage, `gc_casca_os_pendente` = `{os, dia}`, e devolve `'pendente'`. Uma conferência de 2 s, que só existe
       enquanto houver pendência, a abre como acima (com o `osAberta`) quando ele ficar livre. A pendência vale só no dia
