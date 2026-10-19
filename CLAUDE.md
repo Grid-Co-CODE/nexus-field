@@ -742,7 +742,12 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
       canal ou toast, tiver um item fora de caixa de seleção (ou uma subseção sem caixa), deixar de provar um dos casos
       da lista `CASOS` do teste (cada um com o porquê) ou sair da ordem da atualização (o aviso da versão nova, os
       Avisos, negar, a reabertura sem pergunta, o teste do Admin sem aviso nenhum, os ajustes); ou se o roteiro tiver
-      espaço para preencher quem é (o usuário de teste, uma conta, o e-mail, a OS), que vai numa cópia fora do git;
+      espaço para preencher quem é (o usuário de teste, uma conta, o e-mail, a OS), que vai numa cópia fora do git. Cada
+      caso casa com a frase do PRÓPRIO item que o prova (a caixa com as linhas de continuação, sem o negrito e as crases),
+      e com um item só: a introdução, o título de uma subseção ou outro item que só cita a palavra não provam o caso.
+      Caso que criou a regra: o caso do "dispensar" casava só com o "SEM dispensar a primeira", e o do "modo avião", o do
+      "Entrar" e o do "Não perturbe" casavam com outros itens e com um título; tirar o item que provava cada um deixava o
+      teste verde. Item novo que prova um caso entra na lista com a frase dele;
     - o `srcdoc` do erro não for o `erro.html` inteiro (copie o arquivo escapando `&` como `&amp;` e `"` como `&quot;`,
       nessa ordem) ou a camada do Fracttal não for igual à que o `inicio.js` monta (o estilo inline é o do aparelho; a
       moldura tem `transform` para a `position:fixed` da camada cobrir só o celular). A única diferença aceita é o

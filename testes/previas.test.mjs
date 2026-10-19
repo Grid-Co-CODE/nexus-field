@@ -869,6 +869,19 @@ test('a lista "O que aprovar" tem o item das notificações, e todo link "Ver" l
   }
 });
 
+// Os itens de uma seção do roteiro: cada caixa de seleção com as linhas de continuação (as que vêm recuadas logo
+// depois), numa linha só, sem o negrito e sem as crases (o caso casa com a frase como quem prova a lê).
+function itensDoRoteiro(secao) {
+  const itens = [];
+  let atual = null;
+  for (const linha of secao.split('\n')) {
+    if (/^- \[ \] /.test(linha)) itens.push((atual = [linha.slice('- [ ] '.length)]));
+    else if (atual && /^\s+\S/.test(linha)) atual.push(linha);
+    else atual = null;
+  }
+  return itens.map((partes) => compactar(partes.join(' ').replace(/\*\*|`/g, '')));
+}
+
 test('o roteiro da prova das notificações só cita textos do aplicativo e cobre cada atalho, canal e toast', () => {
   const roteiro = lerArquivo('../docs/prova-no-aparelho.md');
   const secao = roteiro.split(/^## /m).find((parte) => parte.startsWith('As notificações'));
@@ -905,32 +918,64 @@ test('o roteiro da prova das notificações só cita textos do aplicativo e cobr
   for (const t of doServidor) assert.ok(citados.includes(t), `o roteiro não cita o título "${t}" do servidor`);
 
   // Os casos que a prova no aparelho existe para ver, cada um com o porquê. Os primeiros são os do toque e do atalho; os
-  // outros, os que a revisão final do ramo achou sem prova (um passa falso, ou uma falha falsa, sem eles).
+  // outros, os que a revisão final do ramo achou sem prova (um passa falso, ou uma falha falsa, sem eles). Cada caso casa
+  // com a frase do PRÓPRIO item que o prova, e com um item só: a introdução, o título de uma subseção ou outro item que
+  // só cita a palavra não provam o caso, e o teste tem de falhar quando o item sai. Caso que criou a regra: o /dispensar/
+  // casava só com o "SEM dispensar a primeira", e o item "Dispensar da barra" saía com o teste verde (e o mesmo com o
+  // /modo avião/, o /"Entrar"/ e o /Não perturbe/, que casavam com outros itens e com o título de uma subseção).
+  const itens = itensDoRoteiro(secao);
   const CASOS = [
-    [/pendente/, 'a OS que fica pendente com o técnico ocupado'],
-    [/a ronda não começou/, 'a Ronda aberta sem começar não segura a OS'],
-    [/a ronda começou/, 'a ronda começada segura a OS'],
-    [/sem Admin/, 'a conta sem Admin não vê os atalhos'],
-    [/fechado/, 'o toque e o aviso com o Nexus Field fechado'],
-    [/12345/, 'a OS dos avisos de teste'],
-    [/"Entrar"/, 'o toque com o Nexus Field fechado cai na tela de entrada, e a OS espera o Entrar'],
-    [/dispensar/, 'dispensar da barra os avisos antes de cada teste (o de mesma OS substitui sem tocar)'],
-    [/volume de notificação/, 'o alarme toca no volume das notificações'],
-    [/Não perturbe/, 'a emergência não toca no Não perturbe'],
-    [/notificações flutuantes/, 'no Xiaomi, as notificações flutuantes vêm desligadas'],
-    [/segundo aparelho/, 'o aviso mandado de fora (outro aparelho da conta Admin)'],
-    [/conta um aparelho a menos/, 'o esquecer do Sair'],
-    [/modo avião/, 'o Sair sem rede, que só cala o aparelho'],
-    [/depois das 17h/, 'a emergência que chega fora do expediente vai ao silencioso'],
-    [/véspera/, 'o resumo das 7h vai à última conta que abriu o Nexus Field'],
-    [/busca ao vivo/, 'a OS de teste do PCM, fora da lista do dia, achada pela busca'],
-    [/câmera do sistema/, 'o toque fecha a câmera da reserva (o singleTask)'],
-    [/som de alarme/, 'conferir nos ajustes que o som de Emergências é o alarme'],
-    [/Samsung/, 'o início automático nas marcas da frota'],
-    [/30 min/, 'a tela apagada por 30 min'],
-    [/rc\.\d/, 'o pré-lançamento quando outro aparelho tem a versão anterior'],
+    [/^Com uma OS aberta \(preenchendo\): tocar traz o Nexus Field para a frente sem fechar a OS nem trocar de aba, e a OS fica pendente/,
+      'a OS que fica pendente com o técnico ocupado'],
+    [/\(a ronda não começou\): tocar troca para a aba Tarefas/, 'a Ronda aberta sem começar não segura a OS'],
+    [/\(a ronda começou\): tocar traz o Nexus Field para a frente sem sair da Ronda, a OS fica pendente/,
+      'a ronda começada segura a OS'],
+    [/^No fundo, em outra aba sem nada aberto .*tocar troca para a aba Tarefas e põe 12345 na busca/,
+      'o toque com outra aba aberta troca para Tarefas e põe o número na busca'],
+    [/^Com um serviço da Zeladoria aberto \(preenchendo\): igual, a OS fica pendente/, 'o serviço aberto da Zeladoria segura a OS'],
+    [/^Com a câmera interna, uma folha ou a APR abertas por cima da OS: o toque não fecha nenhuma delas/,
+      'as camadas por cima da OS seguram a OS, e nenhuma fecha'],
+    [/^Antes de cada item desta subseção: .*a busca da aba Tarefas vazia/,
+      'a busca limpa antes de cada toque: o número de um item anterior não prova este'],
+    [/^Entrar com a conta sem Admin \(o usuário de teste\), passando pelo Sair: o toque longo não mostra nenhum dos dois atalhos/,
+      'a conta sem Admin não vê os atalhos'],
+    [/^Nexus Field fechado \(tirado dos recentes\): tocar abre o Nexus Field na tela de entrada do App de Campo, e a OS espera\. Tocar em "Entrar"/,
+      'o toque com o Nexus Field fechado cai na tela de entrada, e a OS espera o Entrar'],
+    [/^Com uma OS pendente, tirar o Nexus Field dos recentes e abrir pelo ícone: a OS não abre sozinha/,
+      'a pendência não atravessa o Nexus Field fechado, e a emergência na barra sim'],
+    [/^A emergência com o Nexus Field fechado: .*a emergência chega ao de prova, por cima da tela e tocando/,
+      'o aviso com o Nexus Field fechado'],
+    [/a emergência \(título Emergência, OS 12345\) no canal Emergências/, 'a OS dos avisos de teste'],
+    [/^Dispensar da barra \(arrastar para o lado\) os avisos do Nexus Field/,
+      'dispensar da barra os avisos antes de cada teste (o de mesma OS substitui sem tocar)'],
+    [/com o volume de notificação ligado: o alarme das emergências toca no volume das notificações/,
+      'o alarme toca no volume das notificações'],
+    [/^Com o Não perturbe ligado, Testar avisos \(no expediente\): a emergência não toca nem vibra/,
+      'a emergência não toca no Não perturbe'],
+    [/ligar as notificações flutuantes do Nexus Field .*Elas vêm desligadas/, 'no Xiaomi, as notificações flutuantes vêm desligadas'],
+    [/^Um segundo aparelho Android com o Nexus Field 1\.1\.0, para as provas que pedem o aviso mandado de fora/,
+      'o aviso mandado de fora (outro aparelho da conta Admin)'],
+    [/^O esquecer do Sair: .*o aviso rápido conta um aparelho a menos, e nada chega ao de prova/, 'o esquecer do Sair'],
+    [/^O Sair sem rede: .*pôr o modo avião, Sair .*nada aparece no de prova/, 'o Sair sem rede, que só cala o aparelho'],
+    [/^Depois das 17h, antes das 7h ou no fim de semana .*chega no canal Emergências fora do expediente, sem tocar, mesmo pedida no canal alto/,
+      'a emergência que chega fora do expediente vai ao silencioso'],
+    [/pouco antes das 17h, pôr o aparelho de prova no modo avião.*a hora dela na barra é a do envio/,
+      'a enviada no expediente e recebida fora vai ao silencioso, com a hora do envio'],
+    [/^Na véspera, entrar no aparelho de prova com o usuário de teste e deixar assim/,
+      'o resumo das 7h vai à última conta que abriu o Nexus Field'],
+    [/^A busca ao vivo com uma OS que existe: o PCM atribui a OS de teste ao usuário de teste DEPOIS/,
+      'a OS de teste do PCM, fora da lista do dia, achada pela busca'],
+    [/^Com a câmera do sistema aberta pela reserva .*a câmera fecha/, 'o toque fecha a câmera da reserva (o singleTask)'],
+    [/o som de Emergências é um som de alarme do aparelho/, 'conferir nos ajustes que o som de Emergências é o alarme'],
+    [/^As marcas da frota: num aparelho de cada marca \(Xiaomi ou Redmi, Samsung e Motorola\)/, 'o início automático nas marcas da frota'],
+    [/apagar a tela por 30 min ou mais/, 'a tela apagada por 30 min'],
+    [/aí sai antes o pré-lançamento \(v1\.1\.0-rc\.\d+\)/, 'o pré-lançamento quando outro aparelho tem a versão anterior'],
   ];
-  for (const [palavra, caso] of CASOS) assert.match(secao, palavra, `o roteiro das notificações não prova: ${caso}`);
+  for (const [frase, caso] of CASOS) {
+    const casam = itens.filter((item) => frase.test(item));
+    assert.equal(casam.length, 1,
+      `o roteiro das notificações não prova: ${caso} (a frase do item casa com ${casam.length} itens, e tem de ser um só)`);
+  }
 
   // A ordem, num aparelho só: a 1.0.0 recebe o aviso da versão nova, a 1.1.0 abre com os Avisos, o técnico nega, a
   // reabertura não pergunta, o teste do Admin não mostra nada, e só nos ajustes do Android a notificação liga. Fora dessa

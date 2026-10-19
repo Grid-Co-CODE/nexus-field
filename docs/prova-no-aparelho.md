@@ -226,10 +226,14 @@ Vale para todo item das subseções abaixo.
 
 ### O toque na emergência
 
-Use **Testar avisos** no expediente, com a barra limpa antes de cada item. A regra é que o toque nunca interrompe o
-técnico: ocupado, a OS fica pendente e vai à busca sozinha quando ele ficar livre, e a emergência fica na barra até a OS
-ser mostrada.
+Use **Testar avisos** no expediente. A regra é que o toque nunca interrompe o técnico: ocupado, a OS fica pendente e vai
+à busca sozinha quando ele ficar livre, e a emergência fica na barra até a OS ser mostrada. A emergência de teste traz
+sempre a mesma OS, e cada toque vale como um pedido novo, mesmo com ela já mostrada num item anterior (é o caso de quem
+toca de novo numa OS que já viu): não é preciso recarregar o Nexus Field entre os itens.
 
+- [ ] Antes de cada item desta subseção: a barra sem avisos do Nexus Field (como em "Antes de cada teste") e a busca da
+      aba Tarefas vazia (o × ao lado do campo de busca). Com o número de um item anterior ainda na busca, não se vê se
+      foi este toque que o pôs lá.
 - [ ] No fundo, na aba Tarefas, sem nada aberto: tocar abre já, com `12345` na busca, e a emergência sai da barra.
 - [ ] No fundo, em outra aba sem nada aberto (a lista da Zeladoria, por exemplo): tocar troca para a aba Tarefas e põe
       `12345` na busca.
