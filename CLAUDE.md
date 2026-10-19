@@ -321,7 +321,9 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   no `VOLTAR` exportado, que o contrato com o site exige; um nome trocado no site só faz o voltar minimizar, nunca fecha a
   camada de baixo no lugar da de cima. O `sheetTask` é um `let` de topo do site, que não vira propriedade da janela: é
   lido pelo nome (o teste prova num jsdom que roda o script e a página como scripts de verdade). Se o site adotar o
-  histórico (pushState ao abrir camada), a seção sai e o nativo passa ao `goBack()`.
+  histórico (pushState ao abrir camada), a seção sai e o nativo passa ao `goBack()`. A pilha mora numa função só,
+  `camadaDeCima`, que devolve também se a camada segura o técnico (`ocupa`): é ela que a abertura da OS pelo toque (seção
+  9) pergunta, sem fechar nada. Camada nova do site entra ali e vale para o voltar e para o toque juntos.
 - **O voltar do Android, do lado nativo** (`Voltar`, ligado pelo `CascaPlugin` no começo do `load()`, também com a
   WebView antiga): um `OnBackPressedCallback` do androidx.activity, que cobre o voltar preditivo do targetSdk 36
   (sobrescrever o `onBackPressed` não cobriria). Com a página do App aberta (a URL na origem do `server.url` e o caminho
@@ -347,16 +349,33 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     vai logo; sem ela, o último pedido fica guardado e vai ao fim da folga (`evaluateJavascript("window.__gcCascaAbrirOS&&
     window.__gcCascaAbrirOS('<os>')")`). Qualquer página que comece a carregar (`onPageStarted`: o login da Microsoft, o
     erro) tira o "pronta" e invalida a folga da carga velha: o login silencioso volta ao App em cerca de 1 s, e entregar
-    ali seria entregar a uma tela que não montou. Entregue, a OS não volta numa recarga. O número nunca vai ao log (só
-    "aberta" ou "não aberta", pela resposta da página).
-  - **No script**, `window.__gcCascaAbrirOS(os)` (não enumerável) confere `^[0-9]{1,12}$` de novo, põe o número no
-    `#busca-os` e chama `setBusca(os)`, na ordem do `phTrazer` do site; a busca local e, sem achar, ao vivo no Fracttal é
-    a do próprio site. Devolve false, sem lançar e sem avisar o nativo, se faltar o campo ou o `setBusca`. Os dois nomes
-    são o `ABRIR_OS`, e o contrato diário exige (`abrir-os: função setBusca`, `abrir-os: id 'busca-os'`).
-  - **O que isto não faz** (conhecido, para a prova no aparelho): uma tentativa só, e a busca não troca de aba nem fecha
-    camada. Com o app aberto numa OS, na Ronda ou noutra aba, a busca é posta mas só aparece na aba Tarefas; o toque que
-    cai na tela de login do App perde a busca no redirecionamento do login. Resolver pede decidir com o dono o que a
-    emergência pode fechar (o `VOLTAR` já tem o `setTab` e o fechamento das camadas, com o rascunho salvo).
+    ali seria entregar a uma tela que não montou. Entregue, a OS não volta numa recarga. O número nunca vai ao log: da
+    resposta da página sai só "aberta", "pendente" ou "não aberta" (`AberturaDaOS.resultado`); o nativo não decide nada
+    com ela.
+  - **No script, o toque nunca interrompe o técnico** (regra do dono, 18/10/2026: "Continua no preenchimento de OS ou
+    ronda, a da notificação fica pendente"; o caso: a busca posta por baixo da OS aberta, que ele não via).
+    `window.__gcCascaAbrirOS(os)` (não enumerável) confere `^[0-9]{1,12}$` de novo e pergunta à `camadaDeCima` da seção 7
+    (a pilha do voltar, sem fechar nada) se ele está ocupado: qualquer camada aberta, mesmo a que o voltar não saberia
+    fechar, ou a Ronda em andamento (o `.rd-voltar` dentro da `#tela-ronda.on`). Outra aba sem nada aberto (a Zeladoria
+    inclusive) não ocupa.
+    - Livre: `setTab('tarefas')` se ele está noutra aba, o número no `#busca-os` e `setBusca(os)`, nessa ordem (a do
+      `phTrazer` do site); a busca local e, sem achar, ao vivo no Fracttal é a do próprio site. Devolve `'aberta'`.
+    - Ocupado: nada é fechado, nenhuma aba trocada, nenhuma tela nova (a notificação já foi o aviso). A OS fica no
+      sessionStorage, `gc_casca_os_pendente` = `{os, dia}`, e devolve `'pendente'`. Uma conferência de 2 s, que só existe
+      enquanto houver pendência, a abre como acima quando ele ficar livre. A pendência vale só no dia (a de outro dia, ou
+      torta, sai na leitura), atravessa as recargas da mesma partida (a carga nova retoma a conferência, porque o nativo
+      entrega uma vez só) e a OS nova a substitui: a última emergência vence.
+    - `false`, sem lançar e sem avisar o nativo, se faltar o campo ou o `setBusca`, ou se a pendência não couber no
+      sessionStorage. O `setBusca` que lança vira `{t:'erro', onde:'abrirOS'}`; na conferência, a pendente que lança sai
+      da pendência (o erro não se repete a cada 2 s).
+    - Os nomes são o `ABRIR_OS` (o `setTab`, a aba e o sinal da Ronda vêm do `VOLTAR`, por referência), e o contrato diário
+      os exige com o rótulo `abrir-os` (função `setBusca` e `setTab`, ids `busca-os` e `tela-ronda`, classes `on` e
+      `rd-voltar`, aba `tarefas`); os que são também do voltar faltam nas duas listas.
+  - **O que isto não faz** (conhecido, para a prova no aparelho): o toque que cai na tela de login do App (livre, com o
+    campo e o `setBusca` já definidos) põe a busca, e o redirecionamento do login a perde; a pendência não sobrevive ao
+    app fechado (o sessionStorage é da partida). A Zeladoria dentro de um serviço não segura a OS (a regra do dono fala
+    em OS e ronda): o toque troca de aba por cima dela. Sem prova no aparelho ainda: o `setTab` que não apaga a busca,
+    e a camada que a página abrir fora da lista do `VOLTAR` (o toque a trataria como livre).
 - **A atualização da casca** (`Atualizador`, `VersaoRemota`; o `CascaPlugin` a chama no `load()` e no `handleOnResume()`):
   - Lê o `versao.json` de `releases/latest/download/` (não conta no limite da API do GitHub), com as chaves `versionCode`
     (inteiro), `versionName`, `apk`, `sha256` (64 dígitos hex) e `novidades` (lista de textos). O `ferramentas/versao-json.mjs`

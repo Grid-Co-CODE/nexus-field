@@ -256,11 +256,16 @@ function conferirPush(html, falta) {
 
 // --- A abertura da OS pelo toque na notificação -----------------------------------------------------------------
 // O toque numa emergência abre o app e o script de início põe o número da OS no campo de busca (`<input id="busca-os">`) e
-// chama a função de topo setBusca, que é o que o técnico faria à mão. Sem um dos dois o app abre normalmente, mas sem a
-// OS na tela, em silêncio: o aviso vem daqui.
+// chama a função de topo setBusca, que é o que o técnico faria à mão; antes, se ele está noutra aba, vai a Tarefas pelo
+// setTab('tarefas'). Com a Ronda em andamento (o .rd-voltar dentro da #tela-ronda.on) a OS espera ele terminar, como
+// com qualquer camada do voltar aberta. Sem um desses nomes o app abre sem a OS na tela, ou com ela por cima da ronda, em
+// silêncio: o aviso vem daqui. O setTab, a aba e o sinal da Ronda também são do voltar, e faltam nas duas listas.
 function conferirAbrirOS(html, falta) {
-  if (!temFuncaoDeTopo(html, ABRIR_OS.funcao.buscar)) falta(`abrir-os: função ${ABRIR_OS.funcao.buscar}`);
-  if (!temId(html, ABRIR_OS.id.busca)) falta(`abrir-os: id '${ABRIR_OS.id.busca}'`);
+  for (const funcao of Object.values(ABRIR_OS.funcao)) if (!temFuncaoDeTopo(html, funcao)) falta(`abrir-os: função ${funcao}`);
+  for (const id of Object.values(ABRIR_OS.id)) if (!temId(html, id)) falta(`abrir-os: id '${id}'`);
+  for (const classe of Object.values(ABRIR_OS.classe)) if (!temClasse(html, classe)) falta(`abrir-os: classe '${classe}'`);
+  const aba = new RegExp(`\\b${escapar(ABRIR_OS.funcao.aba)}\\s*\\(\\s*\\\\?(['"])${escapar(ABRIR_OS.aba)}\\\\?\\1\\s*\\)`);
+  if (!aba.test(html)) falta(`abrir-os: aba '${ABRIR_OS.aba}'`);
 }
 
 /**

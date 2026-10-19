@@ -108,14 +108,20 @@
   };
 
   // O que a ABERTURA DA OS PELO TOQUE na notificação (seção 9) usa do campo.html (v284, lido em 18/10/2026), e só daqui: o
-  // teste de contrato com o site exige cada nome no HTML vivo. Se o site trocar um, o toque na emergência abre o app sem
-  // a busca (o técnico procura a OS à mão), sem quebrar a página.
+  // teste de contrato com o site exige cada nome no HTML vivo, com o rótulo abrir-os. Se o site trocar um, o toque na
+  // emergência abre o app sem a busca (o técnico procura a OS à mão), sem quebrar a página.
   //   funcao.buscar: a função de topo que o campo de busca chama a cada digitação (`oninput="setBusca(this.value)"`);
   //                  em script clássico ela é propriedade da janela;
-  //   id.busca:      o campo de busca por OS (sem o '#').
+  //   id.busca:      o campo de busca por OS (sem o '#');
+  //   funcao.aba e aba: o setTab('tarefas') que leva à aba da busca, quando ele está noutra;
+  //   id.ronda, classe.abaAtiva e classe.rondaEmAndamento: o sinal da Ronda em andamento (o .rd-voltar dentro da
+  //                  #tela-ronda.on), que segura a OS do toque. Quem o lê é a camada de cima da seção 7, a mesma do
+  //                  voltar: por isso estes vêm do VOLTAR, e o nome de cada coisa do site continua num lugar só.
   var ABRIR_OS = {
-    funcao: { buscar: 'setBusca' },
-    id: { busca: 'busca-os' },
+    funcao: { buscar: 'setBusca', aba: VOLTAR.funcao.aba },
+    id: { busca: 'busca-os', ronda: VOLTAR.id.ronda },
+    classe: { abaAtiva: VOLTAR.classe.abaAtiva, rondaEmAndamento: VOLTAR.classe.rondaVolta },
+    aba: VOLTAR.abaInicial,
   };
 
   // Conjuntos para o teste de pertinência: `Array.includes` serve, mas a chave 'constructor' ou '__proto__' não pode
@@ -1704,9 +1710,14 @@
   // câmera) são de propósito sem saída, ou a única saída envia algo.
   var CONSUMIR = {};
 
-  // A camada de cima e como fechá-la: uma função (que roda no tempo seguinte), CONSUMIR, ou null (nada aberto, ou o
-  // jeito de fechar sumiu). A ordem é a do z-index do campo.html, de cima para baixo.
-  function decidirVoltar(ctx) {
+  // A camada de cima: null (Tarefas, sem nada aberto) ou { acao, ocupa }. `acao` é como fechá-la: uma função (que roda
+  // no tempo seguinte), CONSUMIR, ou null (o jeito de fechar sumiu). `ocupa` diz se ela segura o técnico, e é o que a
+  // abertura da OS pelo toque (seção 9) pergunta, sem fechar nada (regra do dono, 18/10/2026: "Continua no preenchimento
+  // de OS ou ronda, a da notificação fica pendente"): toda camada de 1 a 9 ocupa, mesmo a que o voltar não saberia
+  // fechar, e a Ronda em andamento também; outra aba sem nada aberto nela não ocupa (a Zeladoria inclusive). A ordem é a
+  // do z-index do campo.html, de cima para baixo. A lista é uma só para as duas seções: a camada que o site acrescentar
+  // entra aqui e vale para o voltar e para o toque juntos.
+  function camadaDeCima(ctx) {
     var win = ctx.win;
     var doc = win.document;
     if (!doc || typeof doc.getElementById !== 'function') return null;
@@ -1725,77 +1736,91 @@
       return f ? function () { return f.apply(win, args || []); } : null;
     }
     function botaoOu(botao, alternativa) { return botao ? clicar(botao) : alternativa; }
+    function camadaAberta(acao) { return { acao: acao, ocupa: true }; }
+    function outraAba(acao) { return { acao: acao, ocupa: false }; }
     var irParaTarefas = chamar(VOLTAR.funcao.aba, [VOLTAR.abaInicial]);
 
     // 1. A camada da própria casca (o aviso do Fracttal, seção 6), por cima de tudo: o Fechar dela.
     var camada = porId(ID_CAMADA);
     if (camada) {
       var fecharCamada = camada.querySelector('button');
-      if (fecharCamada) return clicar(fecharCamada);
-      return function () { if (camada.parentNode) camada.parentNode.removeChild(camada); };
+      if (fecharCamada) return camadaAberta(clicar(fecharCamada));
+      return camadaAberta(function () { if (camada.parentNode) camada.parentNode.removeChild(camada); });
     }
     // 2. A foto ampliada (z 9999): a última aberta é a de cima; o clique dela fecha e devolve o objectURL.
     var fotos = doc.querySelectorAll('.' + VOLTAR.classe.foto);
-    if (fotos.length) return clicar(fotos[fotos.length - 1]);
+    if (fotos.length) return camadaAberta(clicar(fotos[fotos.length - 1]));
     // 3. A câmera do App (z 1500; o elemento só existe aberta): o Voltar dela. As fotos já tiradas seguem na fila.
     var camera = porId(VOLTAR.id.camera);
-    if (camera) return botaoOu(dentro(camera, VOLTAR.classe.cameraVolta), chamar(VOLTAR.funcao.camera));
+    if (camera) return camadaAberta(botaoOu(dentro(camera, VOLTAR.classe.cameraVolta), chamar(VOLTAR.funcao.camera)));
     // 4. As esperas que travam a tela (z 560 e 1500).
-    if (porId(VOLTAR.id.esperaChamado) || porId(VOLTAR.id.exigeGps) || aberta(porId(VOLTAR.id.sonda))) return CONSUMIR;
+    if (porId(VOLTAR.id.esperaChamado) || porId(VOLTAR.id.exigeGps) || aberta(porId(VOLTAR.id.sonda))) {
+      return camadaAberta(CONSUMIR);
+    }
     // 5. A APR (z 555). O botão de fechar dela fecha sem salvar o rascunho (ele espera 300 ms, e o aprFechar zera a
     //    APR antes): aqui o rascunho é salvo primeiro, e a APR só é fechada se ainda estiver aberta. O rascunho que
     //    falha não segura o voltar (é o que o botão de fechar faria).
     if (aberta(porId(VOLTAR.id.apr))) {
       var aprFechar = funcao(VOLTAR.funcao.aprFechar);
-      if (!aprFechar) return null;
+      if (!aprFechar) return camadaAberta(null);
       var aprSalvar = funcao(VOLTAR.funcao.aprSalvar);
-      return function () {
+      return camadaAberta(function () {
         var salvo;
         try { salvo = aprSalvar ? aprSalvar.call(win) : undefined; } catch (e) { salvo = Promise.reject(e); }
         return Promise.resolve(salvo).then(null, function (e) { ctx.falhou('voltar', e); }).then(function () {
           if (aberta(porId(VOLTAR.id.apr))) aprFechar.call(win);
         });
-      };
+      });
     }
     // 6. Os Extintores (z 545): o voltar da subtela (da conferência para a lista, da lista para fora).
     var extintores = porId(VOLTAR.id.extintores);
     if (aberta(extintores)) {
-      return botaoOu(dentro(extintores, VOLTAR.classe.extintoresVolta), chamar(VOLTAR.funcao.extintores));
+      return camadaAberta(botaoOu(dentro(extintores, VOLTAR.classe.extintoresVolta), chamar(VOLTAR.funcao.extintores)));
     }
     // 7. As folhas de baixo de z 520. O Concluir (#sheet) tinha substituído a OS (o abrirFechamentoTask a fecha): o
     //    fecharSheet salva o rascunho, e a OS volta, com a tarefa em foco.
-    if (aberta(porId(VOLTAR.id.fora))) return chamar(VOLTAR.funcao.fora);
-    if (aberta(porId(VOLTAR.id.ver))) return chamar(VOLTAR.funcao.ver);
+    if (aberta(porId(VOLTAR.id.fora))) return camadaAberta(chamar(VOLTAR.funcao.fora));
+    if (aberta(porId(VOLTAR.id.ver))) return camadaAberta(chamar(VOLTAR.funcao.ver));
     if (aberta(porId(VOLTAR.id.fechamento))) {
       var fecharSheet = funcao(VOLTAR.funcao.fechamento);
-      if (!fecharSheet) return null;
+      if (!fecharSheet) return camadaAberta(null);
       var abrirOs = funcao(VOLTAR.funcao.abrirOs);
-      return function () {
+      return camadaAberta(function () {
         var tarefa = tarefaDoFechamento(win); // antes do fecharSheet, que a solta
         fecharSheet.call(win);
         if (tarefa && abrirOs && tarefa.osRef !== undefined && tarefa.osRef !== null) {
           abrirOs.call(win, tarefa.osRef, tarefa.tid);
         }
-      };
+      });
     }
-    if (aberta(porId(VOLTAR.id.feedback))) return chamar(VOLTAR.funcao.feedback);
+    if (aberta(porId(VOLTAR.id.feedback))) return camadaAberta(chamar(VOLTAR.funcao.feedback));
     // 8. A OS (z 500), e também a Pausa e os avisos que reaproveitam o #modal: o botão do #m-body já é o passo anterior
     //    (o Cancelar da Pausa volta para a OS).
     if (aberta(porId(VOLTAR.id.os))) {
-      return botaoOu(dentro(porId(VOLTAR.id.corpoDaOs), VOLTAR.classe.fecharOs), chamar(VOLTAR.funcao.os));
+      return camadaAberta(botaoOu(dentro(porId(VOLTAR.id.corpoDaOs), VOLTAR.classe.fecharOs), chamar(VOLTAR.funcao.os)));
     }
     // 9. O menu do usuário.
-    if (aberta(porId(VOLTAR.id.menu))) return chamar(VOLTAR.funcao.menu);
+    if (aberta(porId(VOLTAR.id.menu))) return camadaAberta(chamar(VOLTAR.funcao.menu));
     // 10. As abas: a Ronda e a Zeladoria pelo voltar delas (o da Ronda pede confirmação com pendência); fora de uma
-    //     tela interna, e nas outras abas, para Tarefas.
+    //     tela interna, e nas outras abas, para Tarefas. A Ronda em andamento (uma seção aberta: o .rd-voltar dela)
+    //     segura o técnico como uma camada; a lista das rondas, não.
     var ronda = porId(VOLTAR.id.ronda);
-    if (ativa(ronda)) return botaoOu(dentro(ronda, VOLTAR.classe.rondaVolta), irParaTarefas);
+    if (ativa(ronda)) {
+      var rondaEmAndamento = dentro(ronda, VOLTAR.classe.rondaVolta);
+      return rondaEmAndamento ? camadaAberta(clicar(rondaEmAndamento)) : outraAba(irParaTarefas);
+    }
     var zeladoria = porId(VOLTAR.id.zeladoria);
-    if (ativa(zeladoria)) return botaoOu(dentro(zeladoria, VOLTAR.classe.zeladoriaVolta), irParaTarefas);
+    if (ativa(zeladoria)) return outraAba(botaoOu(dentro(zeladoria, VOLTAR.classe.zeladoriaVolta), irParaTarefas));
     if (ativa(porId(VOLTAR.id.sincronizacao)) || ativa(porId(VOLTAR.id.conquistas)) ||
-        ativa(porId(VOLTAR.id.acompanhamento))) return irParaTarefas;
+        ativa(porId(VOLTAR.id.acompanhamento))) return outraAba(irParaTarefas);
     // 11. Tarefas, sem nada aberto.
     return null;
+  }
+
+  // Como o voltar fecha a camada de cima: uma função, CONSUMIR, ou null (nada aberto, ou o jeito de fechar sumiu).
+  function decidirVoltar(ctx) {
+    var cima = camadaDeCima(ctx);
+    return cima ? cima.acao : null;
   }
 
   // A tarefa do Concluir. O `let` de topo do campo.html não vira propriedade da janela, mas todo script clássico da
@@ -2070,30 +2095,129 @@
   // pergunta ao Fracttal ao vivo (a OS que é do técnico e está aberta entra como avulsa). É o que o técnico faria à mão,
   // com os nomes do ABRIR_OS (seção 1), que o contrato diário com o site confere.
   //
-  // Devolve true quando mandou a busca; false quando não pôde: o número que não é de OS, a página sem o campo ou sem o
-  // setBusca (uma versão do site que trocou os nomes, ou uma página que não é a do App). Isso não é erro da casca, e
-  // nada vai ao nativo; o app só abre sem a busca. O campo é preenchido ANTES do setBusca, na ordem do phTrazer do próprio site (v284, o "Trazer
-  // para a fila"): o setBusca recebe o valor por argumento e não escreve no campo, e sem isso a lista ficaria filtrada
-  // com a caixa de busca vazia. Só um setBusca que lança vai ao nativo, como `abrirOS`, e sem devolver a exceção a quem
-  // chamou (o evaluateJavascript do nativo não a trataria).
+  // O TOQUE NUNCA INTERROMPE O TÉCNICO (regra do dono, 18/10/2026: "Continua no preenchimento de OS ou ronda, a da
+  // notificação fica pendente"). Caso que a criou: na revisão, o toque com o app já aberto numa OS punha a busca na aba
+  // Tarefas, por baixo dela, e o técnico não via nada; fechar o que ele preenche para mostrar a outra OS seria pior. Quem
+  // diz se ele está ocupado é a camada de cima da seção 7 (a mesma pilha do voltar, perguntada sem fechar nada): uma
+  // camada aberta, ou a Ronda em andamento. Então:
+  //   - livre: vai à aba Tarefas pelo setTab da página (só se estiver noutra aba), preenche o #busca-os ANTES do setBusca
+  //     (a ordem do phTrazer do site, v284: o setBusca recebe o valor por argumento e não escreve no campo; sem isso a
+  //     lista ficaria filtrada com a caixa de busca vazia) e busca. Devolve 'aberta';
+  //   - ocupado: nada é fechado e nenhuma aba é trocada. A OS fica PENDENTE no sessionStorage (SESSAO_OS_PENDENTE, com o
+  //     dia), e uma conferência a cada 2 s, que só existe enquanto houver pendência, a abre como acima assim que ele
+  //     ficar livre. Devolve 'pendente'. A pendência vale só no dia em que chegou (a emergência de ontem não é o que ele
+  //     precisa ver ao voltar ao app hoje) e atravessa as recargas da mesma partida (o login silencioso, o "Tentar de
+  //     novo"): a carga nova acha a pendência e retoma a conferência, porque o nativo entrega o pedido uma vez só. A OS
+  //     nova substitui a pendente: a última emergência vence. Sem tela nova: a notificação já foi o aviso;
+  //   - false quando não pôde: o número que não é de OS, a página sem o campo ou sem o setBusca (uma versão do site que
+  //     trocou os nomes, ou uma página que não é a do App), ou a pendência que não coube no sessionStorage. Isso não é
+  //     erro da casca, e nada vai ao nativo; o app só abre sem a busca. Só o setBusca (ou o setTab) que lança vai ao
+  //     nativo, como `abrirOS`, e sem devolver a exceção a quem chamou (o evaluateJavascript do nativo não a trataria); a
+  //     pendente que lança na conferência sai da pendência, para o erro não se repetir a cada 2 s.
   //
   // O número é conferido AQUI de novo, mesmo o nativo (Notificacoes.osValida) já o tendo validado: o extra do Intent pode
   // vir de qualquer app (a MainActivity é exportada), e esta função monta uma busca na tela do técnico. De 1 a 12 dígitos
-  // ASCII, escritos como [0-9] para não depender de como o motor trata o \d, e só texto.
+  // ASCII, escritos como [0-9] para não depender de como o motor trata o \d, e só texto. A pendência lida do
+  // sessionStorage passa pela mesma conferência.
   var OS_DO_TOQUE = /^[0-9]{1,12}$/;
+  var SESSAO_OS_PENDENTE = 'gc_casca_os_pendente';
+  var CONFERENCIA_MS = 2000;
+
+  // O dia de hoje no relógio do aparelho (AAAA-MM-DD, na hora local: a emergência das 23 h é de hoje, não de amanhã em
+  // UTC). Pelo Date da janela, como o setTimeout dela: o teste para o relógio num dia.
+  function diaDeHoje(win) {
+    var d = new (win.Date || Date)();
+    function dois(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + dois(d.getMonth() + 1) + '-' + dois(d.getDate());
+  }
 
   function instalarAbrirOS(ctx) {
     var win = ctx.win;
+    // Guardados agora, atados à janela, como no voltar.
+    var agendar = win.setTimeout.bind(win);
+    var cancelar = win.clearTimeout.bind(win);
+    var conferencia = null; // o timer da conferência; só existe enquanto houver pendência
+
+    // A OS pendente de hoje, ou null. O que não for uma pendência de hoje (de outro dia, torta, com OS que não é número)
+    // sai do sessionStorage aqui.
+    function lerPendente() {
+      if (!ctx.ls) return null;
+      var texto = lerSessao(ctx.ls, SESSAO_OS_PENDENTE);
+      if (texto === null) return null;
+      var p = null;
+      try { p = JSON.parse(texto); } catch (e) { p = null; }
+      if (p && typeof p.os === 'string' && OS_DO_TOQUE.test(p.os) && p.dia === diaDeHoje(win)) return p.os;
+      apagarSessao(ctx.ls, SESSAO_OS_PENDENTE);
+      return null;
+    }
+    // Guarda a OS como a pendente, no lugar da que houver, e diz se ela ficou guardada.
+    function guardarPendente(os) {
+      if (!ctx.ls) return false;
+      var texto = JSON.stringify({ os: os, dia: diaDeHoje(win) });
+      gravarSessao(ctx.ls, SESSAO_OS_PENDENTE, texto);
+      return lerSessao(ctx.ls, SESSAO_OS_PENDENTE) === texto;
+    }
+    // Sem pendência, sem conferência.
+    function esquecerPendente() {
+      if (ctx.ls) apagarSessao(ctx.ls, SESSAO_OS_PENDENTE);
+      if (conferencia !== null) {
+        cancelar(conferencia);
+        conferencia = null;
+      }
+    }
+    function conferirDepois() {
+      if (conferencia === null) conferencia = agendar(conferir, CONFERENCIA_MS);
+    }
+
+    // O campo e a função da busca, ou null (a página sem um deles).
+    function pecasDaBusca() {
+      var doc = win.document;
+      var campo = doc && typeof doc.getElementById === 'function' ? doc.getElementById(ABRIR_OS.id.busca) : null;
+      var buscar = win[ABRIR_OS.funcao.buscar];
+      return campo && typeof buscar === 'function' ? { campo: campo, buscar: buscar } : null;
+    }
+    // Com ele livre: a aba Tarefas (quando a camada de cima é outra aba), o número no campo e a busca.
+    function abrirAgora(os, pecas, cima) {
+      var irParaAba = win[ABRIR_OS.funcao.aba];
+      if (cima && typeof irParaAba === 'function') irParaAba.call(win, ABRIR_OS.aba);
+      pecas.campo.value = os;
+      pecas.buscar.call(win, os);
+    }
+
+    function conferir() {
+      conferencia = null;
+      try {
+        var os = lerPendente();
+        if (os === null) return; // sem pendência, a conferência acaba aqui
+        var pecas = pecasDaBusca();
+        var cima = camadaDeCima(ctx);
+        // A página ainda montando (sem o campo ou o setBusca) ou ele ainda ocupado: mais 2 s.
+        if (!pecas || (cima && cima.ocupa)) {
+          conferirDepois();
+          return;
+        }
+        esquecerPendente(); // antes da busca: a que lançar não volta a cada 2 s
+        abrirAgora(os, pecas, cima);
+      } catch (e) {
+        esquecerPendente();
+        ctx.falhou('abrirOS', e);
+      }
+    }
+
     function abrir(os) {
       try {
         if (typeof os !== 'string' || !OS_DO_TOQUE.test(os)) return false;
-        var doc = win.document;
-        var campo = doc && typeof doc.getElementById === 'function' ? doc.getElementById(ABRIR_OS.id.busca) : null;
-        var buscar = win[ABRIR_OS.funcao.buscar];
-        if (!campo || typeof buscar !== 'function') return false;
-        campo.value = os;
-        buscar.call(win, os);
-        return true;
+        var pecas = pecasDaBusca();
+        if (!pecas) return false;
+        var cima = camadaDeCima(ctx);
+        if (cima && cima.ocupa) {
+          if (!guardarPendente(os)) return false;
+          conferirDepois();
+          return 'pendente';
+        }
+        esquecerPendente(); // a pendente mais velha não vem depois desta
+        abrirAgora(os, pecas, cima);
+        return 'aberta';
       } catch (e) {
         ctx.falhou('abrirOS', e);
         return false;
@@ -2101,6 +2225,9 @@
     }
     // Não enumerável: o que da página varre a janela não a vê.
     Object.defineProperty(win, '__gcCascaAbrirOS', { value: abrir, enumerable: false, configurable: true, writable: false });
+
+    // A pendência que veio de uma carga anterior desta partida: a conferência retoma (a de outro dia sai aqui).
+    if (lerPendente() !== null) conferirDepois();
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -2140,7 +2267,8 @@
     tentar(ctx, 'janela', function () { instalarJanela(ctx); });
     tentar(ctx, 'voltar', function () { instalarVoltar(ctx); });
     tentar(ctx, 'push', function () { instalarPush(ctx); });
-    // A 9 só define uma função que o nativo chama, e vale em toda carga (a do toque na notificação é uma carga como outra).
+    // A 9 define a função que o nativo chama e, com uma OS pendente desta partida, retoma a conferência; vale em toda carga
+    // (a do toque na notificação é uma carga como outra). Ela pergunta à camada de cima da 7, sem depender de a 7 instalar.
     tentar(ctx, 'abrirOS', function () { instalarAbrirOS(ctx); });
 
     return {

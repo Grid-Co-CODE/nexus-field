@@ -296,4 +296,18 @@ public class CascaPluginTest {
             assertTrue(js, js.matches("window\\.__gcCascaAbrirOS&&window\\.__gcCascaAbrirOS\\('\\d{1,12}'\\)"));
         }
     }
+
+    @Test
+    public void aRespostaDaPaginaVaiAoLogSoComoAbertaPendenteOuNaoAberta() {
+        // O evaluateJavascript devolve o JSON do que a página respondeu: o texto vem entre aspas. A página decide se abre
+        // na hora ou se a OS fica pendente até o técnico sair do que está fazendo (inicio.js, seção 9); o nativo só loga.
+        assertEquals("aberta", CascaPlugin.AberturaDaOS.resultado("\"aberta\""));
+        assertEquals("pendente", CascaPlugin.AberturaDaOS.resultado("\"pendente\""));
+        // O false (a página sem a busca, o número recusado, o erro), a página sem o script (null), o true da versão velha
+        // do script e qualquer outra coisa: "não aberta". Nada do que a página mandou vai ao log.
+        for (String outra : new String[] {"false", "null", "true", "", null, "aberta", "\"Aberta\"", "\"aberta \"",
+                "\"pendente\\u0000\"", "\"4521\""}) {
+            assertEquals(String.valueOf(outra), "não aberta", CascaPlugin.AberturaDaOS.resultado(outra));
+        }
+    }
 }

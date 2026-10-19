@@ -329,21 +329,30 @@ test('o gc_campo_fotos sem versão, na versão 1 por constante, ou com o nome di
 // Os nomes do voltar do Android (o VOLTAR do inicio.js)
 // ---------------------------------------------------------------------------------------------------------------
 
+// Os nomes que o voltar e a abertura da OS usam juntos (o setTab, a aba de Tarefas e o sinal da Ronda em andamento) faltam
+// nas duas listas: a falta diz o que cada uma perde.
+const tambemNaAberturaDaOS = (grupo, nome, item) =>
+  (Object.values(ABRIR_OS[grupo]).includes(nome) ? [item.replace(/^voltar:/, 'abrir-os:')] : []);
+
 test('o contrato exige cada id, classe e função do VOLTAR, e diz qual sumiu', () => {
   for (const id of Object.values(VOLTAR.id)) {
     const v = voltarFicticio({ semId: id });
-    assert.deepEqual(conferirContrato(htmlFicticio({ marcacao: v.marcacao })), [`voltar: id '${id}'`], id);
+    const item = `voltar: id '${id}'`;
+    assert.deepEqual(conferirContrato(htmlFicticio({ marcacao: v.marcacao })), [item, ...tambemNaAberturaDaOS('id', id, item)], id);
   }
   for (const classe of Object.values(VOLTAR.classe)) {
     const v = voltarFicticio({ semClasse: classe });
-    assert.deepEqual(conferirContrato(htmlFicticio({ marcacao: v.marcacao })), [`voltar: classe '${classe}'`], classe);
+    const item = `voltar: classe '${classe}'`;
+    assert.deepEqual(conferirContrato(htmlFicticio({ marcacao: v.marcacao })), [item, ...tambemNaAberturaDaOS('classe', classe, item)], classe);
   }
   for (const funcao of Object.values(VOLTAR.funcao)) {
     const v = voltarFicticio({ semFuncao: funcao });
-    assert.deepEqual(conferirContrato(htmlFicticio({ voltar: v.script })), [`voltar: função ${funcao}`], funcao);
+    const item = `voltar: função ${funcao}`;
+    assert.deepEqual(conferirContrato(htmlFicticio({ voltar: v.script })), [item, ...tambemNaAberturaDaOS('funcao', funcao, item)], funcao);
   }
   assert.deepEqual(conferirContrato(htmlFicticio({ voltar: voltarFicticio({ semGlobal: true }).script })), [`voltar: global ${VOLTAR.global.tarefaDoFechamento}`]);
-  assert.deepEqual(conferirContrato(htmlFicticio({ voltar: voltarFicticio({ semAba: true }).script })), [`voltar: aba '${VOLTAR.abaInicial}'`]);
+  assert.deepEqual(conferirContrato(htmlFicticio({ voltar: voltarFicticio({ semAba: true }).script })),
+    [`voltar: aba '${VOLTAR.abaInicial}'`, `abrir-os: aba '${ABRIR_OS.aba}'`]);
 });
 
 test('voltar: um nome só dentro de outro nome não vale (modal dentro de modal-velho, rd-lb dentro de rd-lb-2)', () => {
@@ -417,9 +426,30 @@ test('abrir-os: o nome só dentro de outro, só citado ou noutro atributo não v
   assert.deepEqual(conferirContrato(htmlFicticio({ busca: `${semCampo}<input id='busca-os'>` })), []);
 });
 
+test('abrir-os: o contrato exige também o setTab, a aba de Tarefas e o sinal da Ronda em andamento', () => {
+  // A regra do dono (o toque não interrompe o técnico) lê a Ronda em andamento (o .rd-voltar dentro da #tela-ronda.on) e,
+  // livre, troca para Tarefas pelo setTab('tarefas'). Sem um deles a OS abriria por cima da ronda, ou a busca ficaria
+  // escondida noutra aba: a falta vem com o rótulo abrir-os, além do voltar.
+  const semSetTab = conferirContrato(htmlFicticio({ voltar: voltarFicticio({ semFuncao: ABRIR_OS.funcao.aba }).script }));
+  assert.ok(semSetTab.includes(`abrir-os: função ${ABRIR_OS.funcao.aba}`), semSetTab.join(' | '));
+  const semAba = conferirContrato(htmlFicticio({ voltar: voltarFicticio({ semAba: true }).script }));
+  assert.ok(semAba.includes(`abrir-os: aba '${ABRIR_OS.aba}'`), semAba.join(' | '));
+  const semRonda = conferirContrato(htmlFicticio({ marcacao: voltarFicticio({ semId: ABRIR_OS.id.ronda }).marcacao }));
+  assert.ok(semRonda.includes(`abrir-os: id '${ABRIR_OS.id.ronda}'`), semRonda.join(' | '));
+  const semSinal = conferirContrato(htmlFicticio({ marcacao: voltarFicticio({ semClasse: ABRIR_OS.classe.rondaEmAndamento }).marcacao }));
+  assert.ok(semSinal.includes(`abrir-os: classe '${ABRIR_OS.classe.rondaEmAndamento}'`), semSinal.join(' | '));
+  const semAtiva = conferirContrato(htmlFicticio({ marcacao: voltarFicticio({ semClasse: ABRIR_OS.classe.abaAtiva }).marcacao }));
+  assert.ok(semAtiva.includes(`abrir-os: classe '${ABRIR_OS.classe.abaAtiva}'`), semAtiva.join(' | '));
+});
+
 test('abrir-os: o ABRIR_OS do inicio.js tem as partes que o contrato lê', () => {
   assert.equal(typeof ABRIR_OS.funcao.buscar, 'string');
+  assert.equal(typeof ABRIR_OS.funcao.aba, 'string');
   assert.equal(typeof ABRIR_OS.id.busca, 'string');
+  assert.equal(typeof ABRIR_OS.id.ronda, 'string');
+  assert.equal(typeof ABRIR_OS.classe.abaAtiva, 'string');
+  assert.equal(typeof ABRIR_OS.classe.rondaEmAndamento, 'string');
+  assert.equal(typeof ABRIR_OS.aba, 'string');
 });
 
 // ---------------------------------------------------------------------------------------------------------------

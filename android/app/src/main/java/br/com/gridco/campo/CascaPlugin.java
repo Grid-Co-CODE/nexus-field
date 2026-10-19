@@ -150,12 +150,13 @@ public class CascaPlugin extends Plugin {
         ajustes.setUserAgentString(userAgent(ajustes.getUserAgentString(), BuildConfig.VERSION_NAME));
 
         // A OS do toque na emergência (MainActivity.osDoToque): só com a página do App; com a WebView antiga, que retorna
-        // acima, ela nem abre. O que a página respondeu vai ao log só como "aberta" ou "não aberta": nunca o número.
+        // acima, ela nem abre. O que a página respondeu vai ao log só como "aberta", "pendente" (o técnico estava numa OS
+        // ou numa ronda, e a página a abre quando ele terminar) ou "não aberta": nunca o número.
         aberturaDaOS = new AberturaDaOS(
             js -> {
                 if (encerrado) return;
                 bridge.getWebView().evaluateJavascript(js, resposta ->
-                    Log.i(TAG, "a OS do toque na página: " + (AberturaDaOS.abriu(resposta) ? "aberta" : "não aberta")));
+                    Log.i(TAG, "a OS do toque na página: " + AberturaDaOS.resultado(resposta)));
             },
             (ms, tarefa) -> ui.postDelayed(tarefa, ms));
 
@@ -469,7 +470,8 @@ public class CascaPlugin extends Plugin {
      * MainActivity assim que a tela nasce ou recebe o Intent, com a página do App ainda carregando (o toque com o app
      * fechado) ou já pronta (o toque com ele aberto). Aqui só se decide QUANDO rodar
      * {@code window.__gcCascaAbrirOS('<os>')} (www/casca/inicio.js, seção 9), que põe o número no campo de busca da
-     * página:
+     * página, ou o deixa pendente até o técnico sair da OS ou da ronda em que está (a página decide e espera; o nativo
+     * só entrega):
      * <ul>
      *   <li>a cada página do App que termina de carregar começa uma folga de 1,5 s, porque o onPageLoaded é o fim do
      *       documento e o App monta a tela (login silencioso, tarefas) depois; só passada a folga a página está pronta;</li>
@@ -515,9 +517,17 @@ public class CascaPlugin extends Plugin {
             return "window.__gcCascaAbrirOS&&window.__gcCascaAbrirOS('" + os + "')";
         }
 
-        /** O que a página respondeu ao script: só o true do {@code __gcCascaAbrirOS} é "abriu". */
-        static boolean abriu(String resposta) {
-            return "true".equals(resposta);
+        /**
+         * O que a página respondeu ao script, como vai ao log: "aberta", "pendente" ou "não aberta". O
+         * {@code __gcCascaAbrirOS} devolve 'aberta' (a busca foi posta), 'pendente' (o técnico estava numa camada ou numa
+         * ronda: nada foi fechado, e a página abre a OS sozinha quando ele ficar livre) ou false; o evaluateJavascript
+         * entrega o JSON disso, com o texto entre aspas. O nativo não decide nada com a resposta: quem espera o técnico é
+         * a página. Qualquer outra coisa (false, null da página sem o script) é "não aberta", e nada dela vai ao log.
+         */
+        static String resultado(String resposta) {
+            if ("\"aberta\"".equals(resposta)) return "aberta";
+            if ("\"pendente\"".equals(resposta)) return "pendente";
+            return "não aberta";
         }
 
         /** Pede a OS. False (e nada acontece) se o número não é de OS. */
