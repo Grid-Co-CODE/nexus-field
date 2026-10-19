@@ -49,9 +49,11 @@ function stringsDe(prefixo) {
 }
 const stringsDaCasca = () => stringsDe('casca_');
 const stringsDosCanais = () => stringsDe('notificacao_canal_');
+// Os rótulos dos atalhos de teste do ícone (só para administrador, Ruling N7): o curto e o longo de cada um.
+const stringsDosAtalhos = () => stringsDe('atalho_');
 // Só o nome no parâmetro: é usado como `.map(textoDe)`, que passaria o índice num segundo parâmetro.
 const textoDe = (nome) => {
-  const achada = [...stringsDaCasca(), ...stringsDosCanais()].find((s) => s.nome === nome);
+  const achada = [...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos()].find((s) => s.nome === nome);
   assert.ok(achada, `${nome} não existe no strings.xml`);
   return achada.texto;
 };
@@ -63,10 +65,12 @@ const stringDoApp = (nome) => {
 };
 
 // O `%1$s` do strings.xml vira "qualquer coisa": a versão (%1) é uma palavra só; a lista de novidades (%2) pode ter várias.
+// O `%1$d` é um número (os aparelhos do toast do teste dos avisos).
 function regexDe(texto) {
-  const fonte = texto.split(/(%\d\$s)/).map((parte) => {
-    const marca = parte.match(/^%(\d)\$s$/);
+  const fonte = texto.split(/(%\d\$[sd])/).map((parte) => {
+    const marca = parte.match(/^%(\d)\$([sd])$/);
     if (!marca) return parte.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (marca[2] === 'd') return '(\\d+)';
     return marca[1] === '1' ? '(\\S+)' : '(.+)';
   }).join('');
   return new RegExp('^' + fonte + '$');
@@ -86,8 +90,10 @@ const DIALOGOS = [
     botoes: ['casca_atualizacao_depois', 'casca_atualizacao_atualizar'] },
   { titulo: 'casca_instalar_titulo', textos: ['casca_instalar_texto'], botoes: ['casca_abrir_ajustes'] },
 ];
-// Os toasts, na ordem da prévia: o do download que começou e o da atualização que não deu certo.
-const TOASTS = ['casca_atualizacao_baixando', 'casca_atualizacao_sha_toast'];
+// Os toasts, na ordem da prévia: o do download que começou e o da atualização que não deu certo; depois, os do resultado
+// do teste dos avisos pelo atalho do ícone (só para administrador): enviado, só administrador, sem login e a falha.
+const TOASTS = ['casca_atualizacao_baixando', 'casca_atualizacao_sha_toast',
+  'casca_teste_enviado', 'casca_teste_so_admin', 'casca_teste_entrar', 'casca_teste_falhou'];
 
 // Os botões de cada AlertDialog.Builder do código Java, "negativo>positivo" (ou só o positivo): é como o aplicativo os
 // monta de verdade. Vai até o primeiro .show() ou .create() da cadeia (as lambdas dos botões não têm nenhum dos dois).
@@ -124,6 +130,13 @@ function toastsDoJava() {
 function canaisDoJava() {
   const fonte = lerArquivo(PASTA_JAVA + 'CanaisDeNotificacao.java');
   return [...fonte.matchAll(/\.setName\([^;]*?R\.string\.(\w+)/g)].map((m) => m[1]);
+}
+
+// Os rótulos que o AtalhosDeTeste dá a cada atalho do ícone (o setShortLabel e o setLongLabel do ShortcutInfoCompat).
+function rotulosDosAtalhosDoJava() {
+  const fonte = lerArquivo(PASTA_JAVA + 'AtalhosDeTeste.java');
+  const de = (metodo) => [...fonte.matchAll(new RegExp(`\\.${metodo}\\([^;]*?R\\.string\\.(\\w+)`, 'g'))].map((m) => m[1]);
+  return { curtos: de('setShortLabel'), longos: de('setLongLabel') };
 }
 
 // Lê a folha de estilo da página sem depender do CSSOM do jsdom (que descarta o que não entende): regra a regra, com o
@@ -197,8 +210,12 @@ test('cada quadro de diálogo é um grupo do strings.xml: título, texto e os bo
     for (const nome of grupo.textos) assert.ok(vistos.has(nome), `${nome} não aparece em nenhum quadro da prévia`);
   }
 
+  // O toast com número (os aparelhos do teste) mostra um exemplo no lugar do %1$d.
   const toasts = [...d.querySelectorAll('.celular .toast')].map((t) => compactar(t.textContent));
-  assert.deepEqual(toasts, TOASTS.map(textoDe), 'os toasts da prévia são os do strings.xml, na ordem');
+  assert.equal(toasts.length, TOASTS.length, `os toasts da prévia são os ${TOASTS.length} do strings.xml: ${toasts.join(' | ')}`);
+  TOASTS.forEach((nome, i) => {
+    assert.match(toasts[i], regexDe(textoDe(nome)), `o ${i + 1}º toast da prévia é o ${nome}, na ordem`);
+  });
 });
 
 test('cada toast da prévia é um que o Java mostra, e todo toast do Java tem quadro', () => {
@@ -227,13 +244,33 @@ test('os nomes dos canais de notificação estão no quadro dos ajustes: os que 
     'os nomes no quadro são os do strings.xml, um por canal (a ordem fica com o Android)');
 });
 
+test('os rótulos dos atalhos de teste estão no quadro do toque longo: os que o AtalhosDeTeste dá a cada atalho, e só eles', () => {
+  // O dono escolheu testar as notificações por um botão que só o administrador vê; o botão é o atalho do ícone (toque
+  // longo). O menu do launcher mostra o rótulo longo quando cabe e o curto quando não cabe (ou no atalho fixado na tela).
+  const { curtos, longos } = rotulosDosAtalhosDoJava();
+  assert.equal(curtos.length, 2, 'o teste achou os dois atalhos do AtalhosDeTeste');
+  assert.equal(longos.length, 2);
+  assert.deepEqual(stringsDosAtalhos().map((s) => s.nome).sort(), [...curtos, ...longos].sort(),
+    'todo atalho_* do strings.xml é o rótulo de um atalho, e todo atalho tira os rótulos de um deles');
+
+  const figura = doc().getElementById('t-atalhos');
+  const quadro = figura?.querySelector('.celular');
+  assert.ok(quadro, 'o quadro do toque longo no ícone (figure#t-atalhos)');
+  const ler = (dentro, seletor) => [...dentro.querySelectorAll(seletor)].map((e) => compactar(e.textContent));
+  assert.deepEqual(ler(quadro, '.menu-atalhos .atalho-rotulo'), longos.map(textoDe), 'o menu mostra os rótulos longos, na ordem do código');
+  assert.deepEqual(ler(figura, '.atalho-curto'), curtos.map(textoDe), 'e a legenda diz os curtos, na mesma ordem');
+  // O ícone embaixo do menu é o do aplicativo, com o rótulo dele.
+  assert.ok(quadro.querySelector('svg.icone use[href="#g-nexus-field"]'), 'o ícone do Nexus Field embaixo do menu');
+  assert.equal(compactar(quadro.querySelector('.inicio-rotulo').textContent), stringDoApp('title_activity_main'));
+});
+
 test('toda string do strings.xml tem lugar na prévia: um prefixo novo não escapa da aprovação', () => {
   // Os casca_* têm quadro de diálogo ou de toast, os notificacao_canal_* o quadro dos ajustes e o nome (app_name e
   // title_activity_main) o rótulo do ícone e o título da página; o package_name e o custom_url_scheme são o
   // applicationId, que o técnico não lê. Fora disso é texto novo sem quadro: ganha o quadro e o teste dele na prévia
   // antes de ir ao campo, ou entra aqui com o motivo de não aparecer ao técnico. Caso que criou a regra: os nomes dos
   // canais (18/10/2026) saíram do prefixo casca_ e ficaram fora da prévia sem nenhum teste reclamar.
-  const COM_QUADRO = [/^casca_[a-z_]+$/, /^notificacao_canal_[a-z_]+$/, /^(app_name|title_activity_main)$/];
+  const COM_QUADRO = [/^casca_[a-z_]+$/, /^notificacao_canal_[a-z_]+$/, /^atalho_[a-z_]+$/, /^(app_name|title_activity_main)$/];
   const SEM_TELA = ['package_name', 'custom_url_scheme'];
   const nomes = [...STRINGS.matchAll(/<string\b[^>]*\bname="([^"]*)"/g)].map((m) => m[1]);
   assert.ok(nomes.length >= 20, 'o teste leu as strings do strings.xml');
@@ -306,7 +343,7 @@ test('os links "Ver" da lista têm alvo de toque de pelo menos 44 px', () => {
 
 test('os nomes entre aspas da lista "O que aprovar" são textos de verdade do aplicativo', () => {
   // A lista é uma terceira cópia dos títulos e dos botões; sem esta conferência ela envelhece sozinha.
-  const permitidos = new Set([...stringsDaCasca(), ...stringsDosCanais()].map((s) => s.texto));
+  const permitidos = new Set([...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos()].map((s) => s.texto));
   for (const nome of ['app_name', 'title_activity_main']) permitidos.add(stringDoApp(nome)); // o nome, Nexus Field
   const erro = new JSDOM(ERRO_HTML).window.document;
   for (const el of erro.querySelectorAll('h1, p, button')) permitidos.add(compactar(el.textContent));

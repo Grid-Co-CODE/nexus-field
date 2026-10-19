@@ -753,6 +753,59 @@ public class MensageiroTest {
         assertEquals("", objeto(Mensageiro.respostaDoPush(TOKEN, null)).getString("versao"));
     }
 
+    // --- o atalho de teste dos avisos (só para administrador, Ruling N7) -------------------------------------------
+
+    @Test
+    public void pushAdminPublicaOuTiraOsAtalhos() {
+        assertTrue(m.tratar("{\"t\":\"pushAdmin\",\"admin\":true}"));
+        assertTrue(m.tratar("{\"t\":\"pushAdmin\",\"admin\":false}"));
+        assertEquals(Arrays.asList(true, false), acoes.admins);
+        assertTrue(acoes.erros.isEmpty());
+    }
+
+    @Test
+    public void pushAdminTortoTiraOsAtalhos() {
+        // Nunca fica com o atalho quem não foi dito Admin: o campo que falta ou não é booleano conta como "não".
+        for (String torto : new String[] {"{\"t\":\"pushAdmin\"}", "{\"t\":\"pushAdmin\",\"admin\":\"true\"}",
+                "{\"t\":\"pushAdmin\",\"admin\":1}", "{\"t\":\"pushAdmin\",\"admin\":null}"}) {
+            assertFalse(torto, m.tratar(torto));
+        }
+        assertEquals(Arrays.asList(false, false, false, false), acoes.admins);
+        assertEquals(4, acoes.erros.size());
+    }
+
+    @Test
+    public void pushTesteDaOToastCertoParaCadaResposta() {
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":true,\"status\":200,\"aparelhos\":2}"));
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":\"sem login\",\"aparelhos\":null}"));
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":401,\"aparelhos\":null}"));
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":\"erro\",\"aparelhos\":null}"));
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":500,\"aparelhos\":null}"));
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":true,\"status\":200,\"aparelhos\":null}"));
+        assertTrue(m.tratar("{\"t\":\"pushTeste\"}"));
+        assertEquals(Arrays.asList("ENVIADO:2", "SEM_LOGIN:0", "SEM_LOGIN:0", "FALHOU:0", "FALHOU:0", "FALHOU:0",
+            "FALHOU:0"), acoes.testes);
+        assertTrue("nenhum desses mexe nos atalhos", acoes.admins.isEmpty());
+    }
+
+    @Test
+    public void oTesteRecusadoPorNaoSerAdminTiraOsAtalhos() {
+        // O 403 é o servidor dizendo que a conta não é Admin (o papel mudou, ou um atalho que ficou de antes): o toast
+        // diz "só administrador" e os atalhos saem na hora, sem esperar a próxima carga.
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":403,\"aparelhos\":null}"));
+        assertEquals(Arrays.asList("SO_ADMIN:0"), acoes.testes);
+        assertEquals(Arrays.asList(false), acoes.admins);
+    }
+
+    @Test
+    public void oTesteNaoLevaNadaDaContaAoLog() {
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":true,\"status\":200,\"aparelhos\":1,\"email\":\"" + EMAIL
+            + "\",\"nome\":\"" + NOME + "\"}"));
+        assertTrue(m.tratar("{\"t\":\"pushAdmin\",\"admin\":true,\"email\":\"" + EMAIL + "\"}"));
+        assertFalse(m.tratar("{\"t\":\"pushAdmin\",\"admin\":\"" + EMAIL + "\"}"));
+        semDadosDoTecnico();
+    }
+
     // --- ajudantes ---------------------------------------------------------------------------------------------------
 
     /** O token do Firebase também não vai ao log (nem pelas ações, nem pelo android.util.Log). */
@@ -881,7 +934,11 @@ public class MensageiroTest {
         int idbPedidos;
         int idbRecusas;
         int pushPedidos;
+        final List<Boolean> admins = new ArrayList<>();
+        final List<String> testes = new ArrayList<>();
 
+        @Override public void pushAdmin(boolean admin) { admins.add(admin); }
+        @Override public void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos) { testes.add(resultado + ":" + aparelhos); }
         @Override public void precisoRetrato(JSONObject retrato) { retratos.add(retrato); }
         @Override public void restaurado(JSONObject retratoLeve) { leves.add(retratoLeve); }
         @Override public void idbPedir() { idbPedidos++; }

@@ -33,7 +33,8 @@ import java.util.Map;
  * quem já tinha o app e só ganhou a notificação na atualização, depois de um diálogo próprio que explica o motivo. Com
  * a WebView antiga, nem o App nem o pedido: só o aviso do plugin. O toque numa emergência traz a OS no extra gc_os, e
  * a tela a leva ao plugin ({@link #osDoToque}, {@link CascaPlugin#abrirOS}): na partida (onCreate) ou com a tela já
- * aberta (onNewIntent).
+ * aberta (onNewIntent). Do mesmo jeito, o atalho de teste dos avisos do ícone (só na conta Admin) traz o canal no extra
+ * gc_teste ({@link #testeDoAtalho}, {@link CascaPlugin#testarAvisos}).
  */
 public class MainActivity extends BridgeActivity {
 
@@ -105,6 +106,7 @@ public class MainActivity extends BridgeActivity {
         if (savedInstanceState == null && !webViewAntiga) {
             primeiraAbertura();
             abrirOsDoToque(getIntent());
+            pedirTesteDoAtalho(getIntent());
         }
     }
 
@@ -118,6 +120,7 @@ public class MainActivity extends BridgeActivity {
         if (criando) return; // o intent da partida é do onCreate
         setIntent(intent);
         abrirOsDoToque(intent);
+        pedirTesteDoAtalho(intent);
     }
 
     /**
@@ -140,14 +143,46 @@ public class MainActivity extends BridgeActivity {
         return Notificacoes.osValida(os) ? os : null;
     }
 
+    /**
+     * O canal do teste dos avisos que o atalho do ícone pede (o extra gc_teste que o {@link AtalhosDeTeste} põe no
+     * Intent, só na conta Admin), ou null, com as mesmas regras da OS do toque ({@link #osDoToque}): sem o extra, com um
+     * canal que não é um dos dois da emergência (a MainActivity é exportada), ou no Intent reentregue pelos recentes; o
+     * extra é consumido na leitura, valendo ou não.
+     */
+    static String testeDoAtalho(Intent intent) {
+        if (intent == null) return null;
+        String canal;
+        try {
+            canal = intent.getStringExtra(AtalhosDeTeste.EXTRA_TESTE);
+            intent.removeExtra(AtalhosDeTeste.EXTRA_TESTE);
+        } catch (RuntimeException e) {
+            return null; // o Bundle de um app de fora que não se lê
+        }
+        if ((intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return null;
+        return AtalhosDeTeste.canalValido(canal) ? canal : null;
+    }
+
     // Entrega a OS ao plugin da casca, que a leva à página quando o App estiver pronto. Sem plugin (o Bridge não nasceu)
     // ou com a WebView antiga, não há o que abrir.
     private void abrirOsDoToque(Intent intent) {
         String os = osDoToque(intent);
-        if (os == null || bridge == null) return;
+        CascaPlugin casca = os == null ? null : casca();
+        if (casca != null) casca.abrirOS(os);
+    }
+
+    // O mesmo para o teste do atalho: o plugin o leva à página, e a página chama o servidor com o Bearer dela.
+    private void pedirTesteDoAtalho(Intent intent) {
+        String canal = testeDoAtalho(intent);
+        CascaPlugin casca = canal == null ? null : casca();
+        if (casca != null) casca.testarAvisos(canal);
+    }
+
+    // O plugin da casca desta tela, pelo nome, ou null (o Bridge ainda não nasceu).
+    private CascaPlugin casca() {
+        if (bridge == null) return null;
         PluginHandle handle = bridge.getPlugin(CascaPlugin.NOME);
         Plugin plugin = handle == null ? null : handle.getInstance();
-        if (plugin instanceof CascaPlugin) ((CascaPlugin) plugin).abrirOS(os);
+        return plugin instanceof CascaPlugin ? (CascaPlugin) plugin : null;
     }
 
     /**

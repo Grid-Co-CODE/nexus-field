@@ -209,6 +209,21 @@
   .canal { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:72px; padding:12px 24px; font-size:18px; line-height:1.3; }
   .chave { position:relative; flex:none; width:52px; height:32px; border-radius:16px; background:var(--dlg-botao); }
   .chave::after { content:""; position:absolute; top:6px; right:6px; width:20px; height:20px; border-radius:50%; background:var(--ajustes-fundo); }
+  /* O toque longo no ícone, na tela inicial (o papel de parede escuro): o menu dos atalhos em cima do ícone, como o
+     launcher do Android o desenha. Aproximação: o que se aprova são os rótulos. O menu segue o tema do aparelho. */
+  .celular.inicio {
+    display:flex; align-items:flex-end; justify-content:center; padding:0 16px 96px;
+    background:linear-gradient(160deg, var(--papel-escuro-topo), var(--papel-escuro-base));
+  }
+  .inicio-pilha { display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .menu-atalhos {
+    list-style:none; margin:0; padding:8px 0; min-width:248px; border-radius:20px; background:var(--ajustes-fundo);
+    color:var(--ajustes-texto); box-shadow:0 8px 24px var(--sombra); font:15px/1.3 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .atalho-item { display:flex; align-items:center; gap:12px; min-height:48px; padding:4px 16px; }
+  .atalho-icone { width:28px; height:28px; }
+  .inicio-app { display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .inicio-rotulo { color:var(--rotulo-escuro); font:500 13px/1.2 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; }
   /* Só o iframe do erro.html é dimensionado por esta folha. O da camada do Fracttal fica só com o estilo inline que o
      inicio.js declara: uma regra aqui, como a de um "iframe" qualquer, mudaria o que o aparelho mostra. */
   #erro-html { display:block; position:absolute; top:0; left:0; width:100%; height:100%; border:0; background:var(--icone-fundo); }
@@ -239,6 +254,7 @@
       <li><input type="checkbox" id="ok-erro"><label for="ok-erro"><b class="cita">Sem internet</b>: o título, os dois textos e o botão <b class="cita">Tentar de novo</b>.</label><a class="ver" href="#t-erro">Ver</a></li>
       <li><input type="checkbox" id="ok-fracttal"><label for="ok-fracttal">O aviso do Fracttal: o botão <b class="cita">Fechar</b> e o visual da camada. O texto da explicação vem da página do App de Campo.</label><a class="ver" href="#t-fracttal">Ver</a></li>
       <li><input type="checkbox" id="ok-canais"><label for="ok-canais">Novo: os nomes dos canais das notificações, nos ajustes do Android: <b class="cita">Emergências</b>, <b class="cita">Emergências fora do expediente</b> e <b class="cita">Resumo do dia</b>.</label><a class="ver" href="#t-canais">Ver</a></li>
+      <li><input type="checkbox" id="ok-atalhos"><label for="ok-atalhos">Novo, só para administrador: os atalhos do toque longo no ícone, <b class="cita">Testar avisos</b> e <b class="cita">Testar fora do expediente</b> (com os rótulos curtos), e os quatro avisos rápidos (toast) do resultado do teste.</label><a class="ver" href="#t-atalhos">Ver</a></li>
       <li><input type="checkbox" id="ok-visual"><label for="ok-visual">O visual: os diálogos seguem o tema claro ou escuro do aparelho, e os botões usam a cor de destaque padrão do Android (verde-azulado), porque a casca não define uma cor própria.</label></li>
     </ul>
   </section>
@@ -497,7 +513,7 @@
 
   <section class="grupo" aria-labelledby="g-notificacoes">
     <h2 id="g-notificacoes">Notificações</h2>
-    <p class="suave">Os canais em que o Nexus Field separa as notificações, com os nomes que o técnico vê nos ajustes do Android.</p>
+    <p class="suave">Os canais em que o Nexus Field separa as notificações, com os nomes que o técnico vê nos ajustes do Android, e o teste dos avisos que só o administrador faz, pelo toque longo no ícone.</p>
     <div class="galeria">
 
       <figure class="item" id="t-canais">
@@ -513,6 +529,53 @@
           </ul>
         </div>
         <figcaption><strong>Os canais das notificações, novo.</strong> Aparecem nos ajustes do Android (Apps, Nexus Field, Notificações) e quando o técnico toca e segura uma notificação. Ele pode desligar ou mudar cada um, e o Nexus Field não desfaz o que ele ajustou. Emergências: toca, vibra três vezes e aparece por cima da tela. Emergências fora do expediente: a emergência que surge fora do dia útil e do expediente chega na barra sem som nem vibração. Resumo do dia: os avisos das 7h e das 13h com as tarefas do dia, com o som padrão e sem aparecer por cima da tela. O desenho da tela de ajustes é uma aproximação: a ordem e o visual mudam com a versão do Android.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-atalhos">
+        <div class="celular inicio" role="group" aria-label="Tela inicial do aparelho com o menu do toque longo no ícone do Nexus Field">
+          <!-- Os rótulos são os do strings.xml (atalho_teste_*), e o teste confere que são os que o AtalhosDeTeste dá a
+               cada atalho, na ordem do código. O menu mostra o rótulo longo; o curto vai na legenda. -->
+          <div class="inicio-pilha">
+            <ul class="menu-atalhos" aria-label="Atalhos do Nexus Field">
+              <li class="atalho-item"><svg class="icone icone-redondo atalho-icone" viewBox="18 18 72 72" aria-hidden="true" focusable="false"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><span class="atalho-rotulo">Testar avisos</span></li>
+              <li class="atalho-item"><svg class="icone icone-redondo atalho-icone" viewBox="18 18 72 72" aria-hidden="true" focusable="false"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><span class="atalho-rotulo">Testar fora do expediente</span></li>
+            </ul>
+            <div class="inicio-app"><svg class="icone icone-redondo icone-real" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><span class="inicio-rotulo">Nexus Field</span></div>
+          </div>
+        </div>
+        <figcaption><strong>Os atalhos de teste, novo, só para administrador.</strong> Aparecem ao tocar e segurar o ícone do Nexus Field, só depois que uma conta Admin do App de Campo entrou no aparelho; com a conta de um técnico, ou depois do Sair, eles saem. Cada toque pede ao servidor um resumo e uma emergência de mentira (OS 12345) para os aparelhos da conta, sem nada no Fracttal: Testar avisos no canal Emergências (toca alto) e Testar fora do expediente no canal silencioso. Dois toques seguidos em menos de 10 segundos mandam um teste só. Quando o rótulo longo não cabe, o Android mostra o curto: <span class="atalho-curto">Testar avisos</span> e <span class="atalho-curto">Testar sem som</span>.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-teste-enviado">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o aviso rápido do teste enviado">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="toast" role="status" aria-labelledby="teste-enviado-nome">Aviso de teste enviado para 2 aparelho(s)</div>
+        </div>
+        <figcaption><strong id="teste-enviado-nome">Aviso rápido (toast) do teste enviado, novo.</strong> Logo depois do toque no atalho: o servidor aceitou e mandou o teste. O número é quantos aparelhos da conta o receberam (aqui, 2 de exemplo); zero quer dizer que nenhum aparelho da conta está registrado.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-teste-admin">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o aviso rápido de que só o administrador testa">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="toast" role="status" aria-labelledby="teste-admin-nome">Só administrador pode testar</div>
+        </div>
+        <figcaption><strong id="teste-admin-nome">Aviso rápido (toast) da conta que não é Admin, novo.</strong> O servidor recusou o teste porque a conta não é Admin (por exemplo, um atalho que ficou fixado na tela inicial). Os atalhos saem na hora.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-teste-entrar">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o aviso rápido de que é preciso entrar para testar">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="toast" role="status" aria-labelledby="teste-entrar-nome">Entre no Nexus Field para testar</div>
+        </div>
+        <figcaption><strong id="teste-entrar-nome">Aviso rápido (toast) sem login, novo.</strong> O toque no atalho com ninguém logado no App de Campo, ou com a sessão vencida.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-teste-falhou">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o aviso rápido do teste que não saiu">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="toast" role="status" aria-labelledby="teste-falhou-nome">Não consegui enviar o teste agora</div>
+        </div>
+        <figcaption><strong id="teste-falhou-nome">Aviso rápido (toast) do teste que não saiu, novo.</strong> Sem internet, o servidor sem responder em 20 segundos ou com erro. Dá para tocar de novo no atalho depois.</figcaption>
       </figure>
 
     </div>

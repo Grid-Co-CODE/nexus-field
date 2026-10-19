@@ -36,6 +36,7 @@ import org.json.JSONObject;
  *   ls {k, v} · lsDel {k} · idbPut {k, tipo, v} · idbDel {k} · idbPedaco {k, id, i, n, mime, b64} · sentinela
  *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila}
  *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken
+ *   pushAdmin {admin} · pushTeste {ok, status, aparelhos}
  * </pre>
  *
  * E a resposta do idbPedir, pela ponte da mesma mensagem: idbItem, idbPedaco e idbFim ({@link #enviarIdb}), ou
@@ -122,6 +123,15 @@ public final class Mensageiro {
          * configurado ou ainda não deu o token).
          */
         void pushPedirToken();
+
+        /**
+         * A página disse se a conta é Admin (o GET /me do servidor, uma vez por carga; o Sair diz false): publique os
+         * atalhos de teste dos avisos com true e tire com false ({@link AtalhosDeTeste}). Do /me só vem isto.
+         */
+        void pushAdmin(boolean admin);
+
+        /** O resultado do teste dos avisos que o atalho pediu: mostre o toast dele ({@link AtalhosDeTeste#avisar}). */
+        void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos);
 
         /** Um aviso para o log. Nunca traz nome de chave, valor, URL com parâmetros nem e-mail. */
         void erro(String onde, String msg);
@@ -446,6 +456,29 @@ public final class Mensageiro {
                 case "pushPedirToken":
                     acoes.pushPedirToken();
                     return true;
+                case "pushAdmin": {
+                    // Nunca fica com o atalho de teste quem não foi dito Admin: o campo que falta ou não é booleano
+                    // conta como "não" (os atalhos saem) e a mensagem é recusada.
+                    Object admin = m.opt("admin");
+                    if (!(admin instanceof Boolean)) {
+                        acoes.pushAdmin(false);
+                        return recusar(t);
+                    }
+                    acoes.pushAdmin((Boolean) admin);
+                    return true;
+                }
+                case "pushTeste": {
+                    // O toque no atalho sempre tem um toast: a resposta torta também (o de falha).
+                    AtalhosDeTeste.Resultado resultado =
+                        AtalhosDeTeste.resultado(m.opt("ok"), m.opt("status"), m.opt("aparelhos"));
+                    Integer aparelhos = AtalhosDeTeste.contagem(m.opt("aparelhos"));
+                    acoes.pushTeste(resultado,
+                        resultado == AtalhosDeTeste.Resultado.ENVIADO && aparelhos != null ? aparelhos : 0);
+                    // O 403 é o servidor dizendo que a conta não é Admin (o papel mudou, ou o atalho ficou de antes): os
+                    // atalhos saem já, sem esperar a próxima carga.
+                    if (resultado == AtalhosDeTeste.Resultado.SO_ADMIN) acoes.pushAdmin(false);
+                    return true;
+                }
                 case "erro": {
                     // Só o rótulo e a contagem. O texto do erro nunca vai ao log: o QuotaExceededError do Chromium cita
                     // a chave entre aspas, e o do JSON.parse, o próprio texto (um nome, num rascunho que não é JSON).

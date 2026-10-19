@@ -44,26 +44,33 @@ const status = (n) => () => Promise.resolve({ ok: n >= 200 && n < 300, status: n
 const semRede = () => Promise.reject(new TypeError('Failed to fetch'));
 const nunca = () => new Promise(() => {});
 
+// O GET /me do atalho de teste (Ruling N7), que a seção 8 faz junto do registro com o mesmo Bearer: aqui, uma conta que
+// não é Admin. Ele tem a prova dele (testes/atalho-teste.test.mjs); nesta, fica fora dos `pedidos` e do `doPush`.
+const naoAdmin = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ papel: 'Tecnico' }) });
+
 // A janela do App com o que a página define (o getTokenMW e o MIDDLEWARE_URL) e o fetch falso do servidor. `bearer` é o
-// que o getTokenMW devolve (null: ninguém logado); `servidor(url, init)` responde cada chamada.
+// que o getTokenMW devolve (null: ninguém logado); `servidor(url, init)` responde cada chamada das rotas do registro.
 function montar({ bearer = BEARER, servidor = ok, ...opcoes } = {}) {
   const j = criarJanela(opcoes);
   const pedidos = [];
+  const perguntas = [];
   const estado = { bearer, servidor, bearers: 0 };
   j.win.MIDDLEWARE_URL = MW;
   j.win.getTokenMW = async () => { estado.bearers++; return estado.bearer; };
   j.win.fetch = (url, init) => {
+    if (url === MW + '/me') { perguntas.push({ url, init }); return naoAdmin(); }
     pedidos.push({ url, init, corpo: JSON.parse(init.body) });
     return estado.servidor(url, init);
   };
   const casca = instalar(j.win, j.canal, j.retrato);
   const doTipo = (t) => j.enviados.filter((m) => m.t === t);
   const erros = () => j.enviados.filter((m) => m.t === 'erro');
-  // O que a seção 8 mandou ao nativo (menos os avisos): só o pedido do token, uma vez por carga.
-  const doPush = () => j.enviados.filter((m) => typeof m.t === 'string' && m.t.indexOf('push') === 0);
+  // O que a seção 8 mandou ao nativo para o registro (menos os avisos e o pushAdmin do atalho de teste): só o pedido do
+  // token, uma vez por carga.
+  const doPush = () => j.enviados.filter((m) => typeof m.t === 'string' && m.t.indexOf('push') === 0 && m.t !== 'pushAdmin');
   const registros = () => pedidos.filter((p) => p.url === MW + '/push/registrar');
   const esquecimentos = () => pedidos.filter((p) => p.url === MW + '/push/esquecer');
-  return { ...j, casca, pedidos, estado, doTipo, erros, doPush, registros, esquecimentos };
+  return { ...j, casca, pedidos, perguntas, estado, doTipo, erros, doPush, registros, esquecimentos };
 }
 
 // A carga seguinte na mesma WebView: o localStorage e o sessionStorage de antes (o script não guarda nada do registro
@@ -469,7 +476,13 @@ test('na página de verdade: a const MIDDLEWARE_URL lida pelo nome e o async fun
       const agendar = window.setTimeout.bind(window);
       window.setTimeout = (fn, ms) => agendar(fn, ms === ESPERA_MS ? 0 : ms);
       window.pedidos = [];
-      window.fetch = (url, init) => { window.pedidos.push({ url, corpo: JSON.parse(init.body) }); return Promise.resolve({ ok: true, status: 200 }); };
+      window.perguntas = [];
+      window.fetch = (url, init) => {
+        // O GET /me do atalho de teste (sem corpo), à parte: o papel que não é Admin.
+        if (url === MW + '/me') { window.perguntas.push(init.headers.Authorization); return naoAdmin(); }
+        window.pedidos.push({ url, corpo: JSON.parse(init.body) });
+        return Promise.resolve({ ok: true, status: 200 });
+      };
     },
   });
   const { window } = dom;
@@ -493,12 +506,16 @@ test('na página de verdade: a const MIDDLEWARE_URL lida pelo nome e o async fun
   await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(window.pedidos.map((p) => p.url), [MW + '/push/registrar']);
   assert.equal(window.pedidos[0].corpo.app, 'NexusField/9.9.9');
-  assert.deepEqual(enviados.filter((m) => m.t.indexOf('push') === 0), [{ t: 'pushPedirToken' }]);
+  // O papel da conta, com o mesmo Bearer do registro, e o nativo sabendo só que ela não é Admin.
+  assert.deepEqual([...window.perguntas], ['Bearer B']);
+  assert.deepEqual(enviados.filter((m) => m.t.indexOf('push') === 0),
+    [{ t: 'pushPedirToken' }, { t: 'pushAdmin', admin: false }]);
 
   // O sair chamado pela própria página (o onclick do menu) passa pelo embrulho: a declaração de topo é a da janela.
   rodar('window.saiu = sair();');
   await window.saiu;
   assert.deepEqual(window.pedidos.map((p) => p.url), [MW + '/push/registrar', MW + '/push/esquecer']);
   assert.deepEqual([...window.ordem], ['sair']);
+  assert.deepEqual(enviados.filter((m) => m.t === 'pushAdmin').at(-1), { t: 'pushAdmin', admin: false }, 'o Sair tira os atalhos');
   window.close();
 });

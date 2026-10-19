@@ -77,4 +77,23 @@
     <string name="notificacao_canal_resumo">Resumo do dia</string>
     <string name="notificacao_canal_emergencia">Emergências</string>
     <string name="notificacao_canal_emergencia_silenciosa">Emergências fora do expediente</string>
+
+    <!--
+      O atalho de teste dos avisos, só para administrador (Ruling N7, 18/10/2026): o toque longo no ícone do Nexus Field
+      mostra estes dois atalhos só na conta que o servidor diz Admin, e cada um pede ao servidor um aviso de teste no
+      canal dele (o alto e o silencioso). O launcher mostra o rótulo longo quando cabe e o curto quando não cabe.
+      Textos novos de 18/10/2026, PENDENTES de aprovação do dono da casca na prévia (o quadro #t-atalhos). Prefixo
+      próprio, não casca_: não são diálogo nem toast. O testes/previas.test.mjs confere que são os do AtalhosDeTeste.
+    -->
+    <string name="atalho_teste_avisos_curto">Testar avisos</string>
+    <string name="atalho_teste_avisos_longo">Testar avisos</string>
+    <string name="atalho_teste_fora_curto">Testar sem som</string>
+    <string name="atalho_teste_fora_longo">Testar fora do expediente</string>
+
+    <!-- O resultado do teste pedido pelo atalho (toast). Sem dado da conta: só a contagem de aparelhos. Textos novos de
+         18/10/2026, PENDENTES de aprovação do dono da casca na prévia. -->
+    <string name="casca_teste_enviado">Aviso de teste enviado para %1$d aparelho(s)</string>
+    <string name="casca_teste_so_admin">Só administrador pode testar</string>
+    <string name="casca_teste_entrar">Entre no Nexus Field para testar</string>
+    <string name="casca_teste_falhou">Não consegui enviar o teste agora</string>
 </resources>

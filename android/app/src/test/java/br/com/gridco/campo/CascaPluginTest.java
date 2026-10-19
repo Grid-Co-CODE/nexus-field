@@ -297,6 +297,116 @@ public class CascaPluginTest {
         }
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // O teste dos avisos que o atalho do ícone pede (só para administrador, Ruling N7)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private long relogio = 50_000L;
+    private final CascaPlugin.TesteDosAvisos teste = new CascaPlugin.TesteDosAvisos(pagina, agenda, () -> relogio);
+
+    private static String testa(String canal) {
+        return "window.__gcCascaTestarAvisos&&window.__gcCascaTestarAvisos('" + canal + "')";
+    }
+
+    @Test
+    public void oCanalDoTesteForaDosDoisEDescartadoENuncaChegaAPagina() {
+        // O extra do atalho vem de fora (a MainActivity é exportada) e o texto vira JavaScript: só os dois canais.
+        teste.carregou();
+        agenda.rodar();
+        for (String canal : new String[] {null, "", "resumo", "EMERGENCIA", "emergencia ", "emergencia'); x('",
+                "emergencia_silenciosa\n"}) {
+            assertFalse(String.valueOf(canal), teste.pedir(canal));
+        }
+        agenda.rodar();
+        assertTrue("nada foi executado", pagina.scripts.isEmpty());
+        // O canal torto não gasta a vez dos 10 s: o toque válido logo depois passa.
+        assertTrue(teste.pedir("emergencia"));
+        agenda.rodar();
+        assertEquals(Collections.singletonList(testa("emergencia")), pagina.scripts);
+    }
+
+    @Test
+    public void oTestePedidoAntesDaCargaEGuardadoEEntregueDepoisDaFolga() {
+        // O toque no atalho com o app fechado: a tela nasce, e a página ainda nem começou.
+        assertTrue(teste.pedir("emergencia_silenciosa"));
+        agenda.rodar();
+        assertTrue(pagina.scripts.isEmpty());
+        teste.comecouACarregar();
+        teste.carregou();
+        assertTrue("a folga de 1,5 s: o App ainda monta a tela", pagina.scripts.isEmpty());
+        assertEquals(Collections.singletonList(1_500L), agenda.atrasos);
+        agenda.rodar();
+        assertEquals(Collections.singletonList(testa("emergencia_silenciosa")), pagina.scripts);
+        // Entregue, não volta na recarga.
+        teste.comecouACarregar();
+        teste.carregou();
+        agenda.rodar();
+        assertEquals(1, pagina.scripts.size());
+    }
+
+    @Test
+    public void doisToquesEmMenosDe10SegundosMandamUmTesteSo() {
+        teste.carregou();
+        agenda.rodar();
+        assertTrue(teste.pedir("emergencia"));
+        relogio += 9_999L;
+        assertFalse("o segundo toque em menos de 10 s não manda outro", teste.pedir("emergencia"));
+        assertFalse("nem com o outro canal", teste.pedir("emergencia_silenciosa"));
+        agenda.rodar();
+        assertEquals(Collections.singletonList(testa("emergencia")), pagina.scripts);
+        // Passados os 10 s do primeiro toque aceito, o próximo vale.
+        relogio += 1L;
+        assertTrue(teste.pedir("emergencia_silenciosa"));
+        agenda.rodar();
+        assertEquals(Arrays.asList(testa("emergencia"), testa("emergencia_silenciosa")), pagina.scripts);
+    }
+
+    @Test
+    public void doisToquesAntesDaCargaTambemMandamUmSo() {
+        assertTrue(teste.pedir("emergencia"));
+        relogio += 3_000L;
+        assertFalse(teste.pedir("emergencia_silenciosa"));
+        teste.carregou();
+        agenda.rodar();
+        assertEquals(Collections.singletonList(testa("emergencia")), pagina.scripts);
+    }
+
+    @Test
+    public void oTesteEAOsDoToqueNaoSeAtropelam() {
+        // A emergência tocada e o atalho de teste na mesma partida: cada um tem o seu pedido guardado.
+        CascaPlugin.AberturaDaOS os = new CascaPlugin.AberturaDaOS(pagina, agenda);
+        assertTrue(os.pedir("4521"));
+        assertTrue(teste.pedir("emergencia"));
+        os.carregou();
+        teste.carregou();
+        agenda.rodar();
+        assertEquals(Arrays.asList(roda("4521"), testa("emergencia")), pagina.scripts);
+    }
+
+    @Test
+    public void oScriptDoTesteSoLevaUmDosDoisCanais() {
+        assertEquals(testa("emergencia"), CascaPlugin.TesteDosAvisos.script("emergencia"));
+        assertEquals(testa("emergencia_silenciosa"), CascaPlugin.TesteDosAvisos.script("emergencia_silenciosa"));
+        for (String ruim : new String[] {null, "", "resumo", "emergencia'); x('"}) {
+            try {
+                CascaPlugin.TesteDosAvisos.script(ruim);
+                fail("o script aceitou " + ruim);
+            } catch (IllegalArgumentException esperado) {
+                assertFalse(String.valueOf(esperado.getMessage()).contains("x('"));
+            }
+        }
+    }
+
+    @Test
+    public void soOTrueDaPaginaEPedidoAceito() {
+        // O __gcCascaTestarAvisos devolve true quando a chamada saiu (o resultado vem depois, pelo canal). O resto (a
+        // página sem o script, o false, qualquer outra coisa) é o teste que não saiu: o toast de falha.
+        assertTrue(CascaPlugin.TesteDosAvisos.aceito("true"));
+        for (String outra : new String[] {"false", "null", "", null, "\"true\"", "1"}) {
+            assertFalse(String.valueOf(outra), CascaPlugin.TesteDosAvisos.aceito(outra));
+        }
+    }
+
     @Test
     public void aRespostaDaPaginaVaiAoLogSoComoAbertaPendenteOuNaoAberta() {
         // O evaluateJavascript devolve o JSON do que a página respondeu: o texto vem entre aspas. A página decide se abre

@@ -118,6 +118,48 @@ public class MainActivityTest {
         assertNull(MainActivity.osDoToque(new Intent().putExtra(Notificacoes.EXTRA_OS, 12345)));
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // O atalho de teste dos avisos: o canal que vem no Intent
+    // ---------------------------------------------------------------------------------------------------------------
+
+    @Test
+    public void oCanalDoAtalhoSaiDoExtraEUmaVezSo() {
+        for (String canal : new String[] {"emergencia", "emergencia_silenciosa"}) {
+            Intent toque = new Intent().putExtra(AtalhosDeTeste.EXTRA_TESTE, canal);
+            assertEquals(canal, MainActivity.testeDoAtalho(toque));
+            assertNull("consumido: o mesmo Intent não testa duas vezes", MainActivity.testeDoAtalho(toque));
+            assertFalse(toque.hasExtra(AtalhosDeTeste.EXTRA_TESTE));
+        }
+        assertNull(MainActivity.testeDoAtalho(null));
+        assertNull("o ícone e a notificação não levam teste", MainActivity.testeDoAtalho(new Intent()));
+    }
+
+    @Test
+    public void umExtraDeTesteQueNaoEUmDosDoisCanaisEDescartadoEConsumido() {
+        for (String canal : new String[] {"", "resumo", "EMERGENCIA", "emergencia ", "emergencia'); x('"}) {
+            Intent deFora = new Intent().putExtra(AtalhosDeTeste.EXTRA_TESTE, canal);
+            assertNull(canal, MainActivity.testeDoAtalho(deFora));
+            assertFalse("consumido mesmo recusado: " + canal, deFora.hasExtra(AtalhosDeTeste.EXTRA_TESTE));
+        }
+        assertNull(MainActivity.testeDoAtalho(new Intent().putExtra(AtalhosDeTeste.EXTRA_TESTE, 1)));
+    }
+
+    @Test
+    public void oAtalhoReentregueDosRecentesNaoTestaDeNovo() {
+        Intent dosRecentes = new Intent().putExtra(AtalhosDeTeste.EXTRA_TESTE, "emergencia")
+            .addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY);
+        assertNull(MainActivity.testeDoAtalho(dosRecentes));
+        assertFalse(dosRecentes.hasExtra(AtalhosDeTeste.EXTRA_TESTE));
+    }
+
+    @Test
+    public void oIntentComOsETesteDaUmAoOutroSemSeMisturar() {
+        // Os dois extras são lidos cada um pelo seu: um não consome o outro.
+        Intent ambos = new Intent().putExtra(Notificacoes.EXTRA_OS, "12345").putExtra(AtalhosDeTeste.EXTRA_TESTE, "emergencia");
+        assertEquals("emergencia", MainActivity.testeDoAtalho(ambos));
+        assertEquals("12345", MainActivity.osDoToque(ambos));
+    }
+
     @Test
     public void oIntentReentregueDosRecentesNaoAbreAOs() {
         // Voltar ao app pelos recentes, depois de a tela ter sido destruída, o Android entrega de novo o Intent que a abriu.

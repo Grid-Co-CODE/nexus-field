@@ -43,6 +43,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 
 import org.json.JSONObject;
@@ -53,8 +54,9 @@ import org.json.JSONObject;
  * agent, recria a tela quando o renderer morre, limpa o histórico depois do login e abre os endereços de fora numa
  * Custom Tab. Também dispara a checagem de atualização da casca ({@link Atualizador}) ao abrir e a cada volta ao app,
  * trata o voltar do Android ({@link Voltar}), dá à página o token do Firebase para ela registrar o aparelho
- * ({@link Mensageiro#respostaDoPush}), leva à página a OS do toque na emergência ({@link #abrirOS}) e, uma vez por
- * processo, apaga as fotos velhas da reserva da câmera ({@link FaxinaDaCamera}).
+ * ({@link Mensageiro#respostaDoPush}), leva à página a OS do toque na emergência ({@link #abrirOS}) e o teste dos avisos
+ * do atalho do ícone, só para administrador ({@link #testarAvisos}, {@link AtalhosDeTeste}) e, uma vez por processo,
+ * apaga as fotos velhas da reserva da câmera ({@link FaxinaDaCamera}).
  *
  * Ordem no Capacitor 8.5.3 (conferida no código dele): o construtor do Bridge roda initWebView, registerAllPlugins (o
  * PluginHandle chama o load() de cada plugin) e só então loadWebView, que faz o primeiro webView.loadUrl(appUrl). Por
@@ -110,6 +112,7 @@ public class CascaPlugin extends Plugin {
     private String inicioJs;
     private Atualizador atualizador;              // null com a WebView antiga (o load() nem chega a criar)
     private AberturaDaOS aberturaDaOS;            // idem; só na thread de UI
+    private TesteDosAvisos testeDosAvisos;        // idem
     private ScriptHandler script;                 // só na thread de UI
     private JavaScriptReplyProxy ponteDaMensagem; // só na thread do espelho, durante a mensagem que a trouxe
 
@@ -159,6 +162,22 @@ public class CascaPlugin extends Plugin {
                     Log.i(TAG, "a OS do toque na página: " + AberturaDaOS.resultado(resposta)));
             },
             (ms, tarefa) -> ui.postDelayed(tarefa, ms));
+        // O teste dos avisos do atalho do ícone (só para administrador): a mesma espera da OS do toque. O resultado vem
+        // depois, pelo canal (o pushTeste), e vira o toast; a página que nem aceitou o pedido (sem o script, false) dá o
+        // toast de falha aqui, para o toque nunca ficar sem resposta.
+        testeDosAvisos = new TesteDosAvisos(
+            js -> {
+                if (encerrado) return;
+                bridge.getWebView().evaluateJavascript(js, resposta -> {
+                    boolean aceito = TesteDosAvisos.aceito(resposta);
+                    Log.i(TAG, "o teste dos avisos na página: " + (aceito ? "pedido" : "não pedido"));
+                    if (!aceito && !encerrado) {
+                        AtalhosDeTeste.avisar(getContext(), AtalhosDeTeste.Resultado.FALHOU, 0);
+                    }
+                });
+            },
+            (ms, tarefa) -> ui.postDelayed(tarefa, ms),
+            SystemClock::elapsedRealtime);
 
         if (origem == null || origem.isEmpty()) {
             Log.e(TAG, "sem server.url: a casca fica sem espelho nesta partida");
@@ -466,12 +485,22 @@ public class CascaPlugin extends Plugin {
     }
 
     /**
-     * A OS que o toque na emergência pediu para abrir (spec das notificações, 4.2, "Ao tocar"). O pedido chega da
-     * MainActivity assim que a tela nasce ou recebe o Intent, com a página do App ainda carregando (o toque com o app
-     * fechado) ou já pronta (o toque com ele aberto). Aqui só se decide QUANDO rodar
-     * {@code window.__gcCascaAbrirOS('<os>')} (www/casca/inicio.js, seção 9), que põe o número no campo de busca da
-     * página, ou o deixa pendente até o técnico sair da OS ou da ronda em que está (a página decide e espera; o nativo
-     * só entrega):
+     * O teste dos avisos que o atalho do ícone pediu (só para administrador, {@link AtalhosDeTeste}; a MainActivity, na
+     * thread de UI, ao nascer ou ao receber o Intent). Devolve false se o canal não é um dos dois, se outro toque foi
+     * aceito há menos de 10 s ou se a tela não abre o App (a WebView antiga); true se o pedido foi guardado ou agendado
+     * ({@link TesteDosAvisos}).
+     */
+    boolean testarAvisos(String canal) {
+        TesteDosAvisos teste = testeDosAvisos;
+        return teste != null && teste.pedir(canal);
+    }
+
+    /**
+     * Leva um script à página do App quando ela estiver pronta: a OS do toque na emergência ({@link AberturaDaOS}) e o
+     * teste dos avisos do atalho do ícone ({@link TesteDosAvisos}), cada um com a sua instância (os dois na mesma
+     * partida não se atropelam). O pedido chega da MainActivity assim que a tela nasce ou recebe o Intent, com a página
+     * do App ainda carregando (o toque com o app fechado) ou já pronta (o toque com ele aberto). Aqui só se decide QUANDO
+     * rodar o script:
      * <ul>
      *   <li>a cada página do App que termina de carregar começa uma folga de 1,5 s, porque o onPageLoaded é o fim do
      *       documento e o App monta a tela (login silencioso, tarefas) depois; só passada a folga a página está pronta;</li>
@@ -481,13 +510,12 @@ public class CascaPlugin extends Plugin {
      *       deixa de valer: o pedido espera a carga seguinte do App. A entrega é uma só: entregue, não volta numa
      *       recarga.</li>
      * </ul>
-     * Só OS que passa pela {@link Notificacoes#osValida} (1 a 12 dígitos ASCII) entra, porque o texto vai direto a um
-     * script, e o script a confere de novo (o extra do Intent pode vir de qualquer app). O número nunca vai ao log. Só na
-     * thread de UI (a do onPageStarted, do onPageLoaded, do postDelayed e do evaluateJavascript).
+     * Quem chama já validou o que vai no script (o texto vai direto ao evaluateJavascript). Só na thread de UI (a do
+     * onPageStarted, do onPageLoaded, do postDelayed e do evaluateJavascript).
      */
-    static final class AberturaDaOS {
+    static class EntregaNaPagina {
 
-        /** Quanto esperar, depois do fim do carregamento do App, para ele montar a tela antes da busca. */
+        /** Quanto esperar, depois do fim do carregamento do App, para ele montar a tela antes do script. */
         static final long FOLGA_MS = 1_500L;
 
         /** A página do App, onde o script roda. */
@@ -506,9 +534,54 @@ public class CascaPlugin extends Plugin {
         private int carga = 0;           // conta as cargas: a folga de uma carga que já passou não vale
         private String pendente = null;  // o último pedido ainda não entregue
 
-        AberturaDaOS(Pagina pagina, Agenda agenda) {
+        EntregaNaPagina(Pagina pagina, Agenda agenda) {
             this.pagina = pagina;
             this.agenda = agenda;
+        }
+
+        /** Guarda o script como o último pedido e o entrega logo, se a página está pronta. */
+        final void entregarQuandoPronta(String js) {
+            pendente = js;
+            if (pronta) agenda.depois(0, this::entregar);
+        }
+
+        /** Uma página começou a carregar (qualquer uma: o App, o login da Microsoft, a tela de erro). */
+        final void comecouACarregar() {
+            pronta = false;
+            carga++;
+        }
+
+        /** A página do App terminou de carregar (as outras não chegam aqui): começa a folga. */
+        final void carregou() {
+            pronta = false;
+            final int desta = ++carga;
+            agenda.depois(FOLGA_MS, () -> {
+                if (carga != desta) return; // outra página começou a carregar nesse meio-tempo
+                pronta = true;
+                entregar();
+            });
+        }
+
+        private void entregar() {
+            if (!pronta || pendente == null) return;
+            String js = pendente;
+            pendente = null;
+            pagina.executar(js);
+        }
+    }
+
+    /**
+     * A OS que o toque na emergência pediu para abrir (spec das notificações, 4.2, "Ao tocar"), entregue à página do App
+     * como diz a {@link EntregaNaPagina}: {@code window.__gcCascaAbrirOS('<os>')} (www/casca/inicio.js, seção 9) põe o
+     * número no campo de busca da página, ou o deixa pendente até o técnico sair da OS ou da ronda em que está (a página
+     * decide e espera; o nativo só entrega). Só OS que passa pela {@link Notificacoes#osValida} (1 a 12 dígitos ASCII)
+     * entra, porque o texto vai direto a um script, e o script a confere de novo (o extra do Intent pode vir de qualquer
+     * app). O número nunca vai ao log.
+     */
+    static final class AberturaDaOS extends EntregaNaPagina {
+
+        AberturaDaOS(Pagina pagina, Agenda agenda) {
+            super(pagina, agenda);
         }
 
         /** O script que a página roda. A OS tem de ter passado pela {@link Notificacoes#osValida}: só dígitos. */
@@ -533,33 +606,59 @@ public class CascaPlugin extends Plugin {
         /** Pede a OS. False (e nada acontece) se o número não é de OS. */
         boolean pedir(String os) {
             if (!Notificacoes.osValida(os)) return false;
-            pendente = os;
-            if (pronta) agenda.depois(0, this::entregar);
+            entregarQuandoPronta(script(os));
             return true;
         }
+    }
 
-        /** Uma página começou a carregar (qualquer uma: o App, o login da Microsoft, a tela de erro). */
-        void comecouACarregar() {
-            pronta = false;
-            carga++;
+    /**
+     * O teste dos avisos que o atalho do ícone pede (só para administrador, Ruling N7, 18/10/2026; {@link AtalhosDeTeste}),
+     * entregue à página do App como a OS do toque ({@link EntregaNaPagina}): {@code window.__gcCascaTestarAvisos('<canal>')}
+     * (www/casca/inicio.js, seção 8) chama o servidor com o Bearer da página e devolve o resultado pelo canal
+     * ({@code {t:'pushTeste'}}), que vira o toast. Só os dois canais da emergência entram ({@link AtalhosDeTeste#canalValido}:
+     * o texto vai a um script, e o extra pode vir de qualquer app), e o script os confere de novo.
+     *
+     * UM TESTE POR TOQUE: o toque aceito há menos de {@value #INTERVALO_MS} ms segura o seguinte, seja qual for o canal.
+     * Dois toques seguidos (o atalho que parece não ter respondido enquanto o app abre) mandariam dois pares de avisos a
+     * cada aparelho da conta. O relógio é o que não volta com a troca de hora (elapsedRealtime, no plugin).
+     */
+    static final class TesteDosAvisos extends EntregaNaPagina {
+
+        /** O intervalo mínimo entre dois toques aceitos. */
+        static final long INTERVALO_MS = 10_000L;
+
+        private final LongSupplier relogio;
+        private boolean houveToque = false;
+        private long ultimoToque;
+
+        TesteDosAvisos(Pagina pagina, Agenda agenda, LongSupplier relogio) {
+            super(pagina, agenda);
+            this.relogio = relogio;
         }
 
-        /** A página do App terminou de carregar (as outras não chegam aqui): começa a folga. */
-        void carregou() {
-            pronta = false;
-            final int desta = ++carga;
-            agenda.depois(FOLGA_MS, () -> {
-                if (carga != desta) return; // outra página começou a carregar nesse meio-tempo
-                pronta = true;
-                entregar();
-            });
+        /** O script que a página roda. O canal tem de ser um dos dois: o texto vai direto ao evaluateJavascript. */
+        static String script(String canal) {
+            if (!AtalhosDeTeste.canalValido(canal)) throw new IllegalArgumentException("canal de teste inválido");
+            return "window.__gcCascaTestarAvisos&&window.__gcCascaTestarAvisos('" + canal + "')";
         }
 
-        private void entregar() {
-            if (!pronta || pendente == null) return;
-            String os = pendente;
-            pendente = null;
-            pagina.executar(script(os));
+        /**
+         * Se a página aceitou o pedido: o {@code __gcCascaTestarAvisos} devolve true quando a chamada saiu (o resultado
+         * vem depois, pelo canal). O resto (o false, a página sem o script, que dá null) é o teste que não saiu.
+         */
+        static boolean aceito(String resposta) {
+            return "true".equals(resposta);
+        }
+
+        /** Pede o teste. False (e nada acontece) com o canal fora dos dois ou com outro toque aceito há menos de 10 s. */
+        boolean pedir(String canal) {
+            if (!AtalhosDeTeste.canalValido(canal)) return false;
+            long agora = relogio.getAsLong();
+            if (houveToque && agora - ultimoToque < INTERVALO_MS) return false;
+            houveToque = true;
+            ultimoToque = agora;
+            entregarQuandoPronta(script(canal));
+            return true;
         }
     }
 
@@ -660,6 +759,22 @@ public class CascaPlugin extends Plugin {
             tokenDoFirebase(token -> responder(ponte, Mensageiro.respostaDoPush(token, BuildConfig.VERSION_NAME)));
         }
 
+        // Na thread do espelho mesmo: o ShortcutManager é um serviço do sistema e não pede a de UI. Vale também com a
+        // tela saindo (os atalhos são do aplicativo, não da tela).
+        @Override
+        public void pushAdmin(boolean admin) {
+            Context app = getContext().getApplicationContext();
+            if (admin) AtalhosDeTeste.publicar(app); else AtalhosDeTeste.tirar(app);
+        }
+
+        // O toast precisa da thread de UI. Ao log vai só o resultado e a contagem.
+        @Override
+        public void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos) {
+            Log.i(TAG, "o teste dos avisos: " + resultado
+                + (resultado == AtalhosDeTeste.Resultado.ENVIADO ? " (" + aparelhos + " aparelho(s))" : ""));
+            naUi(() -> AtalhosDeTeste.avisar(getContext(), resultado, aparelhos));
+        }
+
         @Override
         public void erro(String onde, String msg) {
             Log.w(TAG, onde + ": " + msg);
@@ -668,19 +783,23 @@ public class CascaPlugin extends Plugin {
 
     private final class OuvinteDaWebView extends WebViewListener {
 
-        // Depois do login o "voltar" não pode cair nas páginas da Microsoft. E a OS do toque na emergência espera o App
-        // terminar de carregar: a folga dela começa aqui, só para a página do App (o login e a tela de erro não contam).
+        // Depois do login o "voltar" não pode cair nas páginas da Microsoft. E a OS do toque na emergência e o teste do
+        // atalho esperam o App terminar de carregar: a folga deles começa aqui, só para a página do App (o login e a tela
+        // de erro não contam).
         @Override
         public void onPageLoaded(WebView webView) {
             String url = webView.getUrl();
             if (url != null && url.startsWith(origem + CAMINHO_DO_APP)) webView.clearHistory();
             if (aberturaDaOS != null && !encerrado && Voltar.eDoApp(url, origem)) aberturaDaOS.carregou();
+            if (testeDosAvisos != null && !encerrado && Voltar.eDoApp(url, origem)) testeDosAvisos.carregou();
         }
 
-        // Qualquer página que começa a carregar tira o "pronta" da OS do toque: o App que estava pronto está sendo trocado.
+        // Qualquer página que começa a carregar tira o "pronta" da OS do toque e do teste: o App que estava pronto está
+        // sendo trocado.
         @Override
         public void onPageStarted(WebView webView) {
             if (aberturaDaOS != null && !encerrado) aberturaDaOS.comecouACarregar();
+            if (testeDosAvisos != null && !encerrado) testeDosAvisos.comecouACarregar();
         }
 
         // A falta de memória num aparelho de 4 GB mata o renderer; sem tratar, o Android derruba o app inteiro. Esta

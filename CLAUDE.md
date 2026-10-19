@@ -376,6 +376,28 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     app fechado (o sessionStorage é da partida). A Zeladoria dentro de um serviço não segura a OS (a regra do dono fala
     em OS e ronda): o toque troca de aba por cima dela. Sem prova no aparelho ainda: o `setTab` que não apaga a busca,
     e a camada que a página abrir fora da lista do `VOLTAR` (o toque a trataria como livre).
+- **O atalho de teste dos avisos, só para administrador** (Ruling N7, 18/10/2026; `AtalhosDeTeste`,
+  `CascaPlugin.TesteDosAvisos`, `MainActivity.testeDoAtalho` e a seção 8 do `inicio.js`; testes `AtalhosDeTesteTest`,
+  `CascaPluginTest`, `MensageiroTest`, `MainActivityTest` e `testes/atalho-teste.test.mjs`). O dono quis testar as
+  notificações no celular por um botão que só quem é Admin vê, e o botão é um atalho do ícone (toque longo), não um botão
+  na página: a casca não desenha nada no App de Campo, e o técnico nunca o vê.
+  - **Quem decide é a página, uma vez por carga:** junto do registro do aparelho, com o mesmo Bearer, o
+    `GET {MIDDLEWARE_URL}/me`; ao nativo vai só `{t:'pushAdmin', admin}` (nada do e-mail nem do nome). True (papel
+    `Admin`) publica os dois atalhos dinâmicos (`teste_avisos`, canal `emergencia`; `teste_fora_expediente`, canal
+    `emergencia_silenciosa`); qualquer outro papel, erro, 401, a mensagem torta, o Sair e o 403 do teste os tiram. O
+    `/me` só sai com o token do Firebase (é o fluxo do registro); sem token, os atalhos ficam como estavam até o Sair ou
+    a próxima carga com token.
+  - **O toque** abre a `MainActivity` com o extra `gc_teste` (ação VIEW, sem CLEAR_TASK: com o app aberto a página não
+    recarrega), lido como o `gc_os` (consumido, só os dois canais, ignorado o Intent dos recentes). O plugin o entrega
+    como a OS do toque (as duas usam a `EntregaNaPagina`: a folga de 1,5 s depois da carga do App, o último pedido
+    guardado) e segura o toque aceito há menos de 10 s (dois toques mandariam dois pares de avisos a cada aparelho). A
+    página chama `POST {MIDDLEWARE_URL}/push/teste {canal}` com o Bearer dela e devolve `{t:'pushTeste', ok, status,
+    aparelhos}` em no máximo 20 s; o nativo mostra o toast (`casca_teste_*`). A página que nem aceitou o pedido dá o
+    toast de falha.
+  - **Limite conhecido:** o atalho que o administrador fixar na tela inicial não sai com o `removeDynamicShortcuts`;
+    tocado por outra conta, o servidor recusa (403) e o toast diz "Só administrador pode testar". Os textos (rótulos
+    `atalho_teste_*` e toasts) estão PENDENTES de aprovação na prévia (`#t-atalhos`). O lint dá o aviso
+    `PluralsCandidate` no "aparelho(s)" (a prévia não lê `plurals`) e a dica `ReportShortcutUsage`: os dois ficam.
 - **A atualização da casca** (`Atualizador`, `VersaoRemota`; o `CascaPlugin` a chama no `load()` e no `handleOnResume()`):
   - Lê o `versao.json` de `releases/latest/download/` (não conta no limite da API do GitHub), com as chaves `versionCode`
     (inteiro), `versionName`, `apk`, `sha256` (64 dígitos hex) e `novidades` (lista de textos). O `ferramentas/versao-json.mjs`
@@ -435,8 +457,8 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   `aapt2 dump xmltree` do de depuração mostra o `value` compilado como booleano.
 - **A prévia das telas novas** (`docs/previas/telas.html`, fora do APK; título "Telas novas do Nexus Field"): uma página
   só, autocontida, com o ícone e o nome (no topo), a abertura, os diálogos do `strings.xml`, os toasts, o `www/erro.html`
-  num iframe, a camada do Fracttal e os nomes dos canais de notificação (seção Notificações, o quadro `#t-canais` dos
-  ajustes do Android), cada tela numa moldura de 360 px, para o dono da casca aprovar texto e visual antes
+  num iframe, a camada do Fracttal, os nomes dos canais de notificação (seção Notificações, o quadro `#t-canais` dos
+  ajustes do Android) e os atalhos de teste do ícone (o quadro `#t-atalhos`), cada tela numa moldura de 360 px, para o dono da casca aprovar texto e visual antes
   de ir ao campo. **O ícone, o nome e os textos estão PENDENTES de aprovação do dono da casca**
   (a página é publicada como Artifact privado do claude.ai e ele aprova por lá); quando ele aprovar, esta frase e os
   cabeçalhos do `strings.xml` passam a dizer "aprovados", com a data. O texto vive no arquivo-fonte, não na prévia:
@@ -453,7 +475,8 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     e o `Atualizador` os montam; o teste lê os `AlertDialog.Builder` do Java), se os toasts da prévia não forem, no
     conjunto, os `Toast.makeText(..., R.string.x, ...)` do Java (o teste os lê do código), se uma string da casca ficar
     sem quadro, se os nomes no quadro dos canais não forem os `notificacao_canal_*` que o `CanaisDeNotificacao` dá a cada
-    canal, se o `strings.xml` ganhar uma string de prefixo sem quadro na prévia (só `package_name` e
+    canal, se os rótulos do quadro dos atalhos não forem os `atalho_teste_*` que o `AtalhosDeTeste` dá a cada atalho
+    (o longo no menu, o curto na legenda), se o `strings.xml` ganhar uma string de prefixo sem quadro na prévia (só `package_name` e
     `custom_url_scheme` ficam fora, porque o técnico não os lê; caso de 18/10/2026: os nomes dos canais trocaram o
     `casca_` por outro prefixo e nenhum teste exigiu o quadro), se as novidades não forem uma linha `- item` cada, se o `srcdoc` do erro não for o `erro.html` inteiro (copie o arquivo
     escapando `&` como `&amp;` e `"` como `&quot;`, nessa ordem) ou se a camada do Fracttal não for igual à que o

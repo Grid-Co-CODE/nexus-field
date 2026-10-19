@@ -17,6 +17,7 @@
  *   6. window.open: o login da Microsoft e o "Conectar Fracttal"  (Task 4)
  *   7. o voltar do Android (window.__gcCascaVoltar)               (onda final)
  *   8. o registro do aparelho para as notificações               (notificações, Task 3)
+ *      e o atalho de teste dos avisos (__gcCascaTestarAvisos)     (notificações, Task 6)
  *   9. abrir a OS pelo toque na notificação (__gcCascaAbrirOS)   (notificações, Task 4)
  */
 (function () {
@@ -1892,11 +1893,30 @@
   // Microsoft, e a navegação cortaria a chamada), o servidor esquece o token, com prazo de 3 s; o sair da página roda
   // sempre, mesmo se o esquecer falhar. Todo aviso vai como {t:'erro', onde:'push'} com um texto nosso: nunca o token,
   // o Bearer nem o texto do erro (a mensagem da rede ou do MSAL pode citar endereço com parâmetro ou a conta).
+  //
+  // O ATALHO DE TESTE DOS AVISOS (Ruling N7, 18/10/2026; decisão do dono: testar as notificações no celular por um botão
+  // que só o administrador vê). O botão é um atalho do ícone (toque longo), que o nativo publica e tira: a casca não
+  // desenha nada na página e o técnico nunca o vê. Daqui saem duas coisas, com o Bearer da página:
+  //   - o papel da conta: junto do registro, com o MESMO Bearer e uma vez por carga, o GET {MIDDLEWARE_URL}/me; ao
+  //     nativo vai só {t:'pushAdmin', admin}, true com o papel 'Admin' e false com qualquer outro, erro, 401 ou resposta
+  //     torta (nunca fica atalho para quem não é Admin). O e-mail, o nome e o resto do /me ficam na página. Sem login,
+  //     espera o login como o registro; com a rota de registro fora do ar, pergunta do mesmo jeito. O Sair manda false
+  //     antes do sair da página (com token ou sem), e o /me que responder depois dele não manda mais nada;
+  //   - window.__gcCascaTestarAvisos(canal), não enumerável, que o nativo roda no toque do atalho: o POST
+  //     {MIDDLEWARE_URL}/push/teste {canal}, só com um dos dois canais da emergência (o extra do atalho pode vir de
+  //     qualquer app; o nativo já conferiu, e confere-se de novo), e o resultado de volta para o toast: {t:'pushTeste',
+  //     ok, status (o HTTP, 'sem login' ou 'erro'), aparelhos (inteiro de zero para cima, ou null)}. Um resultado por
+  //     chamada, em no máximo 20 s. Quem segura os dois toques seguidos (10 s) é o nativo, que recebe os toques.
   var ESPERA_PUSH_MS = 5000;
   var INTERVALO_PUSH_MS = 10 * 60 * 1000;
   var PRAZO_ESQUECER_MS = 3000;
+  var PRAZO_TESTE_MS = 20000;
   var ROTA_REGISTRAR = '/push/registrar';
   var ROTA_ESQUECER = '/push/esquecer';
+  var ROTA_ME = '/me';
+  var ROTA_TESTE = '/push/teste';
+  var PAPEL_ADMIN = 'Admin';
+  var CANAIS_DE_TESTE = conjunto(['emergencia', 'emergencia_silenciosa']);
   // A marca do sair já embrulhado: uma propriedade da função, não enumerável.
   var MARCA_SAIR = '__gcCascaSair';
 
@@ -1926,6 +1946,13 @@
     return resposta && typeof resposta.status === 'number' ? String(resposta.status) : 'sem status';
   }
 
+  // Os aparelhos que receberam o teste, da resposta do /push/teste: só um inteiro de zero para cima, ou null. Do resto
+  // da resposta (o que saiu para cada aparelho) nada vai ao nativo.
+  function contagemDeAparelhos(dados) {
+    var n = dados && typeof dados === 'object' ? dados.aparelhos : null;
+    return typeof n === 'number' && isFinite(n) && n >= 0 && Math.floor(n) === n ? n : null;
+  }
+
   function instalarPush(ctx) {
     // A carga parada para pedir o retrato vai ser recarregada pelo nativo: a página nem roda.
     if (ctx.cargaParada) return;
@@ -1946,9 +1973,42 @@
     var esfriando = false;     // a última falha tem menos de 10 minutos
     var tentarDepois = false;  // um online chegou na espera: tenta quando ela acabar
     var carregou = false;
+    var papelPerguntado = false; // o /me desta carga já saiu
+    var saiu = false;            // o Sair foi tocado: o /me que responder depois não publica os atalhos de volta
 
     function avisar(texto) {
       ctx.falhou('push', new Error(texto));
+    }
+
+    function avisarAdmin(admin) {
+      ctx.enviar({ t: 'pushAdmin', admin: admin === true }, 'push');
+    }
+
+    // O papel da conta, uma vez por carga, com o Bearer que o registro acabou de pedir: só o 'Admin' publica os atalhos
+    // de teste. Corre à parte do registro (a falha de um não mexe no outro) e nunca lança.
+    function perguntarPapel(bearer) {
+      if (papelPerguntado) return;
+      papelPerguntado = true;
+      new Promise(function (ok) {
+        ok(win.fetch(enderecoDoServidor(win) + ROTA_ME, {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + bearer },
+          gcQuieto: true,
+        }));
+      }).then(function (resposta) {
+        if (!resposta || !resposta.ok) {
+          avisar('o papel da conta respondeu ' + situacao(resposta) + ': os atalhos de teste saem');
+          return false;
+        }
+        return resposta.json().then(function (dados) {
+          return !!dados && typeof dados === 'object' && dados.papel === PAPEL_ADMIN;
+        });
+      }).then(null, function (e) {
+        avisar('o papel da conta não foi lido (' + nomeDoErro(e) + '): os atalhos de teste saem');
+        return false;
+      }).then(function (admin) {
+        if (!saiu) avisarAdmin(admin);
+      });
     }
 
     // O Bearer da página agora (o getTokenMW chamado como função de topo), ou null sem login. Nunca lança: a falha
@@ -1990,6 +2050,8 @@
       emCurso = true;
       pedirBearer().then(function (bearer) {
         if (!bearer) { aguardando = 'login'; return undefined; }
+        // O papel da conta para o atalho de teste, já com o login de pé (uma vez por carga; não espera o registro).
+        perguntarPapel(bearer);
         // O gcQuieto é o do próprio campo.html (v284): a barra de carregamento conta só o que o técnico pediu, e o
         // registro é de fundo.
         return postar(ROTA_REGISTRAR, bearer, { token: token, aparelho: 'android', app: 'NexusField/' + versao },
@@ -2035,13 +2097,16 @@
       });
     }
 
-    // O sair da página é definido depois deste script (que roda antes dela): embrulhado no load. Sem token a esquecer,
-    // é o da página na hora, sem nada no meio. Com token, o da página vem depois do esquecer, com o mesmo this e os
-    // mesmos argumentos, e devolve o que ele devolver (o erro dele sobe como subiria).
+    // O sair da página é definido depois deste script (que roda antes dela): embrulhado no load. Primeiro os atalhos de
+    // teste saem (quem entra depois no aparelho dividido pode não ser Admin), com token ou sem. Sem token a esquecer, é
+    // o da página na hora. Com token, o da página vem depois do esquecer, com o mesmo this e os mesmos argumentos, e
+    // devolve o que ele devolver (o erro dele sobe como subiria).
     function embrulharSair() {
       var original = win[PUSH.funcao.sair];
       if (typeof original !== 'function' || original[MARCA_SAIR]) return;
       var embrulho = function () {
+        saiu = true;
+        avisarAdmin(false);
         if (!token) return original.apply(this, arguments);
         var este = this;
         var argumentos = arguments;
@@ -2082,6 +2147,46 @@
         if (doc.visibilityState === 'visible' && aguardando === 'login') registrar();
       });
     }
+
+    // O teste dos avisos que o atalho do ícone pede (o nativo roda isto quando a página está pronta). Devolve true se o
+    // pedido foi aceito (o resultado vai depois, pelo canal, uma vez só) e false se o canal não é um dos dois. Não
+    // depende do token do Firebase: o servidor manda aos aparelhos da conta, este ou os outros.
+    function testarAvisos(canal) {
+      try {
+        if (typeof canal !== 'string' || !CANAIS_DE_TESTE.has(canal)) return false;
+        var respondeu = false;
+        var prazo = null;
+        var responder = function (ok, status, aparelhos) {
+          if (respondeu) return;
+          respondeu = true;
+          if (prazo !== null) { cancelar(prazo); prazo = null; }
+          ctx.enviar({ t: 'pushTeste', ok: ok, status: status, aparelhos: aparelhos }, 'push');
+        };
+        prazo = agendar(function () { prazo = null; responder(false, 'erro', null); }, PRAZO_TESTE_MS);
+        if (typeof win[PUSH.funcao.bearer] !== 'function' || !enderecoDoServidor(win)) {
+          responder(false, 'erro', null);
+          return true;
+        }
+        pedirBearer().then(function (bearer) {
+          if (!bearer) { responder(false, 'sem login', null); return undefined; }
+          return postar(ROTA_TESTE, bearer, { canal: canal }, { gcQuieto: true }).then(function (resposta) {
+            var status = resposta && typeof resposta.status === 'number' ? resposta.status : 'erro';
+            if (!resposta || !resposta.ok) { responder(false, status, null); return undefined; }
+            // O 200 com o corpo que não se lê ainda foi enviado: vai sem a contagem.
+            return new Promise(function (ok) { ok(resposta.json()); }).then(contagemDeAparelhos, function () { return null; })
+              .then(function (aparelhos) { responder(true, status, aparelhos); });
+          });
+        }).then(null, function () { responder(false, 'erro', null); });
+        return true;
+      } catch (e) {
+        ctx.falhou('push', e);
+        return false;
+      }
+    }
+    // Não enumerável: o que da página varre a janela não a vê.
+    Object.defineProperty(win, '__gcCascaTestarAvisos', {
+      value: testarAvisos, enumerable: false, configurable: true, writable: false,
+    });
   }
 
   // ---------------------------------------------------------------------------------------------------------------
