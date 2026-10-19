@@ -53,6 +53,16 @@ jobs:
         with:
           cache-provider: basic
 
+      # O Robolectric baixa o Android de cada SDK dos testes de JVM (o 36 e o 7, uns 290 MB) no repositório Maven local, que
+      # o cache do Gradle não guarda: sem este, todo push baixava tudo de novo. A chave é o build.gradle (onde mora a versão
+      # do Robolectric), e a anterior serve de partida. Só neste job: o release não usa cache nenhum.
+      - name: O Android do Robolectric
+        uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ hashFiles('android/app/build.gradle') }}
+          restore-keys: robolectric-
+
       - name: Testes de JVM, APK de depuração e lint
         run: |
           npx cap sync android

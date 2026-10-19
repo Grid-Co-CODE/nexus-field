@@ -105,6 +105,21 @@ test('o cache: o aberto no teste; nenhum no release (o APK do campo sai de depen
   assert.deepEqual(usoDe(montar.jobs.montar, 'gradle/actions/setup-gradle@').with, { 'cache-provider': 'basic' });
   assert.deepEqual(usoDe(release, 'gradle/actions/setup-gradle@').with, { 'cache-disabled': true });
   assert.equal(usoDe(release, 'actions/setup-node@').with?.cache, undefined, 'sem o cache do npm no release');
+  assert.equal(usoDe(release, 'actions/cache@'), undefined, 'nem o do Robolectric no release');
+});
+
+test('o Android do Robolectric em cache no job de montagem, antes dos testes de JVM', () => {
+  // O Robolectric baixa o Android de cada SDK dos testes (o 36 e o 7) no repositório Maven local, que o cache do Gradle não
+  // guarda: o passo o guarda, com a chave do build.gradle (onde mora a versão do Robolectric) e a anterior de partida.
+  const job = montar.jobs.montar;
+  const cache = usoDe(job, 'actions/cache@');
+  assert.ok(cache, 'o passo do cache no montar');
+  assert.equal(cache.with.path, '~/.m2/repository/org/robolectric', 'o lugar onde o Robolectric guarda o Android');
+  assert.match(cache.with.key, /^robolectric-\$\{\{ hashFiles\('android\/app\/build\.gradle'\) \}\}$/);
+  assert.equal(cache.with['restore-keys'], 'robolectric-');
+  assert.match(ler('android/app/build.gradle'), /testImplementation "org\.robolectric:robolectric:[\d.]+"/,
+    'a versão do Robolectric mora no build.gradle da chave');
+  assert.ok(indiceDoUses(job, 'actions/cache@') < indiceDoRun(job, './gradlew testDebugUnitTest'), 'antes dos testes de JVM');
 });
 
 // ---------------------------------------------------------------------------------------------------------------
