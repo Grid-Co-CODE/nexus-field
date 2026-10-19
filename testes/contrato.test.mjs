@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { conferirContrato, executarContrato, rodarLinhaDeComando, URL_DO_APP, IGNORAR } from './contrato.mjs';
+import { conferirContrato, executarContrato, rodarLinhaDeComando, URL_DO_APP, IGNORAR, semComentariosNoScript } from './contrato.mjs';
 
 const require = createRequire(import.meta.url);
 const { CLASSES, CHAVE_FILA, VOLTAR, PUSH, ABRIR_OS, classificar } = require('../www/casca/inicio.js');
@@ -442,6 +442,113 @@ test('push: o logout da página só dentro do sair; o do sair passa', () => {
   assert.deepEqual(conferirContrato(htmlFicticio({ resto: 'function f(){ /* o logoutRedirect fica no sair */ }' })), []);
 });
 
+test("push: o '/*' de dentro de um texto (o accept='image/*' do site) não abre comentário nem esconde o logout", () => {
+  // O campo.html tem o accept='image/*' (e o 'video/*') em seis lugares. Lido como começo de comentário, cada um engolia
+  // o código até o próximo '*/' (de 837 a 5.099 caracteres, com funções de topo dentro): um logout posto ali ficava
+  // invisível para a regra do Sair.
+  const depois = '\n/* o que a página faz depois */';
+  for (const texto of [
+    "inp.accept='image/*';",
+    'inp.accept="video/*";',
+    "const h='<input type=\"file\" accept=\"image/*\" capture>'+x;",
+    'const h=`<input accept="image/*">`;',
+    "const h=`a ${f('video/*')} b`;",
+    "const re=/[/*]/;",
+  ]) {
+    const resto = `function anexar(){ ${texto} }\nfunction trocarConta(){ msalApp.logoutRedirect({}); }${depois}`;
+    assert.deepEqual(conferirContrato(htmlFicticio({ resto })), ['push: logout fora do sair'], texto);
+  }
+  // O texto logo antes do sair: o trecho falso engolia o sair inteiro, com o logout dele e o de fora.
+  const push = `${pushFicticio({ semSair: true })}\nfunction anexar(){ inp.accept='video/*'; }\n` +
+    'async function sair(){\n  try{ await msalApp.logoutRedirect({}); }catch(e){}\n}\n' +
+    `function trocarConta(){ msalApp.logoutPopup({}); }${depois}`;
+  assert.deepEqual(conferirContrato(htmlFicticio({ push })), ['push: logout fora do sair']);
+  // E o login no getTokenMW depois de um texto assim.
+  const bearer = `${pushFicticio({ semBearer: true })}\nasync function getTokenMW(){\n  const tipo='image/*';\n` +
+    '  try{ return (await msalApp.acquireTokenSilent({})).idToken; }\n  catch(e){ await msalApp.loginRedirect({}); return null; }\n' +
+    '  /* o fim */\n}';
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: bearer })), ['push: getTokenMW abre o login']);
+});
+
+test('push: os comentários são os do JavaScript (fora dos textos, dos templates e das regex); o resto é código', () => {
+  // O que é comentário não vale como logout: o de bloco, o do fim da linha (depois de um endereço com '//' entre aspas,
+  // de uma regex com aspas dentro) e o de dentro de um template.
+  for (const comentario of [
+    "const u='https://login.exemplo.test/'; // o msalApp.logoutRedirect( fica no sair",
+    "/* msalApp.logoutRedirect({}) */ const a=1;",
+    "const r=/['\"]\\/\\*/g; // msalApp.logoutPopup( fica no sair",
+    'const h=`a ${b /* msalApp.logoutRedirect({}) */} c`;',
+  ]) {
+    assert.deepEqual(conferirContrato(htmlFicticio({ resto: comentario })), [], comentario);
+  }
+  // O que é código vale, com a barra dupla num texto, a regex com aspas, a divisão (que não é regex) e o template.
+  for (const codigo of [
+    "const u='https://login.exemplo.test/'; msalApp.logoutRedirect({});",
+    "const r=/['\"]\\/\\*/g; msalApp.logoutRedirect({}); /* x */",
+    'const t=a/2; msalApp.logoutPopup({}); const u=b/2; /* x */',
+    "const h=`a ${'/*'} b`; msalApp.logoutRedirect({}); /* x */",
+    'const re=/[/][/*]/; msalApp.logoutRedirect({}); /* x */',
+    'const n=f(x)/2; msalApp.logoutRedirect({}); const m=g[0]/2; /* x */',
+    // A propriedade com nome de palavra (o x.in) e o i++ antes da barra são valores: a barra é divisão.
+    'const n=x.in/2; msalApp.logoutRedirect({}); const m=y.in/2; /* x */',
+    'const n=i++/2; msalApp.logoutRedirect({}); const m=j--/2; /* x */',
+    // Depois do return, a barra abre uma regex (a aspa dela não abre texto).
+    "function f(x){ return /'/.test(x) || '/*'; }\nmsalApp.logoutRedirect({}); /* x */",
+  ]) {
+    assert.deepEqual(conferirContrato(htmlFicticio({ resto: codigo })), ['push: logout fora do sair'], codigo);
+  }
+  // A chamada do sair só num comentário não é a chamada (o botão do menu sumiu).
+  const tela = `${telaDoAppFicticia({ semBotao: true })}\n<script>/* o botão do menu chama sair() */</script>`;
+  assert.deepEqual(conferirContrato(htmlFicticio({ tela })), ['push: chamada do sair']);
+  // O script de módulo também é JavaScript: o comentário dele é comentário (e o código dele, código).
+  const modulo = (codigo) => `</script><script type="module">\n${codigo}\n</script><script>`;
+  assert.deepEqual(conferirContrato(htmlFicticio({ resto: modulo('/* o msalApp.logoutRedirect( fica no sair */') })), []);
+  assert.deepEqual(conferirContrato(htmlFicticio({ resto: modulo("const t='image/*'; msalApp.logoutRedirect({}); /* x */") })),
+    ['push: logout fora do sair']);
+  // Fora dos scripts nada é comentário: o logout num onclick é código, mesmo com um '/*' no atributo ao lado.
+  const botao = `${telaDoAppFicticia()}\n<input accept="image/*"><button onclick="msalApp.logoutRedirect({})">Trocar</button>`;
+  assert.deepEqual(conferirContrato(htmlFicticio({ tela: botao })), ['push: logout fora do sair']);
+});
+
+test('a leitura dos comentários: só o comentário vira espaço; o texto, o template, a regex e as quebras de linha ficam', () => {
+  // [o script, o que sai]: o mesmo tamanho, com o comentário em espaços e as quebras de linha no lugar.
+  const casos = [
+    ["x = 'a /* b */ c'; // d", "x = 'a /* b */ c';     "],
+    ['x = "a // b"; /* c */ y', 'x = "a // b";         y'],
+    ["x = `a ${'/*'} /* b */ ${c /* d */} e`; /* f */", "x = `a ${'/*'} /* b */ ${c        } e`;        "],
+    ['r = /[/*]/g; /* c */', 'r = /[/*]/g;        '],
+    ["r = /'\\/\\*/; // c", "r = /'\\/\\*/;     "],
+    ['n = a / 2 / 3 // c', 'n = a / 2 / 3     '],
+    // A propriedade com nome de palavra e o i++ são valores: a barra depois deles é divisão, e o // é comentário.
+    ['n = x.in / 2 // c', 'n = x.in / 2     '],
+    ['n = i++ / 2 // c', 'n = i++ / 2     '],
+    // Depois do return, a barra abre uma regex: a aspa dela não abre texto.
+    ["return /'/.test(s) // c", "return /'/.test(s)     "],
+    ['if (a) /* c */ b()', 'if (a)         b()'],
+    ['/* a\nb */x\r\n// c\r\ny', '    \n    x\r\n    \r\ny'],
+    // A aspa que não fecha (de uma leitura errada) vale até o fim da linha, e o comentário da linha seguinte sai.
+    ["x = 'a\ny = 1; // c", "x = 'a\ny = 1;     "],
+  ];
+  for (const [js, esperado] of casos) {
+    assert.equal(semComentariosNoScript(js), esperado, JSON.stringify(js));
+    assert.equal(semComentariosNoScript(js).length, js.length);
+  }
+});
+
+test('push: a leitura dos comentários que quebraria o script avisa, e lê o script inteiro', () => {
+  // A regex logo depois de um `)` (o `if (x) /re/`) é lida como divisão (é o limite conhecido da leitura). Se isso
+  // fizer o script sem os comentários deixar de compilar, a leitura falhou: o contrato diz, e confere esse script com
+  // os comentários (o logout dele não fica escondido).
+  const resto = "function f(x,y){ if (x) /'/.test(y), a = '/*'; msalApp.logoutRedirect({}); }\nconst b = 2; /* c */";
+  assert.deepEqual(conferirContrato(htmlFicticio({ resto })),
+    ['push: comentários de um script que o contrato não lê', 'push: logout fora do sair']);
+  // O mesmo trecho sem o logout: o aviso da leitura vem sozinho.
+  const semLogout = "function f(x,y){ if (x) /'/.test(y), a = '/*'; }\nconst b = 2; /* c */";
+  assert.deepEqual(conferirContrato(htmlFicticio({ resto: semLogout })), ['push: comentários de um script que o contrato não lê']);
+  // O script que já não compilava (um trecho só, uma sintaxe que o Node não lê) não é leitura errada: segue como antes.
+  assert.deepEqual(conferirContrato(htmlFicticio({ resto: 'function f({ /* x */' })), []);
+});
+
 test('push: o sair tem de ser chamado por alguém fora da declaração dele (o botão do menu)', () => {
   // Sem chamada nenhuma, o Sair do menu passou a ir a outra função, e o embrulho não alcança mais ninguém.
   assert.deepEqual(conferirContrato(htmlFicticio({ tela: telaDoAppFicticia({ semBotao: true }) })), ['push: chamada do sair']);
@@ -466,6 +573,12 @@ test('push: o getTokenMW não pode abrir o login (a casca o chama sozinha, no me
   // O Redirect da função seguinte não é do getTokenMW.
   const vizinha = `${semBearer}\nasync function getTokenMW(){ return null; }\nasync function entrarDeNovo(){ await msalApp.loginRedirect({}); }`;
   assert.deepEqual(conferirContrato(htmlFicticio({ push: vizinha })), []);
+  // O login só citado num comentário dentro dele não é a chamada.
+  for (const citado of ['// sem o loginRedirect( aqui: a casca o chama sozinha', '/* nada de acquireTokenPopup( aqui */',
+    "const u='https://login.exemplo.test/'; // sem o loginPopup( aqui"]) {
+    const push = `${semBearer}\nasync function getTokenMW(){\n  ${citado}\n  return null;\n}`;
+    assert.deepEqual(conferirContrato(htmlFicticio({ push })), [], citado);
+  }
 });
 
 test('push e abrir-os: as declarações que a casca lê ficam no topo de um script clássico', () => {

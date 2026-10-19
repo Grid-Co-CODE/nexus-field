@@ -856,8 +856,17 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
       global, e a casca ficaria sem o endereço do servidor em todo aparelho com o contrato verde;
     - o Sair deixar de passar pelo embrulho (`push: logout fora do sair`, `push: chamada do sair`): todo `logoutRedirect(`
       ou `logoutPopup(` da página (fora dos comentários) mora no corpo do `sair`, e alguém chama o `sair(` fora da
-      declaração (o `onclick` do menu; `window.sair(` vale, `menu.sair(` ou `sairDaConta(` não). Caso: um "Trocar de
-      conta" com o próprio logout, ao lado do `sair` antigo, deixaria o aparelho com a conta que saiu;
+      declaração e fora dos comentários (o `onclick` do menu; `window.sair(` vale, `menu.sair(` ou `sairDaConta(` não).
+      Caso: um "Trocar de conta" com o próprio logout, ao lado do `sair` antigo, deixaria o aparelho com a conta que saiu.
+      **Os comentários são os do JavaScript** (`semComentariosNoScript`): só dentro dos `<script>` de JavaScript, e o `/*`
+      e o `//` só abrem comentário fora de um texto entre aspas, de um template e de uma regex (o comentário vira espaço,
+      com as quebras de linha no lugar; o resto do HTML, como o `onclick`, é código). Caso que criou a regra: a leitura que
+      só procurava o `/*` tomava o `accept='image/*'` do site (seis no v287) por começo de comentário e engolia até o
+      próximo `*/` (17 mil caracteres, com funções de topo dentro): um logout noutra função ali, ou um `'image/*'` novo logo
+      antes do `sair`, deixava a regra muda. Limite: a regex logo depois de um `)` (o `if (x) /re/`) é lida como divisão;
+      se isso fizer o script sem os comentários deixar de compilar (o `node:vm` compila os dois, sem rodar), o script é
+      conferido com os comentários e sai `push: comentários de um script que o contrato não lê`. Outro limite, da regra da
+      coluna 0: o código posto entre o `}` do `sair` e a próxima função de topo conta como do `sair`;
     - o `getTokenMW` abrir o login (`push: getTokenMW abre o login`): `loginRedirect`, `acquireTokenRedirect`,
       `loginPopup` ou `acquireTokenPopup` no corpo dele. A casca o chama sem o técnico pedir (5 s depois do load, no
       `online`, na volta ao app, no Sair e no atalho), e o login interativo levaria a página para a Microsoft no meio do
@@ -882,7 +891,11 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     19/10/2026, com as regras do Sair, do `getTokenMW`, do topo de script clássico, do `#s-app` e da ronda: passa no site
     vivo (v284), e cada uma dessas peças mudada no HTML real (o id, um logout noutra função, o menu chamando outra
     função, um `acquireTokenRedirect` no `getTokenMW`, o `MIDDLEWARE_URL` fora da coluna 0, o `RONDA` renomeado, um campo
-    a menos no critério) é pega com o nome certo. Nota
+    a menos no critério) é pega com o nome certo. Com a leitura dos comentários do JavaScript (19/10/2026), nas cópias
+    v284 a v287 e no site vivo: passa; dos comentários de bloco que a leitura antiga achava, só os 6 falsos (todos de um
+    `accept`) não são comentário, e entram os do fim da linha; o script sem os comentários compila (o da leitura antiga
+    não compilava); e um logout de outra função posto em cada uma das 43 linhas em branco antes de uma função de topo do
+    v287 é pego (antes, 42). Nota
     para quem classifica: o `gc_campo_status_meta` (a hora de cada ação do técnico por tarefa, o `META_KEY` do site) é
     TRABALHO, ao lado do `gc_campo_status`: sem ele, depois de uma restauração, o `reconciliar` do site (o reparo do
     estado órfão) descarta os estados locais sem item na fila. Que o "limpar só o login" do site o apague não muda nada:

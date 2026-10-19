@@ -11,6 +11,7 @@
 // Só leitura. O campo.html nunca é gravado nem copiado: as mensagens dizem o NOME do que sumiu, nunca um trecho da página.
 
 import { createRequire } from 'node:module';
+import { Script } from 'node:vm';
 import { executadoDireto } from '../ferramentas/executado-direto.mjs';
 
 const require = createRequire(import.meta.url);
@@ -124,10 +125,10 @@ function corpoDaFuncao(html, nome) {
   return trecho ? html.slice(trecho.inicio, trecho.fim) : null;
 }
 
-// Os blocos <script> da página, cada um com { inicio, fim, classico }: o que fica entre a tag que abre e a que fecha, e se
-// ele é um script clássico (sem type, ou com um type de JavaScript). Num script de módulo, a declaração de topo não vira
-// propriedade da janela nem entra no ambiente léxico global, e a casca não a enxerga. Guardado para o último HTML lido:
-// o contrato pergunta várias vezes do mesmo.
+// Os blocos <script> da página, cada um com { inicio, fim, classico, js }: o que fica entre a tag que abre e a que fecha,
+// se ele é um script clássico (sem type, ou com um type de JavaScript) e se é JavaScript (o clássico ou o de módulo). Num
+// script de módulo, a declaração de topo não vira propriedade da janela nem entra no ambiente léxico global, e a casca
+// não a enxerga; mas o código dele roda. Guardado para o último HTML lido: o contrato pergunta várias vezes do mesmo.
 const TIPOS_CLASSICOS = new Set(['', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript']);
 let blocosLidos = { html: null, blocos: [] };
 function blocosDeScript(html) {
@@ -140,11 +141,148 @@ function blocosDeScript(html) {
     const fecha = /<\/script\s*>/i.exec(html.slice(inicio));
     const fim = fecha ? inicio + fecha.index : html.length;
     const tipo = /\btype\s*=\s*(['"]?)([^'"\s>]*)\1/i.exec(m[1]);
-    blocos.push({ inicio, fim, classico: TIPOS_CLASSICOS.has(tipo ? tipo[2].trim().toLowerCase() : '') });
+    const t = tipo ? tipo[2].trim().toLowerCase() : '';
+    blocos.push({ inicio, fim, classico: TIPOS_CLASSICOS.has(t), js: TIPOS_CLASSICOS.has(t) || t === 'module' });
     abre.lastIndex = fim;
   }
   blocosLidos = { html, blocos };
   return blocos;
+}
+
+// Os comentários de um JavaScript, lidos como o JavaScript os lê: o `/*` e o `//` só abrem comentário fora de um texto
+// entre aspas, de um template (com o `${...}` dele) e de uma regex. Devolve o texto do mesmo tamanho, com cada comentário
+// trocado por espaços e as quebras de linha no lugar: os índices e as colunas são os do original (a regra da coluna 0
+// continua valendo, e o corpo de uma função se acha no texto limpo como no original). Caso que criou a regra: o campo.html
+// tem o accept='image/*' (e o 'video/*') em seis lugares, e a leitura que só procurava o `/*` tomava cada um por começo
+// de comentário e engolia o código até o próximo `*/` (de 837 a 5.099 caracteres, com funções de topo dentro): um logout
+// posto ali ficava invisível para a regra do Sair.
+// A regex e a divisão se separam pelo que vem antes da barra, como no JavaScript: depois de um valor (um nome, um número,
+// um texto, o `)`, o `]`) é divisão; depois de um operador, de um `(`, de um `{`, de um `}` ou de palavras como
+// `return`, é regex. Limite conhecido: a regex logo depois de um `)` (o `if (x) /re/.test(y)`) é lida como divisão; por
+// isso quem chama compila o script de novo sem os comentários (ver semComentarios). Um texto entre aspas e uma regex não
+// atravessam a linha (o JavaScript também não deixa): a aspa de uma leitura errada vale só até o fim da linha.
+const ANTES_DE_REGEX = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case',
+  'do', 'else', 'yield', 'await']);
+const LETRA_DE_NOME = /[A-Za-z0-9_$\u0080-\uffff]/;
+export function semComentariosNoScript(js) {
+  const n = js.length;
+  const saida = js.split('');
+  const apagar = (de, ate) => { for (let k = de; k < ate; k++) if (saida[k] !== '\n' && saida[k] !== '\r') saida[k] = ' '; };
+  const templates = []; // a profundidade das chaves em que cada `${` de um template abriu
+  let chaves = 0;
+  let regexPode = true;
+  let antes = '';        // o último caractere de código (fora de espaço), para o nome depois de um ponto
+  // O texto de um template, de `p` até a crase que o fecha ou até um `${`, que volta ao código.
+  function template(p) {
+    while (p < n) {
+      const c = js[p];
+      if (c === '\\') p += 2;
+      else if (c === '`') return p + 1;
+      else if (c === '$' && js[p + 1] === '{') { templates.push(chaves); return p + 2; }
+      else p++;
+    }
+    return n;
+  }
+  let i = 0;
+  while (i < n) {
+    const c = js[i];
+    const d = js[i + 1];
+    if (c === '/' && (d === '/' || d === '*')) {
+      const f = d === '/' ? js.indexOf('\n', i) : js.indexOf('*/', i + 2);
+      const fim = f < 0 ? n : d === '/' ? f : f + 2;
+      apagar(i, fim);
+      i = fim;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      let p = i + 1;
+      while (p < n && js[p] !== c && js[p] !== '\n') p += js[p] === '\\' ? 2 : 1;
+      i = p < n && js[p] === c ? p + 1 : p;
+      regexPode = false;
+      antes = c;
+      continue;
+    }
+    if (c === '`' || (c === '}' && templates.length && templates[templates.length - 1] === chaves)) {
+      if (c === '}') templates.pop();
+      i = template(i + 1);
+      regexPode = false;
+      antes = '`';
+      continue;
+    }
+    if (c === '/' && regexPode) {
+      let p = i + 1;
+      let classe = false;
+      while (p < n && js[p] !== '\n' && (classe || js[p] !== '/')) {
+        if (js[p] === '\\') p++;
+        else if (js[p] === '[') classe = true;
+        else if (js[p] === ']') classe = false;
+        p++;
+      }
+      i = p < n && js[p] === '/' ? p + 1 : p;
+      regexPode = false;
+      antes = '/';
+      continue;
+    }
+    if (LETRA_DE_NOME.test(c)) {
+      let p = i + 1;
+      while (p < n && LETRA_DE_NOME.test(js[p])) p++;
+      // O nome depois de um ponto é uma propriedade (o x.in, o x.return), um valor: depois dele, a barra é divisão.
+      regexPode = antes !== '.' && ANTES_DE_REGEX.has(js.slice(i, p));
+      antes = 'a';
+      i = p;
+      continue;
+    }
+    if (c === '{') chaves++;
+    else if (c === '}') chaves--;
+    if ((c === '+' || c === '-') && d === c) {
+      // O i++ e o i-- de antes de uma barra: a barra é divisão.
+      regexPode = false;
+      antes = c;
+      i += 2;
+      continue;
+    }
+    if (!/\s/.test(c)) {
+      regexPode = c !== ')' && c !== ']';
+      antes = c;
+    }
+    i++;
+  }
+  return saida.join('');
+}
+
+function compila(js) {
+  try {
+    new Script(js);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// O HTML com os comentários dos scripts de JavaScript (o clássico e o de módulo) trocados por espaços, do mesmo tamanho.
+// O resto (as marcações, os atributos, o onclick, os scripts que não são JavaScript) fica como está: ali não há comentário
+// de JavaScript, e é lá que o botão do menu chama o sair. O script que compilava e deixa de compilar sem os comentários
+// foi lido errado: ele fica inteiro (o código dele não some atrás de um comentário falso) e `ilegivel` diz que houve um.
+let comentariosLidos = { html: null, texto: '', ilegivel: false };
+function semComentarios(html) {
+  if (comentariosLidos.html === html) return comentariosLidos;
+  let texto = '';
+  let desde = 0;
+  let ilegivel = false;
+  for (const b of blocosDeScript(html)) {
+    if (!b.js) continue;
+    const original = html.slice(b.inicio, b.fim);
+    let limpo = semComentariosNoScript(original);
+    if (limpo !== original && !compila(limpo) && compila(original)) {
+      limpo = original;
+      ilegivel = true;
+    }
+    texto += html.slice(desde, b.inicio) + limpo;
+    desde = b.fim;
+  }
+  texto += html.slice(desde);
+  comentariosLidos = { html, texto, ilegivel };
+  return comentariosLidos;
 }
 function emScriptClassico(html, indice) {
   return blocosDeScript(html).some((b) => b.classico && indice >= b.inicio && indice < b.fim);
@@ -299,8 +437,6 @@ const CHAMADA_DO_SAIR = (nome) => new RegExp(`(?<![\\w$.])(?:window\\.)?${escapa
 // atalho de teste): se ele caísse no login interativo, uma chamada de fundo levaria a página para o login da Microsoft no
 // meio do preenchimento, e o que só estava na memória da página se perderia.
 const ABRE_O_LOGIN = /\b(?:loginRedirect|acquireTokenRedirect|loginPopup|acquireTokenPopup)\s*\(/;
-// Só os comentários de bloco e as linhas que são comentário: o `//` de um endereço entre aspas não corta a linha.
-const semComentarios = (texto) => texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 function conferirPush(html, falta) {
   if (!temFuncaoDeTopo(html, PUSH.funcao.bearer)) falta(`push: função ${PUSH.funcao.bearer}`);
@@ -309,11 +445,14 @@ function conferirPush(html, falta) {
   for (const id of Object.values(PUSH.id)) if (!temId(html, id)) falta(`push: id '${id}'`);
   for (const classe of Object.values(PUSH.classe)) if (!temClasse(html, classe)) falta(`push: classe '${classe}'`);
 
-  // A declaração (`function sair(`, `async function sair(`) não é chamada.
-  const chamadas = [...html.matchAll(CHAMADA_DO_SAIR(PUSH.funcao.sair))]
-    .filter((m) => !/\bfunction\s+$/.test(html.slice(Math.max(0, m.index - 20), m.index)));
+  // A chamada do sair, o logout e o corpo do getTokenMW são lidos sem os comentários do JavaScript (ver
+  // semComentarios): o que só um comentário cita não é código. A declaração (`function sair(`, `async function sair(`)
+  // não é chamada.
+  const { texto: semComentario, ilegivel } = semComentarios(html);
+  if (ilegivel) falta('push: comentários de um script que o contrato não lê');
+  const chamadas = [...semComentario.matchAll(CHAMADA_DO_SAIR(PUSH.funcao.sair))]
+    .filter((m) => !/\bfunction\s+$/.test(semComentario.slice(Math.max(0, m.index - 20), m.index)));
   if (!chamadas.length) falta(`push: chamada do ${PUSH.funcao.sair}`);
-  const semComentario = semComentarios(html);
   const sairSemComentario = trechoDaFuncao(semComentario, PUSH.funcao.sair);
   for (const m of semComentario.matchAll(LOGOUT)) {
     if (!sairSemComentario || m.index < sairSemComentario.inicio || m.index >= sairSemComentario.fim) {
@@ -322,8 +461,8 @@ function conferirPush(html, falta) {
     }
   }
 
-  const bearer = corpoDaFuncao(html, PUSH.funcao.bearer);
-  if (bearer !== null && ABRE_O_LOGIN.test(semComentarios(bearer))) falta(`push: ${PUSH.funcao.bearer} abre o login`);
+  const bearer = corpoDaFuncao(semComentario, PUSH.funcao.bearer);
+  if (bearer !== null && ABRE_O_LOGIN.test(bearer)) falta(`push: ${PUSH.funcao.bearer} abre o login`);
 }
 
 // --- A abertura da OS pelo toque na notificação -----------------------------------------------------------------
