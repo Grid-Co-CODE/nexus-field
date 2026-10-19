@@ -177,14 +177,23 @@ final class Notificacoes {
      * liberados no modo prioridade) e a "reminder" onde os lembretes estiverem liberados. Decisão do dono: respeitar o
      * Não perturbe e o modo silencioso do técnico.
      *
-     * A emergência não sai da barra no toque: ela fica até a página dizer que a OS abriu (o osAberta, que cancela pelo
-     * {@link #idDaEmergencia}). Com o técnico ocupado a OS fica pendente na página, e o renderer que morre ou o app
-     * fechado levariam junto a pendência; com a notificação na barra, um toque novo refaz tudo. O resumo sai no toque e,
-     * sem toque, à meia-noite (em Brasília): o "Faltam 2 tarefas de hoje" de sexta não pode estar na barra na segunda.
+     * A emergência com OS não sai da barra no toque: ela fica até a página dizer que a OS abriu (o osAberta, que cancela
+     * pelo {@link #idDaEmergencia}). Com o técnico ocupado a OS fica pendente na página, e o renderer que morre ou o app
+     * fechado levariam junto a pendência; com a notificação na barra, um toque novo refaz tudo. A emergência sem OS válida
+     * (não devia vir, mas não se perde) sai no toque: não há OS para a página abrir, e nada mais a tiraria da barra. O
+     * resumo sai no toque e, sem toque, à meia-noite do dia em que foi ENVIADO (em Brasília): o "Faltam 2 tarefas de hoje"
+     * de sexta não pode estar na barra na segunda. O resumo que chega com o dia do envio já acabado (o celular sem sinal
+     * a noite inteira, e o FCM que entrega de manhã) não aparece: as tarefas "de hoje" dele são as de ontem.
      *
-     * @param agora o relógio de parede (o fim do dia do resumo sai dele)
+     * @param agora o relógio de parede (o resumo vencido e o tempo dele na barra saem dele)
      */
     static boolean mostrar(Context contexto, Montada m, long agora) {
+        boolean emergencia = !CANAL_RESUMO.equals(m.canal);
+        long fimDoResumo = Expediente.fimDoDia(m.quando);
+        if (!emergencia && fimDoResumo <= agora) {
+            Log.i(CascaPlugin.TAG, "resumo não mostrado: o dia em que ele foi enviado já acabou");
+            return false;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
             && ContextCompat.checkSelfPermission(contexto, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -205,7 +214,6 @@ final class Notificacoes {
         } catch (RuntimeException e) {
             // Sem como perguntar ao sistema, tenta mostrar: o notify abaixo diz se ele recusou.
         }
-        boolean emergencia = !CANAL_RESUMO.equals(m.canal);
 
         Intent abrir = new Intent()
             .setClassName(contexto, MainActivity.PORTA_INTERNA)
@@ -222,11 +230,11 @@ final class Notificacoes {
             .setContentIntent(toque)
             .setWhen(m.quando)
             .setShowWhen(true)
-            .setAutoCancel(!emergencia)
+            .setAutoCancel(!emergencia || m.os == null)
             // A mesma OS de novo, com a primeira ainda na barra, substitui sem tocar outra vez. No resumo, só quando o
             // que está na barra é o mesmo resumo (a entrega repetida): o das 13:00 toca mesmo com o das 07:00 lá.
             .setOnlyAlertOnce(emergencia || oMesmoNaBarra(contexto, m));
-        if (!emergencia) b.setTimeoutAfter(Expediente.fimDoDia(agora) - agora);
+        if (!emergencia) b.setTimeoutAfter(fimDoResumo - agora);
         // Android 7 (sem canais): a prioridade, o som e a vibração da própria notificação fazem o papel do canal, com o
         // mesmo alarme e a mesma vibração do canal das emergências. Do Android 8 em diante o canal decide.
         if (CANAL_EMERGENCIA.equals(m.canal)) {

@@ -25,7 +25,10 @@ import com.google.firebase.messaging.RemoteMessage;
  *   <li>{@value #CHAVE_SEM_CONTA}: a marca do Sair. O esquecer do Sair é um pedido só, e sem rede, com o servidor fora ou
  *       com a sessão vencida ele não chega: o servidor seguia mandando os avisos de quem saiu ao aparelho, que muitas
  *       vezes passa à mão de outro técnico. Com a marca, nada é mostrado até o registro seguinte (o pushRegistrado da
- *       página a solta). Ela não pula registro nenhum: só cala a exibição entre o Sair e a próxima conta.</li>
+ *       página a solta). Ela não pula registro nenhum: só cala a exibição entre o Sair e a próxima conta;</li>
+ *   <li>{@value #CHAVE_APAGAR_TOKEN}: o apagamento do token no Firebase, do Sair, que ainda não deu certo (sem rede). O
+ *       próximo pedido do token da página o repete antes de devolver o token, enquanto a marca do Sair estiver de pé
+ *       (PushNaCasca); sai quando o apagamento dá certo ou no registro de uma conta.</li>
  * </ul>
  */
 public class MensagensDoFirebase extends FirebaseMessagingService {
@@ -33,6 +36,7 @@ public class MensagensDoFirebase extends FirebaseMessagingService {
     static final String PREFERENCIAS = "push";
     static final String CHAVE_TOKEN = "token";
     static final String CHAVE_SEM_CONTA = "semConta";
+    static final String CHAVE_APAGAR_TOKEN = "apagarToken";
 
     @Override
     public void onMessageReceived(@NonNull RemoteMessage mensagem) {
@@ -119,6 +123,29 @@ public class MensagensDoFirebase extends FirebaseMessagingService {
     static boolean soltarSemConta(Context contexto) {
         boolean gravou = push(contexto).edit().remove(CHAVE_SEM_CONTA).commit();
         if (!gravou) Log.w(CascaPlugin.TAG, "a marca do Sair não foi solta");
+        return gravou;
+    }
+
+    /** O apagamento do token do Sair ainda não deu certo. */
+    static boolean apagarTokenPendente(Context contexto) {
+        try {
+            return push(contexto).getBoolean(CHAVE_APAGAR_TOKEN, false);
+        } catch (ClassCastException e) {
+            return false;
+        }
+    }
+
+    /** O apagamento do token vai começar: fica marcado até dar certo. Devolve false se não gravou. */
+    static boolean marcarApagarToken(Context contexto) {
+        boolean gravou = push(contexto).edit().putBoolean(CHAVE_APAGAR_TOKEN, true).commit();
+        if (!gravou) Log.w(CascaPlugin.TAG, "a marca do apagamento do token não foi gravada");
+        return gravou;
+    }
+
+    /** O apagamento deu certo, ou uma conta registrou o token de agora. Devolve false se não gravou. */
+    static boolean soltarApagarToken(Context contexto) {
+        boolean gravou = push(contexto).edit().remove(CHAVE_APAGAR_TOKEN).commit();
+        if (!gravou) Log.w(CascaPlugin.TAG, "a marca do apagamento do token não foi solta");
         return gravou;
     }
 }

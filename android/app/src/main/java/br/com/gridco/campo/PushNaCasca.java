@@ -31,8 +31,12 @@ import java.util.function.Consumer;
  *       mostra nada (e o FCM rebaixa a prioridade do app que recebe mensagem de prioridade alta sem mostrar).</li>
  *   <li><b>O Sair</b> ({@link #saiu}): a marca semConta (o MensagensDoFirebase não mostra nada até o próximo registro), as
  *       notificações do app saem da barra, a OS do toque é esquecida e o token é apagado no Firebase. É o que segura o Sair
- *       sem rede, com o servidor fora ou com a sessão vencida, quando o esquecer da página não chega ao servidor.</li>
- *   <li><b>O registro</b> ({@link #registrado}, o 2xx do servidor na página) solta a marca.</li>
+ *       sem rede, com o servidor fora ou com a sessão vencida, quando o esquecer da página não chega ao servidor. O
+ *       apagamento que falhou (sem rede, o mais comum no Sair que não chega ao servidor) fica marcado no arquivo "push" e é
+ *       repetido no próximo pedido do token, antes de devolvê-lo, enquanto houver a marca semConta: senão o token de quem
+ *       saiu seguia valendo no servidor (o esquecer também não chegou) até alguém entrar no aparelho.</li>
+ *   <li><b>O registro</b> ({@link #registrado}, o 2xx do servidor na página) solta a marca (e a do apagamento: o token de
+ *       agora é da conta que entrou).</li>
  *   <li><b>A OS aberta</b> ({@link #osAberta}): a emergência dela sai da barra e a OS deixa de ir à página.</li>
  * </ul>
  */
@@ -43,8 +47,11 @@ final class PushNaCasca {
         /** Pede o token (o de cache, ou um novo) e o entrega na thread do espelho; null quando não sai. */
         void pedirToken(Consumer<String> entregar);
 
-        /** Apaga o token deste aparelho no Firebase: o próximo envio do servidor a ele volta UNREGISTERED. */
-        void apagarToken();
+        /**
+         * Apaga o token deste aparelho no Firebase (o próximo envio do servidor a ele volta UNREGISTERED) e diz, na thread
+         * do espelho, se apagou (true também sem o Firebase no build: não há o que apagar) ou se falhou (sem rede).
+         */
+        void apagarToken(Consumer<Boolean> terminou);
     }
 
     /** O caminho até a página: a ponte da mensagem que pediu o token. Devolve false quando a página já foi embora. */
@@ -68,9 +75,16 @@ final class PushNaCasca {
         this.versao = versao;
     }
 
-    /** A página pediu o token ({@code pushPedirToken}): a resposta vai pela ponte dela, e ela passa a ser a da página. */
+    /**
+     * A página pediu o token ({@code pushPedirToken}): a resposta vai pela ponte dela, e ela passa a ser a da página. Com o
+     * aparelho sem conta e o apagamento do Sair que falhou, o token é apagado de novo antes (o pedido espera o apagamento).
+     */
     void pediuToken(Ponte daPagina) {
         ponte = daPagina;
+        if (MensagensDoFirebase.semConta(app) && MensagensDoFirebase.apagarTokenPendente(app)) {
+            Log.i(CascaPlugin.TAG, "o token de quem saiu não foi apagado no Sair: apagado de novo antes do token");
+            apagarToken();
+        }
         firebase.pedirToken(token -> {
             if (token != null && !token.equals(MensagensDoFirebase.tokenGuardado(app))) {
                 MensagensDoFirebase.guardarTokenNovo(app, token);
@@ -119,8 +133,17 @@ final class PushNaCasca {
             Log.w(CascaPlugin.TAG, "as notificações do Sair não saíram da barra (" + e.getClass().getSimpleName() + ")");
         }
         osDoToque.esquecer();
-        firebase.apagarToken();
+        apagarToken();
         Log.i(CascaPlugin.TAG, "o Sair: as notificações ficam caladas até o próximo registro");
+    }
+
+    // Apaga o token no Firebase. A marca do apagamento vai antes (o processo que morre no meio a guarda) e sai só quando ele
+    // deu certo.
+    private void apagarToken() {
+        MensagensDoFirebase.marcarApagarToken(app);
+        firebase.apagarToken(apagou -> {
+            if (Boolean.TRUE.equals(apagou)) MensagensDoFirebase.soltarApagarToken(app);
+        });
     }
 
     /** O servidor aceitou o registro de uma conta ({@code pushRegistrado}): as notificações voltam. */
@@ -129,6 +152,8 @@ final class PushNaCasca {
             MensagensDoFirebase.soltarSemConta(app);
             Log.i(CascaPlugin.TAG, "o aparelho registrado de novo: as notificações voltam");
         }
+        // O token registrado é o da conta de agora: nada de quem saiu a apagar.
+        if (MensagensDoFirebase.apagarTokenPendente(app)) MensagensDoFirebase.soltarApagarToken(app);
     }
 
     /** A página abriu de fato a OS do toque ({@code osAberta}, já validada). Pode chegar repetido. */
@@ -193,18 +218,22 @@ final class PushNaCasca {
         }
 
         @Override
-        public void apagarToken() {
+        public void apagarToken(Consumer<Boolean> terminou) {
             Task<Void> pedido;
             try {
                 pedido = FirebaseMessaging.getInstance().deleteToken();
             } catch (RuntimeException e) {
                 Log.i(CascaPlugin.TAG, "sem o Firebase neste build: o Sair fica só com a marca");
+                terminou.accept(true); // nada a apagar (já na thread do espelho: o Sair e o pedido vêm da página)
                 return;
             }
             apagando = pedido;
-            pedido.addOnCompleteListener(CascaPlugin.threadDoEspelho(), tarefa -> Log.i(CascaPlugin.TAG,
-                tarefa.isSuccessful() ? "o token do Firebase foi apagado (o Sair)"
-                    : "o token do Firebase não foi apagado agora (sem rede?): a marca do Sair segura"));
+            pedido.addOnCompleteListener(CascaPlugin.threadDoEspelho(), tarefa -> {
+                Log.i(CascaPlugin.TAG, tarefa.isSuccessful() ? "o token do Firebase foi apagado (o Sair)"
+                    : "o token do Firebase não foi apagado agora (sem rede?): a marca do Sair segura, e o próximo pedido "
+                        + "do token apaga de novo");
+                terminou.accept(tarefa.isSuccessful());
+            });
         }
     };
 }

@@ -132,6 +132,21 @@ public class NotificacoesTest {
     }
 
     @Test
+    public void aOsDoTesteDoServidorTemNoveDigitosEVaiInteiraAoToque() {
+        // O /push/teste da v287 manda a emergência com a OS 999999999 (fora da faixa das OS reais): ela é uma OS válida, tem
+        // id na faixa das emergências com OS e chega inteira à página pelo toque.
+        String doTeste = "999999999";
+        assertTrue(Notificacoes.osValida(doTeste));
+        Montada m = montar(dados("emergencia", "emergencia", "Emergência", "Corretiva emergencial: OS " + doTeste, doTeste));
+        assertEquals(doTeste, m.os);
+        assertEquals(Notificacoes.idDaEmergencia(doTeste), m.id);
+        assertTrue(m.id >= Notificacoes.ID_EMERGENCIA_BASE && m.id < Notificacoes.ID_EMERGENCIA_BASE + 1_000_000);
+        Notification n = mostrada(m);
+        assertEquals(doTeste, MainActivity.osDoToque(new Intent(intentDoToque(n))));
+        assertEquals(0, n.flags & Notification.FLAG_AUTO_CANCEL);
+    }
+
+    @Test
     public void canalSilenciosoRespeitado() {
         assertEquals("emergencia_silenciosa", montar(dados("emergencia", "emergencia_silenciosa", "t", "x", "1")).canal);
         assertEquals("emergencia", montar(dadosEmerg("1")).canal);
@@ -382,6 +397,16 @@ public class NotificacoesTest {
         // O resumo sai no toque, como antes.
         Notification resumo = mostrada(montar(dadosResumo("Bom dia!", "Hoje: 4 tarefas.")));
         assertTrue((resumo.flags & Notification.FLAG_AUTO_CANCEL) != 0);
+        // A emergência sem OS válida também sai no toque: não há OS para a página abrir, e nada mais (o osAberta) a tiraria
+        // da barra; ficava presa até o Sair.
+        for (Map<String, String> d : new Map[] {dados("emergencia", "emergencia", "Emergência", "Corretiva emergencial", null),
+                dados("emergencia", "emergencia_silenciosa", "Emergência", "Religamento", "12a")}) {
+            Montada m = montar(d);
+            assertNull(m.os);
+            Notification n = mostrada(m);
+            assertTrue("sem OS, sai no toque", (n.flags & Notification.FLAG_AUTO_CANCEL) != 0);
+            assertFalse(intentDoToque(n).hasExtra(Notificacoes.EXTRA_OS));
+        }
     }
 
     @Test
@@ -406,15 +431,49 @@ public class NotificacoesTest {
 
     @Test
     public void oResumoSaiDaBarraNoFimDoDiaEAEmergenciaNao() {
-        // O "Boa tarde! Faltam 2 tarefas de hoje" de sexta não pode estar na barra na segunda: some à meia-noite.
-        Montada resumo = montar(dadosResumo("Boa tarde!", "Faltam 2 tarefas de hoje."));
-        long agora = em(2026, 10, 16, 13, 0);
-        assertTrue(Notificacoes.mostrar(app, resumo, agora));
+        // O "Boa tarde! Faltam 2 tarefas de hoje" de sexta não pode estar na barra na segunda: some à meia-noite do dia em
+        // que foi enviado.
+        long sexta13h = em(2026, 10, 16, 13, 0);
+        Montada resumo = Notificacoes.montar(dadosResumo("Boa tarde!", "Faltam 2 tarefas de hoje."), sexta13h, sexta13h);
+        assertTrue(Notificacoes.mostrar(app, resumo, sexta13h));
         Notification n = sombra.getNotification(resumo.id);
-        assertEquals(em(2026, 10, 17, 0, 0) - agora, n.getTimeoutAfter());
+        assertEquals(em(2026, 10, 17, 0, 0) - sexta13h, n.getTimeoutAfter());
 
         Notification emergencia = mostrada(montar(dadosEmerg("12345")));
         assertEquals("a emergência fica até a OS abrir", 0, emergencia.getTimeoutAfter());
+    }
+
+    @Test
+    public void oResumoQueChegaDepoisDoDiaDoEnvioNaoApareceEOPrazoEODoDiaDoEnvio() {
+        // O celular sem sinal a noite inteira: o FCM entrega o "Faltam 2 tarefas de hoje" de ontem de manhã, e as tarefas
+        // "de hoje" dele são as de ontem. Não aparece, e o log diz só o motivo.
+        long ontem13h = em(2026, 10, 15, 13, 0);
+        long hoje7h = em(2026, 10, 16, 7, 0);
+        Montada atrasado = Notificacoes.montar(dadosResumo("Boa tarde!", "Faltam 2 tarefas de hoje."), ontem13h, hoje7h);
+        ShadowLog.clear();
+        assertFalse(Notificacoes.mostrar(app, atrasado, hoje7h));
+        assertEquals(0, sombra.size());
+        assertTrue(logou("resumo não mostrado"));
+        assertFalse("nada do texto no log", logou("tarefas"));
+        assertFalse(logou("mostrada ("));
+        // Enviado às 23:50 e chegado às 00:05: o mesmo.
+        assertFalse(Notificacoes.mostrar(app, Notificacoes.montar(dadosResumo("Boa tarde!", "Faltam 2."),
+            em(2026, 10, 15, 23, 50), em(2026, 10, 16, 0, 5)), em(2026, 10, 16, 0, 5)));
+        // Enviado às 13:00 e chegado às 17:30 do mesmo dia: aparece, e sai à meia-noite do dia do envio (não 24 h depois).
+        long envio = em(2026, 10, 16, 13, 0);
+        long chegada = em(2026, 10, 16, 17, 30);
+        Montada tarde = Notificacoes.montar(dadosResumo("Boa tarde!", "Faltam 2."), envio, chegada);
+        assertTrue(Notificacoes.mostrar(app, tarde, chegada));
+        assertEquals(em(2026, 10, 17, 0, 0) - chegada, sombra.getNotification(tarde.id).getTimeoutAfter());
+        // A emergência atrasada aparece (no silencioso, se chegou fora do expediente): só o resumo vence com o dia.
+        assertTrue(Notificacoes.mostrar(app, Notificacoes.montar(dadosEmerg("12345"), ontem13h, hoje7h), hoje7h));
+        // O relógio do aparelho atrás do do servidor, na virada do dia: o prazo é o do dia do ENVIO (o de amanhã, no
+        // relógio do aparelho), e não o do dia que o aparelho acha que é.
+        long envioDepoisDaMeiaNoite = em(2026, 10, 17, 0, 5);
+        long aparelhoAtrasado = em(2026, 10, 16, 23, 55);
+        Montada adiantado = Notificacoes.montar(dadosResumo("Bom dia!", "Hoje: 3."), envioDepoisDaMeiaNoite, aparelhoAtrasado);
+        assertTrue(Notificacoes.mostrar(app, adiantado, aparelhoAtrasado));
+        assertEquals(em(2026, 10, 18, 0, 0) - aparelhoAtrasado, sombra.getNotification(adiantado.id).getTimeoutAfter());
     }
 
     @Test

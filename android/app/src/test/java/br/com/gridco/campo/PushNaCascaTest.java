@@ -45,11 +45,16 @@ public class PushNaCascaTest {
     private static final String TOKEN = "tokenFcmFicticio:APA91b_abc123";
     private static final String OUTRO = "tokenFcmFicticio:APA91b_novo456";
 
-    /** O Firebase falso: devolve o token que o teste mandar (null é o que não sai) e conta os apagamentos. */
+    /**
+     * O Firebase falso: devolve o token que o teste mandar (null é o que não sai), conta os apagamentos (que dão certo ou
+     * não, como o teste mandar: o sem rede falha) e anota a ordem das chamadas.
+     */
     private static final class FirebaseFalso implements PushNaCasca.Firebase {
         String token = TOKEN;
         int pedidos;
         int apagados;
+        boolean apagaComSucesso = true;
+        final List<String> ordem = new ArrayList<>();
         Consumer<String> guardado; // com segurar, a resposta espera o teste
 
         boolean segurar;
@@ -57,12 +62,15 @@ public class PushNaCascaTest {
         @Override
         public void pedirToken(Consumer<String> entregar) {
             pedidos++;
+            ordem.add("pedir");
             if (segurar) guardado = entregar; else entregar.accept(token);
         }
 
         @Override
-        public void apagarToken() {
+        public void apagarToken(Consumer<Boolean> terminou) {
             apagados++;
+            ordem.add("apagar");
+            terminou.accept(apagaComSucesso);
         }
     }
 
@@ -303,6 +311,72 @@ public class PushNaCascaTest {
     }
 
     @Test
+    public void oApagamentoDoSairQueFalhouERepetidoNoProximoPedidoDoTokenAntesDeDevolveLo() {
+        // O Sair sem rede: o esquecer da página não chega ao servidor e o deleteToken falha. Sem repetir o apagamento, o
+        // token de quem saiu seguia valendo no servidor até alguém entrar. O próximo pedido do token (a página do login,
+        // quando a rede volta) apaga de novo ANTES de pedir o token.
+        firebase.apagaComSucesso = false;
+        push.saiu();
+        assertEquals(1, firebase.apagados);
+        assertTrue("o apagamento que falhou fica marcado, no arquivo", MensagensDoFirebase.apagarTokenPendente(app));
+
+        // A carga seguinte, num processo novo (a marca está no arquivo, não na memória), e a rede de volta.
+        PushNaCasca depois = new PushNaCasca(app, firebase, osDoToque, "1.1.0");
+        firebase.apagaComSucesso = true;
+        firebase.ordem.clear();
+        depois.pediuToken(pagina);
+        assertEquals("apaga de novo, e só então pede o token", java.util.Arrays.asList("apagar", "pedir"), firebase.ordem);
+        assertFalse("apagado, a marca sai", MensagensDoFirebase.apagarTokenPendente(app));
+        recebeu(token(TOKEN, true));
+
+        // Apagado, o pedido seguinte (ainda sem conta) não apaga mais.
+        firebase.ordem.clear();
+        depois.pediuToken(pagina);
+        assertEquals(java.util.Arrays.asList("pedir"), firebase.ordem);
+        assertEquals(2, firebase.apagados);
+    }
+
+    @Test
+    public void oApagamentoQueFalhaDeNovoSegueMarcadoAteDarCerto() {
+        firebase.apagaComSucesso = false;
+        push.saiu();
+        push.pediuToken(pagina);
+        push.pediuToken(pagina);
+        assertEquals("cada pedido sem conta tenta de novo", 3, firebase.apagados);
+        assertTrue(MensagensDoFirebase.apagarTokenPendente(app));
+        firebase.apagaComSucesso = true;
+        push.pediuToken(pagina);
+        assertFalse(MensagensDoFirebase.apagarTokenPendente(app));
+        assertEquals(4, firebase.apagados);
+    }
+
+    @Test
+    public void comUmaContaRegistradaOTokenNaoEApagado() {
+        // O registro (o pushRegistrado) é o token de agora para a conta que entrou: apagá-lo tiraria os avisos dela.
+        firebase.apagaComSucesso = false;
+        push.saiu();
+        push.registrado();
+        assertFalse(MensagensDoFirebase.semConta(app));
+        assertFalse("o registro tira a marca do apagamento", MensagensDoFirebase.apagarTokenPendente(app));
+        push.pediuToken(pagina);
+        assertEquals(1, firebase.apagados);
+        // E sem a marca do Sair, mesmo com a do apagamento (um arquivo de antes), nada é apagado.
+        assertTrue(MensagensDoFirebase.marcarApagarToken(app));
+        push.pediuToken(pagina);
+        assertEquals(1, firebase.apagados);
+    }
+
+    @Test
+    public void oApagamentoQueDeuCertoNoSairNaoSeRepete() {
+        push.saiu();
+        assertFalse(MensagensDoFirebase.apagarTokenPendente(app));
+        firebase.ordem.clear();
+        push.pediuToken(pagina);
+        assertEquals(java.util.Arrays.asList("pedir"), firebase.ordem);
+        assertEquals(1, firebase.apagados);
+    }
+
+    @Test
     public void oRegistroSoltaAMarcaDoSair() {
         push.saiu();
         assertTrue(MensagensDoFirebase.semConta(app));
@@ -355,9 +429,12 @@ public class PushNaCascaTest {
         PushNaCasca.FIREBASE_DO_APP.pedirToken(entregues::add);
         assertEquals(1, entregues.size());
         assertNull(entregues.get(0));
-        PushNaCasca.FIREBASE_DO_APP.apagarToken();
+        List<Boolean> apagou = new ArrayList<>();
+        PushNaCasca.FIREBASE_DO_APP.apagarToken(apagou::add);
+        assertEquals("sem o Firebase não há o que apagar: conta como apagado", java.util.Collections.singletonList(true), apagou);
         PushNaCasca sem = new PushNaCasca(app, PushNaCasca.FIREBASE_DO_APP, osDoToque, "1.1.0");
         sem.saiu();
         assertTrue(MensagensDoFirebase.semConta(app));
+        assertFalse("e nada a repetir no próximo pedido", MensagensDoFirebase.apagarTokenPendente(app));
     }
 }
