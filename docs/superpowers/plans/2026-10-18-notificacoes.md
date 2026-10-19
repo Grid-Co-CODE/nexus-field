@@ -78,7 +78,7 @@
   - `static boolean osValida(String os)`;
   - `CanaisDeNotificacao.criar(Context)`, idempotente;
   - `MensagensDoFirebase extends FirebaseMessagingService`: o `onMessageReceived` monta e mostra; o `onNewToken` grava
-    em `SharedPreferences("push")` a chave `token` e marca `registrado=false`;
+    em `SharedPreferences("push")` a chave `token` (o que o registro faz com ela está na Task 3);
   - Intent do toque para a `MainActivity`, com o extra `gc_os` (só na emergência com OS válida).
 
 - [ ] **Step 1: Escrever os testes que falham**
@@ -172,52 +172,78 @@ Regras:
 
 ### Task 3: O registro do aparelho pela página
 
+O protocolo de hoje, o que a construção e a revisão deixaram. O primeiro (o nativo guardava `registradoEm` e respondia
+`jaRegistrado`, e o script pulava o registro feito há menos de 7 dias) saiu na revisão da Task 3: o "já registrado" não
+sabia de QUEM era o registro, e trocar de conta sem o Sair deixava os avisos indo ao e-mail anterior.
+
 **Files:**
-- Modify: `www/casca/inicio.js` (seção nova "notificações"), `Mensageiro.java` e `CascaPlugin.java` (as mensagens
-  novas; `push` em `ONDES_DA_PAGINA`), `testes/contrato.mjs` (exigir `getTokenMW`, `async function sair`,
-  `MIDDLEWARE_URL`)
-- Create: `testes/push.test.mjs`
-- Test: `MensageiroTest.java`, `testes/canal.test.mjs`, `testes/contrato.test.mjs`
+- Modify: `www/casca/inicio.js` (a seção 8, "notificações"), `Mensageiro.java` e `CascaPlugin.java` (as mensagens
+  novas; `push` em `ONDES_DA_PAGINA`), `MensagensDoFirebase.java` (o `onNewToken` e a marca do Sair),
+  `testes/contrato.mjs` (exigir `getTokenMW` sem abrir o login, `async function sair` com o único logout da página,
+  `MIDDLEWARE_URL` no topo de um script clássico e o `#s-app`)
+- Create: `testes/push.test.mjs`, `PushNaCasca.java` (a conversa nativa, com o Firebase e a ponte por interface, para
+  o teste de JVM)
+- Test: `MensageiroTest.java`, `PushNaCascaTest.java`, `testes/canal.test.mjs`, `testes/contrato.test.mjs`
 
 **Interfaces:**
 - Mensagens:
-  - script → nativo: `{t:'pushPedirToken'}` e `{t:'pushRegistrado', token}`;
-  - nativo → script (resposta pelo `JavaScriptReplyProxy` do pedido):
-    `{t:'pushToken', token: string|null, jaRegistrado: boolean, versao: string}`.
-- O nativo responde `token:null` quando o Firebase não está configurado ou o token ainda não saiu.
-- `jaRegistrado` vale true se o mesmo token foi registrado há menos de 7 dias (`SharedPreferences("push")`: `token`,
-  `registradoEm`).
+  - script → nativo: `{t:'pushPedirToken'}`; `{t:'pushRegistrado'}` (o servidor respondeu 2xx; nunca depois do Sair);
+    `{t:'pushSaiu'}` (o Sair, com token ou sem);
+  - nativo → script: `{t:'pushToken', token: string|null, versao: string, avisos: boolean}`, a resposta do pedido
+    (pelo `JavaScriptReplyProxy` dele), que também chega SOZINHA pela mesma ponte: no `onNewToken` com a página viva e
+    na volta ao app, quando os avisos passaram a ligados ou quando o token guardado não é o que a página recebeu.
+- O nativo responde `token:null` quando o Firebase não está configurado ou o token ainda não saiu. `avisos` é a
+  permissão (Android 13+), as notificações do app ligadas e o canal `emergencia` não bloqueado.
+- O nativo não guarda nada do registro: no `SharedPreferences("push")` ficam o último token do Firebase (`token`, para
+  comparar na volta ao app) e a marca do Sair (`semConta`, que o `pushRegistrado` solta).
 
 Regras do script:
 1. Depois do `load`, espera 5 s e manda `pushPedirToken`.
-2. Com `token` e `jaRegistrado:false`, chama `win.getTokenMW()`. Sem Bearer (ninguém logado), tenta de novo no próximo
-   `online` ou `visibilitychange`.
-3. Com Bearer, faz `win.fetch(MIDDLEWARE_URL + '/push/registrar', {method:'POST', headers:{Authorization:'Bearer
+2. "Logado" é a tela do App na frente (`#s-app.on`), não "o `getTokenMW` devolveu algo": antes dela, espera (o
+   `MutationObserver` na classe do `#s-app`; sem ele, uma consulta de 1 s por 3 minutos), além do `online` e da volta ao
+   app.
+3. Registra uma vez por token em cada carga, só com `avisos` true, com o Bearer da conta de agora:
+   `win.fetch(<MIDDLEWARE_URL sem a barra do fim> + '/push/registrar', {method:'POST', headers:{Authorization:'Bearer
    '+b, 'Content-Type':'application/json'}, body: JSON.stringify({token, aparelho:'android', app:'NexusField/'+versao})})`.
    - Se der 2xx, manda `pushRegistrado`.
-   - Se der 404, não tenta mais nesta sessão: a rota ainda não está no ar.
+   - Se der 404, não tenta mais nesta carga: a rota ainda não está no ar.
    - Outro erro ou sem rede: tenta no próximo `online`, no máximo 1 vez a cada 10 minutos.
+   - Sem Bearer (a sessão vencida, a entrada sem sinal): tenta no próximo `online` ou na volta ao app.
+   - Token null: pede o token de novo no próximo `online` ou na volta ao app, com a mesma espera de 10 minutos.
+   - Um token DIFERENTE que o nativo mande depois registra de novo, uma vez; o mesmo, não.
 4. Embrulha `win.sair` depois que a página o define (o script roda antes da página; detecta no `load`):
-   1. antes de chamar o original, manda `POST /push/esquecer` com o token, com prazo de 3 s;
-   2. chama o original sempre, mesmo se o `esquecer` falhar.
-- Todo erro vira `ctx.falhou('push', e)`, sem token nem e-mail no texto.
+   1. manda `pushSaiu` (o nativo grava a marca `semConta`, não mostra nada até o próximo `pushRegistrado`, tira as
+      notificações do app da barra e apaga o token no Firebase: é o que segura o Sair sem rede, com o servidor fora ou
+      com a sessão vencida), tira os atalhos de teste (`pushAdmin:false`, Task 6) e apaga a OS pendente do toque (Task 4);
+   2. manda `POST /push/esquecer {token}` com `keepalive: true` (sobrevive à navegação do logout) e chama o original
+      assim que o pedido sai, sem esperar a resposta; o teto de 3 s fica para o Bearer que não vem;
+   3. o segundo toque, com o primeiro em curso, recebe a mesma Promise, e nenhum registro começa depois do Sair nesta
+      carga (a carga seguinte registra).
+- Todo erro vira `ctx.falhou('push', e)`, sem token, Bearer nem e-mail no texto.
 
 - [ ] **Step 1: Testes que falham** (`testes/push.test.mjs`, com jsdom e o `apoio.mjs`)
 
 ```js
-test('registra uma vez com o Bearer da página e o corpo do contrato', ...);   // fetch chamado com /push/registrar, Authorization 'Bearer X', body {token:'T', aparelho:'android', app:'NexusField/1.1.0'}; depois manda pushRegistrado
+test('registra uma vez por carga com o Bearer da página e o corpo do contrato', ...);
+test('cada carga registra de novo com a conta atual', ...);
+test('na volta do login, antes da tela do App, o getTokenMW dá a conta anterior: nada sai com ela', ...);
 test('não registra sem login e tenta no próximo online', ...);
-test('jaRegistrado: não chama a rota', ...);
 test('404: não tenta mais nesta sessão', ...);
-test('sem token do Firebase (null): não faz nada', ...);
-test('sair: esquece o token antes e chama o original mesmo se o esquecer falhar', ...);
+test('outro erro ou sem rede: tenta no próximo online, no máximo 1 vez a cada 10 minutos', ...);
+test('sem token do Firebase (null): nada a registrar, e o online e a volta ao app pedem de novo, no máximo 1 vez a cada 10 minutos', ...);
+test('o token que chega depois da carga, ou um token diferente, registra uma vez por token', ...);
+test('só registra com os avisos do app ligados; o nativo velho, sem o campo, vale como ligado', ...);
+test('sair: o nativo ouve o pushSaiu antes de tudo, com token ou sem, e sem rede', ...);
+test('sair: o segundo toque devolve o mesmo sair em curso, sem outro esquecer nem outro logout', ...);
+test('sair: nenhum registro começa depois do Sair', ...);
 test('nada de token nem e-mail nas mensagens de erro', ...);
 ```
 
 Mais:
-- `MensageiroTest`: `pushPedirToken` responde com o token e `jaRegistrado` (com o relógio injetável para os 7 dias), e
-  `pushRegistrado` grava;
-- `canal.test.mjs`: a lista do Java tem `push`;
+- `MensageiroTest` e `PushNaCascaTest`: o `pushPedirToken` responde com o token, a versão e os avisos; o token novo do
+  Firebase e a volta ao app com os avisos ligados vão à página viva; o `pushSaiu` grava a marca, tira as notificações e
+  apaga o token; o `pushRegistrado` solta a marca;
+- `canal.test.mjs`: a lista do Java tem `push`, e todo tipo que o script manda o `Mensageiro` atende;
 - `contrato.test.mjs`: os nomes novos exigidos.
 
 - [ ] **Step 2: Ver falhar; Step 3: implementar; Step 4: `npm test` e Gradle verdes**
@@ -255,7 +281,7 @@ Mais:
 
 ---
 
-### Task 6: Atalho de teste dos avisos, só para administrador (Ruling N7)
+### Task 6: Atalho de teste dos avisos, só para administrador
 
 Decisão do dono: testar as notificações no celular por um botão no Nexus Field que só aparece para quem é Admin. O botão
 é um atalho do ícone (toque longo no ícone), para a casca não desenhar nada na página e o técnico nunca o ver.

@@ -24,9 +24,12 @@
     <string name="casca_permissoes_continuar">Continuar</string>
 
     <!-- Quem já tinha o Nexus Field e atualizou para a 1.1.0 (Android 13+) vê este aviso antes de o Android pedir a
-         notificação. Texto novo de 18/10/2026, PENDENTE de aprovação do dono da casca na prévia. -->
+         notificação. Texto novo de 18/10/2026, PENDENTE de aprovação do dono da casca na prévia. Em 19/10/2026 o "na
+         hora" virou "em poucos minutos (sem som fora do expediente)": a emergência chega em até 10 minutos e, fora do
+         dia útil e do expediente, sem som (spec 2026-10-18, seção 1); "na hora" prometia mais, e o técnico que visse a das
+         18h chegar muda acharia que o alarme quebrou. -->
     <string name="casca_avisos_titulo">Avisos do Nexus Field</string>
-    <string name="casca_avisos_texto">O Nexus Field avisa às 7h e às 13h o que você tem para fazer, e na hora quando surgir uma emergência. Toque em Permitir na próxima tela.</string>
+    <string name="casca_avisos_texto">O Nexus Field avisa às 7h e às 13h o que você tem para fazer e, em poucos minutos, quando surgir uma emergência (sem som fora do expediente). Toque em Permitir na próxima tela.</string>
     <string name="casca_avisos_continuar">Continuar</string>
 
     <!-- O técnico escolheu a localização aproximada (Android 12+). -->

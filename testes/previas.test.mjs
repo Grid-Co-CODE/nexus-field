@@ -12,10 +12,14 @@
 //   7. as notificações de exemplo (o resumo das 7h e o das 13h, a emergência que toca e a que chega em silêncio) estão no
 //      canal e na importância que o CanaisDeNotificacao dá, com o ícone pequeno que o APK leva (o vetor, byte a byte) em
 //      branco na barra; o texto delas é do servidor do App de Campo (a casca só mostra), e a prévia o diz;
-//   8. o roteiro da prova (docs/prova-no-aparelho.md) só cita textos que o aplicativo tem e cobre cada atalho, canal e
-//      toast das notificações.
-// Quando o dono da casca pedir outro texto, o arquivo-fonte muda (strings.xml, erro.html ou inicio.js) e a prévia
-// acompanha; este teste falha enquanto uma das duas estiver para trás.
+//   8. o roteiro da prova (docs/prova-no-aparelho.md) só cita textos que o aplicativo tem, cobre cada atalho, canal e
+//      toast das notificações e os casos que a prova existe para ver, na ordem da atualização, e não tem espaço para
+//      preencher quem é (o repositório é público);
+//   9. o aviso de versão nova mostra as novidades de verdade da próxima Release (as do novidades/, tiradas como a
+//      Release as tira), e a lista "O que aprovar" pede cada texto do teste dos avisos e como cada canal avisa (o som, a
+//      vibração e a importância, que o Android grava na primeira abertura e não mudam depois).
+// Quando o dono da casca pedir outro texto, o arquivo-fonte muda (strings.xml, erro.html, inicio.js ou novidades/) e a
+// prévia acompanha; este teste falha enquanto uma das duas estiver para trás.
 //
 // A página é publicada como Artifact (página privada do claude.ai), que a embrulha: por isso o arquivo não tem
 // doctype, html, head nem body, e o contrato da página (título, tokens de cor nos dois temas, gutter com a área
@@ -26,6 +30,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { JSDOM } from 'jsdom';
 import { criarJanela } from './apoio.mjs';
+import { montarVersaoJson } from '../ferramentas/versao-json.mjs';
 
 const require = createRequire(import.meta.url);
 const { instalar } = require('../www/casca/inicio.js');
@@ -133,10 +138,10 @@ function toastsDoJava() {
 }
 
 // Os nomes que o CanaisDeNotificacao dá aos canais (o setName de cada NotificationChannelCompat.Builder): é o que o
-// técnico lê nos ajustes do Android.
+// técnico lê nos ajustes do Android. Saem da mesma leitura dos canais (canaisDetalhadosDoJava), para as duas não
+// divergirem.
 function canaisDoJava() {
-  const fonte = lerArquivo(PASTA_JAVA + 'CanaisDeNotificacao.java');
-  return [...fonte.matchAll(/\.setName\([^;]*?R\.string\.(\w+)/g)].map((m) => m[1]);
+  return canaisDetalhadosDoJava().map((c) => c.nome);
 }
 
 // Os rótulos que o AtalhosDeTeste dá a cada atalho do ícone (o setShortLabel e o setLongLabel do ShortcutInfoCompat) e o
@@ -148,19 +153,62 @@ function rotulosDosAtalhosDoJava() {
 }
 
 // Os canais como o CanaisDeNotificacao os cria: o id (o valor da constante CANAL_* do Notificacoes), a importância
-// (IMPORTANCE_HIGH, DEFAULT, LOW) e o nome (a string do strings.xml). É o que decide como cada notificação de exemplo
-// aparece: só a de importância alta aparece por cima da tela.
+// (IMPORTANCE_HIGH, DEFAULT, LOW), o nome (a string do strings.xml), o som ('alarme', o somDaEmergencia; 'nenhum', o
+// setSound(null, ...); sem setSound, o 'padrão' de notificação), se vibra e se fura o Não perturbe (setBypassDnd). É o
+// que decide como cada notificação de exemplo aparece (só a de importância alta aparece por cima da tela) e o que o item
+// do som dos canais pede para aprovar.
 function canaisDetalhadosDoJava() {
   const ids = Object.fromEntries([...lerArquivo(PASTA_JAVA + 'Notificacoes.java')
     .matchAll(/static final String (CANAL_\w+) = "(\w+)";/g)].map((m) => [m[1], m[2]]));
   const fonte = lerArquivo(PASTA_JAVA + 'CanaisDeNotificacao.java');
   const canais = [];
   for (const m of fonte.matchAll(/new NotificationChannelCompat\.Builder\(\s*Notificacoes\.(CANAL_\w+),\s*NotificationManagerCompat\.IMPORTANCE_(\w+)\)([\s\S]*?)\.build\(\)/g)) {
-    const nome = m[3].match(/\.setName\([^;]*?R\.string\.(\w+)/);
+    const corpo = m[3];
+    const nome = corpo.match(/\.setName\([^;]*?R\.string\.(\w+)/);
     assert.ok(ids[m[1]] && nome, `o teste não leu o canal ${m[1]} do CanaisDeNotificacao`);
-    canais.push({ id: ids[m[1]], importancia: m[2], nome: nome[1] });
+    const som = corpo.match(/\.setSound\((somDaEmergencia\(\)|null)\s*,/);
+    assert.ok(som || !/\.setSound\(/.test(corpo), `o teste não leu o som do canal ${m[1]}`);
+    canais.push({
+      id: ids[m[1]], importancia: m[2], nome: nome[1],
+      som: !som ? 'padrão' : som[1] === 'null' ? 'nenhum' : 'alarme',
+      vibra: /\.setVibrationEnabled\(true\)/.test(corpo),
+      vibraComoAEmergencia: /\.setVibrationPattern\(vibracaoDaEmergencia\(\)\)/.test(corpo),
+      furaONaoPerturbe: /\.setBypassDnd\(true\)/.test(corpo),
+    });
   }
+  const criados = (fonte.match(/new NotificationChannelCompat\.Builder\(/g) || []).length;
+  assert.equal(canais.length, criados, 'o teste leu todo canal que o CanaisDeNotificacao cria');
   return canais;
+}
+
+// O som da emergência e onde ele toca (o somDaEmergencia e o AUDIO_DA_EMERGENCIA do CanaisDeNotificacao): o tipo do toque
+// padrão do aparelho (TYPE_ALARM) e o uso do áudio (USAGE_NOTIFICATION_EVENT: no volume das notificações, e não no do
+// despertador). E a vibração dela em pulsos: o padrão do Android é [espera, liga, desliga, liga, ...].
+function emergenciaDoJava() {
+  const fonte = lerArquivo(PASTA_JAVA + 'CanaisDeNotificacao.java');
+  const tipo = fonte.match(/static Uri somDaEmergencia\(\)\s*\{\s*return RingtoneManager\.getDefaultUri\(RingtoneManager\.(TYPE_\w+)\)/);
+  const uso = fonte.match(/AUDIO_DA_EMERGENCIA = new AudioAttributes\.Builder\(\)\s*\.setUsage\(AudioAttributes\.(USAGE_\w+)\)/);
+  const vibracao = fonte.match(/VIBRACAO_DA_EMERGENCIA = \{([^}]*)\}/);
+  assert.ok(tipo && uso && vibracao, 'o teste leu o som, o uso do áudio e a vibração da emergência');
+  return { tipo: tipo[1], uso: uso[1], pulsos: vibracao[1].split(',').filter((_, i) => i % 2 === 1).length };
+}
+
+// As novidades de uma versão, tiradas do novidades/<versão>.md como a Release as tira (ferramentas/versao-json.mjs): uma
+// por linha "- item". É o que o aviso de atualização mostra a quem tem a versão anterior.
+function novidadesDe(versao) {
+  const md = lerArquivo(`../novidades/${versao}.md`);
+  return montarVersaoJson({ versionCode: 1, versionName: versao, sha256: '0'.repeat(64), novidadesMd: md }).novidades;
+}
+
+// A versão mais nova do novidades/ (só as finais, X.Y.Z; o pré-lançamento repete as linhas da final): a próxima Release,
+// cujas linhas o dono da casca aprova na prévia.
+function versaoMaisNova() {
+  const versoes = readdirSync(new URL('../novidades/', import.meta.url))
+    .map((nome) => nome.match(/^(\d+)\.(\d+)\.(\d+)\.md$/)).filter(Boolean)
+    .map((m) => [Number(m[1]), Number(m[2]), Number(m[3])])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+  assert.ok(versoes.length > 0, 'o teste achou as novidades das versões');
+  return versoes[versoes.length - 1].join('.');
 }
 
 // O padrão do número da OS que a casca aceita no toque (Notificacoes.OS): a OS de exemplo tem de ser uma que abriria.
@@ -327,23 +375,47 @@ test('os botões de cada quadro são os que o código Java monta, e todo diálog
   for (const par of doJava) assert.ok(daPrevia.includes(par), `o Java monta um diálogo com os botões "${par}" que a prévia não mostra`);
 });
 
-test('as novidades vêm como o Atualizador as monta: a versão, "Novidades:" e uma linha "- item" por novidade', () => {
+test('o aviso de versão nova mostra as novidades de verdade da próxima Release, como o Atualizador as monta', () => {
+  // As linhas são as do novidades/<versão>.md da versão mais nova (as que a Release põe no versao.json), e não um
+  // exemplo: é o texto que quem tem a versão anterior lê antes de atualizar, e vai à aprovação como os outros. Caso que
+  // criou a regra: as duas novidades da 1.1.0 iam aos técnicos sem nunca terem aparecido na prévia, que mostrava linhas
+  // inventadas. Um novidades/ de versão nova pede este quadro de novo.
   const d = doc();
-  const quadro = [...d.querySelectorAll('.celular .dialogo-texto')].find((t) => /Novidades:/.test(t.textContent));
-  assert.ok(quadro, 'o quadro da versão nova com novidades');
-  const bruto = quadro.textContent;
-  const [primeira, ...linhas] = bruto.split('\n');
-  const versao = primeira.match(/^Versão (\S+)\. Novidades:$/);
-  assert.ok(versao, `a primeira linha é a versão: "${primeira}"`);
-  assert.ok(linhas.length >= 2, 'o exemplo mostra mais de uma novidade');
-  for (const linha of linhas) assert.match(linha, /^- \S/, `cada novidade é "- item": "${linha}"`);
+  const quadro = d.querySelector('#t-nova-com .celular .dialogo-texto');
+  assert.ok(quadro, 'o quadro da versão nova com novidades (figure#t-nova-com)');
+  const versao = versaoMaisNova();
+  const novidades = novidadesDe(versao);
+  assert.ok(novidades.length > 0, `o novidades/${versao}.md tem ao menos uma linha "- item"`);
 
+  // O Atualizador.textoDoDialogo: a versão no %1$s e uma linha "- item" por novidade no %2$s.
+  assert.match(lerArquivo(PASTA_JAVA + 'Atualizador.java'), /linhas\.append\("- "\)\.append\(novidade\)/,
+    'o Atualizador monta uma linha "- item" por novidade');
   const modelo = stringsDaCasca().find((s) => s.nome === 'casca_atualizacao_texto').bruto;
-  const esperado = modelo.replace('%1$s', () => versao[1]).replace('%2$s', () => linhas.join('\n'));
-  assert.equal(bruto, esperado, 'o texto é o casca_atualizacao_texto preenchido como o Atualizador faz');
+  const esperado = modelo.replace('%1$s', () => versao).replace('%2$s', () => novidades.map((n) => `- ${n}`).join('\n'));
+  assert.equal(quadro.textContent, esperado, `o quadro é o aviso da ${versao}, com as linhas do novidades/${versao}.md`);
 
   // O pre-line é o que faz cada "\n" virar uma linha na tela: sem ele as novidades se juntariam num parágrafo só.
   assert.match(regraDe(folha(), '.dialogo-texto').decl['white-space'], /^pre-line$/);
+
+  // E a lista "O que aprovar" as pede, com o link para o quadro.
+  const item = [...d.querySelectorAll('#o-que-aprovar li')]
+    .find((li) => compactar(li.querySelector('label')?.textContent ?? '').includes(`as novidades da ${versao}`));
+  assert.ok(item, `a lista "O que aprovar" pede as novidades da ${versao}`);
+  assert.equal(item.querySelector('a.ver')?.getAttribute('href'), '#t-nova-com');
+});
+
+test('o que a casca promete da emergência é o que a spec garante: em poucos minutos, e sem som fora do expediente', () => {
+  // A spec (seção 1): a emergência chega em até 10 minutos (a conferência do Fracttal roda a cada 5 a 10 minutos) e,
+  // fora do dia útil e do expediente, em silêncio. O "na hora" de antes prometia mais: o técnico que visse a das 18h
+  // chegar muda acharia que o alarme quebrou e mexeria nos ajustes do canal. Vale para o diálogo dos Avisos e para a
+  // linha das novidades da versão que trouxe as notificações.
+  const daEmergencia = novidadesDe('1.1.0').filter((n) => /emergência/.test(n));
+  assert.equal(daEmergencia.length, 1, 'uma linha das novidades da 1.1.0 fala da emergência');
+  for (const [onde, texto] of [['casca_avisos_texto', textoDe('casca_avisos_texto')], ['novidades/1.1.0.md', daEmergencia[0]]]) {
+    assert.doesNotMatch(texto, /\bna hora\b/, `${onde} promete a emergência "na hora"`);
+    assert.match(texto, /\bem poucos minutos\b/, `${onde}: a emergência chega em poucos minutos`);
+    assert.match(texto, /\bsem som fora do expediente\b/, `${onde}: fora do expediente ela chega sem som`);
+  }
 });
 
 test('os diálogos e o toast estáticos têm nome acessível, e os ids não se repetem', () => {
@@ -387,9 +459,68 @@ test('os nomes entre aspas da lista "O que aprovar" são textos de verdade do ap
   j.avancar(1000);
   permitidos.add(compactar(j.win.document.querySelector('#gc-casca-aviso button').textContent)); // o "Fechar"
 
+  // O texto com número (o toast dos aparelhos do teste) vale com um número de exemplo no lugar do %1$d.
+  const comNumero = [...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos()].map((s) => regexDe(s.texto));
+
   const citados = [...doc().querySelectorAll('#o-que-aprovar .cita')].map((e) => compactar(e.textContent));
   assert.ok(citados.length >= 10, 'a lista cita os títulos e os botões de cada tela');
-  for (const t of citados) assert.ok(permitidos.has(t), `a lista cita um texto que o aplicativo não tem: "${t}"`);
+  for (const t of citados) {
+    assert.ok(permitidos.has(t) || comNumero.some((r) => r.test(t)), `a lista cita um texto que o aplicativo não tem: "${t}"`);
+  }
+});
+
+test('a lista "O que aprovar" cita cada texto do teste dos avisos: os rótulos dos atalhos, o do desligado e os avisos rápidos', () => {
+  // Textos que só o administrador vê, mas que vão ao aparelho como os outros: cada um tem de estar na lista, pelo texto
+  // (o do número com um número de exemplo), e não só como "os avisos rápidos do teste".
+  const citados = [...doc().querySelectorAll('#o-que-aprovar .cita')].map((e) => compactar(e.textContent));
+  const doTeste = [...stringsDosAtalhos(), ...stringsDaCasca().filter((s) => s.nome.startsWith('casca_teste_'))];
+  assert.ok(doTeste.some((s) => s.nome.startsWith('casca_teste_')), 'o teste leu os avisos rápidos do teste');
+  for (const s of doTeste) {
+    assert.ok(citados.some((t) => regexDe(s.texto).test(t)), `a lista "O que aprovar" não cita o ${s.nome}: "${s.texto}"`);
+  }
+});
+
+test('a lista "O que aprovar" pede o som, a vibração e a importância de cada canal, como o CanaisDeNotificacao os cria', () => {
+  // O nome de um canal muda com a versão (o criar seguinte só renomeia); o som, a vibração e a importância, não: o
+  // Android os grava na primeira abertura da 1.1.0, e mudá-los depois pede um canal novo. Por isso o dono os aprova antes,
+  // cada canal com o que o código faz de verdade.
+  const item = doc().getElementById('ok-canais-som')?.closest('li');
+  assert.ok(item, 'o item ok-canais-som da lista "O que aprovar"');
+  assert.equal(item.querySelector('a.ver')?.getAttribute('href'), '#t-canais');
+  assert.match(compactar(item.querySelector('label').textContent), /pede um canal novo/,
+    'o item diz que mudar o som, a vibração ou a importância depois pede um canal novo');
+
+  const emergencia = emergenciaDoJava();
+  const POR_EXTENSO = { 2: 'duas', 3: 'três', 4: 'quatro', 5: 'cinco' };
+  const canais = canaisDetalhadosDoJava();
+  for (const canal of canais) {
+    const parte = item.querySelector(`[data-canal="${canal.id}"]`);
+    assert.ok(parte, `o item tem a parte do canal ${canal.id} (data-canal)`);
+    const t = compactar(parte.textContent);
+    assert.ok(t.startsWith(textoDe(canal.nome)), `a parte do canal ${canal.id} começa pelo nome dele`);
+    if (canal.importancia === 'HIGH') assert.match(t, /aparece por cima da tela/, `${canal.id}: a alta aparece por cima`);
+    else assert.doesNotMatch(t, /(?<!sem )aparecer? por cima/, `${canal.id}: só a de importância alta aparece por cima`);
+    assert.ok(!canal.furaONaoPerturbe, `${canal.id}: o canal pede o setBypassDnd, e o item diz que respeita o Não perturbe`);
+    if (canal.som === 'alarme') {
+      assert.equal(emergencia.tipo, 'TYPE_ALARM', 'o som da emergência é o alarme padrão do aparelho');
+      assert.match(t, /o alarme padrão do aparelho/, `${canal.id}: o som é o alarme padrão do aparelho`);
+      assert.equal(emergencia.uso, 'USAGE_NOTIFICATION_EVENT', 'o alarme toca como notificação');
+      assert.match(t, /no volume das notificações/, `${canal.id}: o alarme toca no volume das notificações`);
+      assert.match(t, /não toca no silencioso nem no Não perturbe/, `${canal.id}: o alarme respeita o técnico`);
+    } else if (canal.som === 'padrão') {
+      assert.match(t, /o som padrão de notificação/, `${canal.id}: o som padrão`);
+    } else {
+      assert.match(t, /sem som/, `${canal.id}: sem som`);
+    }
+    if (canal.vibra) {
+      assert.ok(canal.vibraComoAEmergencia, `${canal.id}: o teste só sabe contar a vibração da emergência`);
+      assert.ok(POR_EXTENSO[emergencia.pulsos], `o teste sabe dizer ${emergencia.pulsos} por extenso`);
+      assert.match(t, new RegExp(`\\b${POR_EXTENSO[emergencia.pulsos]} vibrações\\b`), `${canal.id}: os pulsos da vibração`);
+    } else if (canal.som === 'nenhum') {
+      assert.match(t, /sem vibração/, `${canal.id}: sem vibração`);
+    }
+  }
+  assert.equal(item.querySelectorAll('[data-canal]').length, canais.length, 'uma parte por canal, e só elas');
 });
 
 test('a tela de erro é o www/erro.html de verdade, num iframe que não roda o script dele', () => {
@@ -686,6 +817,9 @@ test('o toque na emergência, na legenda: abre a OS e, com o técnico ocupado, a
     assert.match(legenda, /OS 12345/);
     assert.match(legenda, /pendente/, `${id}: a OS que espera o técnico fechar o que está fazendo`);
     assert.match(legenda, /ronda/, `${id}: a ronda em andamento também segura a OS`);
+    assert.match(legenda, /põe o número da OS na busca da aba Tarefas/, `${id}: o que o toque faz`);
+    assert.doesNotMatch(legenda, /abre a OS/, `${id}: o toque não "abre a OS": põe o número na busca`);
+    assert.match(legenda, /fica na barra até a OS ser mostrada/, `${id}: a emergência fica na barra até a OS ser mostrada`);
   }
   // O resumo só abre o Nexus Field: não leva a OS nenhuma.
   for (const id of ['t-notif-manha', 't-notif-tarde']) {
@@ -724,6 +858,11 @@ test('a lista "O que aprovar" tem o item das notificações, e todo link "Ver" l
   const texto = compactar(item.querySelector('label').textContent);
   assert.match(texto, /servidor/, 'o item diz que o texto das notificações é do servidor');
   assert.match(texto, /pendente/, 'e que a OS da emergência espera o técnico ficar livre');
+  // O toque não abre a OS: põe o número na busca da aba Tarefas, e o técnico ainda toca no cartão. Aprovar "abre a OS"
+  // seria aprovar o que o aparelho não faz.
+  assert.match(texto, /põe o número da OS na busca da aba Tarefas/, 'o item diz o que o toque faz');
+  assert.doesNotMatch(texto, /abre a OS/, 'o toque não "abre a OS": põe o número na busca');
+  assert.match(texto, /fica na barra até a OS ser mostrada/, 'e que a emergência fica na barra até a OS ser mostrada');
   for (const a of d.querySelectorAll('#o-que-aprovar a.ver')) {
     const alvo = a.getAttribute('href').replace(/^#/, '');
     assert.ok(d.getElementById(alvo), `o link Ver da lista leva a #${alvo}, que não existe na página`);
@@ -734,33 +873,85 @@ test('o roteiro da prova das notificações só cita textos do aplicativo e cobr
   const roteiro = lerArquivo('../docs/prova-no-aparelho.md');
   const secao = roteiro.split(/^## /m).find((parte) => parte.startsWith('As notificações'));
   assert.ok(secao, 'a seção "## As notificações" do roteiro');
-  assert.ok((secao.match(/^- \[ \] /gm) || []).length >= 20, 'a seção é uma lista de caixas de seleção');
+  // A seção é uma lista de caixas de seleção, subseção por subseção: todo item é uma caixa (quem prova marca o que viu),
+  // e toda subseção tem as suas.
+  for (const item of secao.match(/^[ \t]*- .*$/gm) || []) {
+    assert.match(item, /^- \[ \] /, `item do roteiro sem a caixa de seleção: "${item.trim().slice(0, 60)}"`);
+  }
+  const subsecoes = secao.split(/^### /m).slice(1);
+  assert.ok(subsecoes.length > 0, 'a seção tem subseções');
+  for (const sub of subsecoes) assert.match(sub, /^- \[ \] /m, `a subseção "${sub.split('\n')[0]}" sem caixa de seleção`);
 
   // Tudo o que o roteiro põe em negrito é um texto que o técnico lê: do aplicativo (strings.xml) ou o título que o
   // servidor manda. Texto que o aplicativo não tem faz o roteiro mandar o responsável procurar o que não existe.
   const doApp = [...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos()];
   const doServidor = NOTIFICACOES.map((n) => n.titulo);
   const citados = [...secao.matchAll(/\*\*([^*]+)\*\*/g)].map((m) => compactar(m[1]));
-  assert.ok(citados.length >= 12, 'o roteiro cita os textos que se veem');
   for (const t of citados) {
     const existe = t === stringDoApp('app_name') || doServidor.includes(t) || doApp.some((s) => regexDe(s.texto).test(t));
     assert.ok(existe, `o roteiro cita um texto que o aplicativo não tem: "${t}"`);
   }
 
   // E cita cada um dos que a prova precisa ver.
+  const atalhos = rotulosDosAtalhosDoJava();
   const obrigatorios = [
-    ...rotulosDosAtalhosDoJava().longos, ...canaisDoJava(),
+    ...atalhos.longos, ...atalhos.desligado, ...canaisDoJava(),
     'casca_teste_enviado', 'casca_teste_so_admin', 'casca_teste_entrar', 'casca_teste_falhou', 'casca_teste_ja_pedido',
-    'casca_avisos_titulo', 'casca_permissoes_titulo',
+    'casca_avisos_titulo', 'casca_permissoes_titulo', 'casca_atualizacao_titulo',
   ];
   for (const nome of obrigatorios) {
     assert.ok(citados.some((t) => regexDe(textoDe(nome)).test(t)), `o roteiro não cita o texto ${nome}`);
   }
   for (const t of doServidor) assert.ok(citados.includes(t), `o roteiro não cita o título "${t}" do servidor`);
 
-  // Os casos que a prova no aparelho existe para ver (o toque que espera o técnico ficar livre e o atalho só do Admin): o
-  // técnico ocupado, o sem Admin, o app fechado.
-  for (const palavra of [/pendente/, /ronda/, /sem Admin/, /fechado/, /12345/]) {
-    assert.match(secao, palavra, `o roteiro das notificações não fala de ${palavra}`);
+  // Os casos que a prova no aparelho existe para ver, cada um com o porquê. Os primeiros são os do toque e do atalho; os
+  // outros, os que a revisão final do ramo achou sem prova (um passa falso, ou uma falha falsa, sem eles).
+  const CASOS = [
+    [/pendente/, 'a OS que fica pendente com o técnico ocupado'],
+    [/a ronda não começou/, 'a Ronda aberta sem começar não segura a OS'],
+    [/a ronda começou/, 'a ronda começada segura a OS'],
+    [/sem Admin/, 'a conta sem Admin não vê os atalhos'],
+    [/fechado/, 'o toque e o aviso com o Nexus Field fechado'],
+    [/12345/, 'a OS dos avisos de teste'],
+    [/"Entrar"/, 'o toque com o Nexus Field fechado cai na tela de entrada, e a OS espera o Entrar'],
+    [/dispensar/, 'dispensar da barra os avisos antes de cada teste (o de mesma OS substitui sem tocar)'],
+    [/volume de notificação/, 'o alarme toca no volume das notificações'],
+    [/Não perturbe/, 'a emergência não toca no Não perturbe'],
+    [/notificações flutuantes/, 'no Xiaomi, as notificações flutuantes vêm desligadas'],
+    [/segundo aparelho/, 'o aviso mandado de fora (outro aparelho da conta Admin)'],
+    [/conta um aparelho a menos/, 'o esquecer do Sair'],
+    [/modo avião/, 'o Sair sem rede, que só cala o aparelho'],
+    [/depois das 17h/, 'a emergência que chega fora do expediente vai ao silencioso'],
+    [/véspera/, 'o resumo das 7h vai à última conta que abriu o Nexus Field'],
+    [/busca ao vivo/, 'a OS de teste do PCM, fora da lista do dia, achada pela busca'],
+    [/câmera do sistema/, 'o toque fecha a câmera da reserva (o singleTask)'],
+    [/som de alarme/, 'conferir nos ajustes que o som de Emergências é o alarme'],
+    [/Samsung/, 'o início automático nas marcas da frota'],
+    [/30 min/, 'a tela apagada por 30 min'],
+    [/rc\.\d/, 'o pré-lançamento quando outro aparelho tem a versão anterior'],
+  ];
+  for (const [palavra, caso] of CASOS) assert.match(secao, palavra, `o roteiro das notificações não prova: ${caso}`);
+
+  // A ordem, num aparelho só: a 1.0.0 recebe o aviso da versão nova, a 1.1.0 abre com os Avisos, o técnico nega, a
+  // reabertura não pergunta, o teste do Admin não mostra nada, e só nos ajustes do Android a notificação liga. Fora dessa
+  // ordem, o "negar" e o "permitir" (ou a instalação nova e a atualização) se excluem e um dos itens nunca se faz.
+  const ORDEM = [/aparece \*\*Nova versão do Nexus Field\*\*/, /aparece \*\*Avisos do Nexus Field\*\*/,
+    /negar \("Não permitir"\)/, /abrir de novo: nada é perguntado/, /para 0 aparelho\(s\)\*\*/,
+    /Ligar a notificação em Configurações > Apps > Nexus Field > Notificações/];
+  let desde = 0;
+  for (const passo of ORDEM) {
+    const onde = secao.slice(desde).search(passo);
+    assert.ok(onde >= 0, `o roteiro não tem, depois do passo anterior, o passo ${passo}`);
+    desde += onde + 1;
   }
+});
+
+test('o roteiro não tem espaço para preencher quem é: o repositório é público', () => {
+  // O usuário de teste, as contas e o e-mail vão numa cópia fora do git. Caso que criou a regra: o "Conta de teste sem
+  // Admin, de um técnico: ____" convidava a escrever a conta de um técnico de verdade no arquivo público.
+  lerArquivo('../docs/prova-no-aparelho.md').split('\n').forEach((linha, i) => {
+    if (!/_{4,}/.test(linha)) return;
+    const quem = /usu[aá]rio|conta|e-?mail|\bnome|t[eé]cnico|pessoa/i.test(linha) || /\bOS\b/.test(linha);
+    assert.ok(!quem, `docs/prova-no-aparelho.md:${i + 1}: espaço para preencher quem é (ou a OS): anote numa cópia fora do git`);
+  });
 });

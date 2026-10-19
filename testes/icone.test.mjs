@@ -185,7 +185,7 @@ test('a abertura (splash) é o navy com o G pequeno no centro, sem as imagens do
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// A tela "Sem internet" e a página local no navy do Nexus Field (R40, 18/10/2026)
+// A tela "Sem internet" e a página local no navy do Nexus Field (18/10/2026)
 // ---------------------------------------------------------------------------------------------------------------
 // A tela de erro (www/erro.html) e a página local (www/index.html) aparecem logo depois da abertura. Até 17/10/2026 elas
 // tinham o fundo do App de Campo (o roxo-escuro do site), porque o ícone também tinha; o ícone e a abertura passaram ao

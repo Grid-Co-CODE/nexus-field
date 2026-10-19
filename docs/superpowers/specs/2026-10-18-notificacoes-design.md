@@ -135,3 +135,24 @@ O técnico deve saber, sem abrir o app, o que tem para fazer e quando surge algo
 - Mensagem sem nome de usina nem de pessoa; o nome da usina só com aprovação na prévia.
 - Três canais de notificação, que o técnico pode ajustar nos ajustes do Android.
 - Versão 1.1.0 da casca para a parte do celular.
+
+## 9. Mudanças depois da aprovação (18/10/2026)
+
+O que a construção e a revisão mudaram no desenho aprovado; a regra, o porquê e o caso de cada uma estão no `CLAUDE.md`.
+- **Registro a cada carga.** A página registra o aparelho uma vez por token em cada carga, com a tela do App na frente
+  e o Bearer da conta de agora, e só com as notificações ligadas; o token novo que o Firebase dá com a página aberta
+  chega a ela e é registrado na hora. Substitui o "registra de novo quando o token mudar" (4.2): registrar só na troca
+  do token não sabia de quem era o aparelho (quem trocava de conta sem o Sair seguia recebendo no e-mail anterior).
+- **O toque não interrompe** (decisão do dono). Com o técnico ocupado (na tela de entrada, numa OS, numa ronda começada,
+  num serviço da Zeladoria ou com outra tela aberta), a OS fica pendente e vai à busca quando ele ficar livre. A
+  emergência fica na barra até a OS ser mostrada: o app fechado ou a tela recriada não a perdem.
+- **O envio de teste sai de um botão só para Admin** (decisão do dono), que é um atalho do toque longo no ícone: os dois
+  testes (o canal alto e o silencioso) aparecem só à conta que o servidor diz Admin, e a casca não desenha nada na
+  página.
+- **O Não perturbe vale** (decisão do dono): nenhuma emergência fura o Não perturbe nem o modo silencioso. O "toca alto"
+  (seções 1 e 3) é o alarme padrão do aparelho, no volume das notificações.
+- **A emergência que chega fora do expediente vai ao silencioso**, mesmo enviada dentro dele: o FCM a segura por até 12 h
+  num celular sem sinal, e a de 16h50 tocaria às 19h40, em casa.
+- **O Sair cala o aparelho.** Além de pedir ao servidor que esqueça o token, o Sair desliga a exibição dos avisos até o
+  próximo registro: sem rede, com o servidor fora ou com a sessão vencida, o esquecer não chega, e o aparelho passado a
+  outro técnico mostraria os avisos de quem saiu.
