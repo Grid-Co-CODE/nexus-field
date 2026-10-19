@@ -768,7 +768,9 @@ const NOTIFICACOES = [
   { id: 't-notif-manha', canal: 'resumo', titulo: 'Bom dia!', texto: 'Hoje: 4 tarefas, 1 corretiva e 3 preventivas.', hora: '07:00' },
   { id: 't-notif-tarde', canal: 'resumo', titulo: 'Boa tarde!', texto: 'Faltam 2 tarefas de hoje: 1 corretiva e 1 preventiva.', hora: '13:00' },
   { id: 't-notif-emergencia', canal: 'emergencia', titulo: 'Emergência', texto: `Corretiva emergencial: OS ${OS_DO_TESTE}`, hora: 'agora' },
-  { id: 't-notif-silenciosa', canal: 'emergencia_silenciosa', titulo: 'Emergência', texto: `Religamento: OS ${OS_DO_TESTE}`, hora: 'agora' },
+  // A silenciosa também é a do teste dos avisos (o Testar sem alarme): o servidor manda o mesmo texto nos dois canais. Um
+  // religamento de verdade traz "Religamento: OS" com uma OS real, e a legenda diz isso sem inventar um número.
+  { id: 't-notif-silenciosa', canal: 'emergencia_silenciosa', titulo: 'Emergência', texto: `Corretiva emergencial: OS ${OS_DO_TESTE}`, hora: 'agora' },
 ];
 
 const secaoDeNotificacoes = (d) => [...d.querySelectorAll('section.grupo')]
