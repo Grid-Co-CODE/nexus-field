@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { conferirContrato, executarContrato, rodarLinhaDeComando, URL_DO_APP, IGNORAR, semComentariosNoScript } from './contrato.mjs';
+import { conferirContrato, executarContrato, rodarLinhaDeComando, URL_DO_APP, IGNORAR, semComentariosNoScript, soCodigoNoScript } from './contrato.mjs';
 
 const require = createRequire(import.meta.url);
 const { CLASSES, CHAVE_FILA, VOLTAR, PUSH, ABRIR_OS, classificar } = require('../www/casca/inicio.js');
@@ -64,12 +64,36 @@ function abrirOsFicticio({ semCampo = false, semFuncao = false } = {}) {
 
 // A ronda do campo.html (v284): o `let` de topo e o critério de "começada" do voltar dela, que a casca repete para saber se
 // a Ronda aberta segura a OS do toque. `sem` tira um campo do critério.
-function rondaFicticia({ semGlobal = false, semCriterio = false, sem = null } = {}) {
+function rondaFicticia({ semGlobal = false, semCriterio = false, sem = null, comecou = null, uso = null } = {}) {
   const R = ABRIR_OS.ronda;
+  const G = R.global;
   const campo = (c) => (c === sem ? 'outra' : c);
+  const expressao = comecou ??
+    `${G}&&(${G}.${campo(R.usina)}||Object.keys(${G}.${campo(R.respostas)}||{}).length||Object.keys(${G}.${campo(R.dispersos)}||{}).length)`;
   return [
-    semGlobal ? '' : `let ${R.global}=null, RONDA_CTX=null, _rondaBusy=false;`,
-    semCriterio ? '' : `function ${R.criterio}(){\n  const comecou=${R.global}&&(${R.global}.${campo(R.usina)}||Object.keys(${R.global}.${campo(R.respostas)}||{}).length||Object.keys(${R.global}.${campo(R.dispersos)}||{}).length);\n  if(comecou&&!${R.global}.${campo(R.finalizada)}){ if(!confirm('x')) return; }\n  irParaTarefas();\n}`,
+    semGlobal ? '' : `let ${G}=null, RONDA_CTX=null, _rondaBusy=false;`,
+    semCriterio ? '' : `function ${R.criterio}(){\n  const pend=(typeof rdPendencias==='function')?rdPendencias().length:0;\n` +
+      `  const ${R.comecou}=${expressao};\n  if(${uso ?? `${R.comecou}&&!${G}.${campo(R.finalizada)}&&pend`}){ if(!confirm('x')) return; }\n` +
+      '  irParaTarefas();\n}',
+  ].join('\n');
+}
+
+// A entrada do campo.html (v287): os dois `let` de topo (nas listas de declaração, como o site os escreve), o
+// _telaRestaurar que liga o _telaRestaurada, o renderTudo que o chama e o entrarComIdentidade que liga a tela do App, espera
+// a fila e só então liga o pollTimer. `sem` tira ou troca uma peça.
+function entradaFicticia({ sem = null } = {}) {
+  const E = ABRIR_OS.entrada;
+  const liga = `if(!${E.filaCarregada}) ${E.filaCarregada}=setInterval(${E.carregarFila},90000);`;
+  return [
+    sem === 'restaurada' ? '' : `let _houveQueda=false, _quedaAto='', _quedaTs=0, ${E.restaurada}=false, _wakeLock=null;`,
+    sem === 'fila' ? '' : `let primeiroLoad=true, snapFila=null, ${E.filaCarregada}=null, semanaAtiva='';`,
+    sem === 'restaurar' ? '' : `function ${E.restaurar}(){\n  if(${E.restaurada}) return false;\n  if(!Object.keys(TASKI).length) return false;\n` +
+      `  ${sem === 'marca' ? 'marcar()' : `${E.restaurada}=true`};\n  return true;\n}`,
+    sem === 'render' ? '' : `function ${E.render}(){\n  try{ ${sem === 'chama' ? 'outraCoisa' : E.restaurar}(); }catch(e){}\n  renderProgresso();\n}`,
+    sem === 'entrar' ? '' : `async function ${E.entrar}(id){\n  mostrarATelaDoApp();\n` +
+      `  ${sem === 'antes' ? liga : ''}\n  await carregarMinhasOS();\n  ${sem === 'semCarga' ? '' : `await ${E.carregarFila}();`}\n` +
+      `  ${sem === 'antes' || sem === 'semLiga' ? '' : liga}\n  ${E.render}();\n}`,
+    `async function ${E.carregarFila}(){ ${E.render}(); }`,
   ].join('\n');
 }
 
@@ -99,9 +123,10 @@ function htmlFicticio(pecas = {}) {
     abrirOs: abrirOsFicticio().script,
     tela: telaDoAppFicticia(),
     ronda: rondaFicticia(),
+    entrada: entradaFicticia(),
     ...pecas,
   };
-  return `<html><head>${p.msal}</head><body>\n${p.marcacao}\n${p.tela}\n${p.busca}\n<script>\n${p.banco}\n${p.abrir}\nconst LSK=[${p.chaves}];\nconst FORA=[${p.ignoradas}];\n${p.prefixos}\n${p.rota}\n${p.fracttal}\n${p.login}\n${p.resto}\n${p.voltar}\n${p.push}\n${p.abrirOs}\n${p.ronda}\n</script></body></html>`;
+  return `<html><head>${p.msal}</head><body>\n${p.marcacao}\n${p.tela}\n${p.busca}\n<script>\n${p.banco}\n${p.abrir}\nconst LSK=[${p.chaves}];\nconst FORA=[${p.ignoradas}];\n${p.prefixos}\n${p.rota}\n${p.fracttal}\n${p.login}\n${p.resto}\n${p.voltar}\n${p.push}\n${p.abrirOs}\n${p.ronda}\n${p.entrada}\n</script></body></html>`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -564,6 +589,57 @@ test('push: o sair tem de ser chamado por alguém fora da declaração dele (o b
   }
 });
 
+test('push: a chamada do sair só dentro de um texto do JavaScript não é a chamada', () => {
+  // O nome num toast, numa regex ou num innerHTML montado num texto não chama nada: o botão do menu que sumiu deixava o
+  // contrato verde por causa de um texto que citava "sair()".
+  for (const texto of [
+    "toast('Toque em sair() no menu');",
+    'const ajuda = "use sair() para trocar de conta";',
+    'const h = `<button onclick="sair()">Sair</button>`;',
+    'const re = /sair\\(/;',
+  ]) {
+    const tela = `${telaDoAppFicticia({ semBotao: true })}\n<script>${texto}</script>`;
+    assert.deepEqual(conferirContrato(htmlFicticio({ tela })), ['push: chamada do sair'], texto);
+  }
+  // O `${...}` de um template é código: a chamada ali vale.
+  const tela = `${telaDoAppFicticia({ semBotao: true })}\n<script>const r = \`saiu: \${sair()}\`;</script>`;
+  assert.deepEqual(conferirContrato(htmlFicticio({ tela })), []);
+});
+
+test('push: o getTokenMW na forma window.getTokenMW = (async) function ou arrow também é lido inteiro', () => {
+  // A declaração de topo e a atribuição à janela valem igual (temFuncaoDeTopo); a regra do login lia só a declaração, e a
+  // atribuição com um loginRedirect dentro passava.
+  const semBearer = pushFicticio({ semBearer: true });
+  const corpo = '{\n  try{ return (await msalApp.acquireTokenSilent({})).idToken; }\n  catch(e){ await msalApp.loginRedirect({}); return null; }\n}';
+  for (const forma of [
+    `window.getTokenMW = async function(){ ${corpo} };`,
+    `window.getTokenMW = async function getTokenMW(){ ${corpo} };`,
+    `window.getTokenMW = async () => ${corpo};`,
+    `window.getTokenMW = function(){ ${corpo.replace(/await /g, '')} };`,
+    `window.getTokenMW = async x => ${corpo};`,
+  ]) {
+    assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semBearer}\n${forma}` })), ['push: getTokenMW abre o login'], forma);
+  }
+  // Sem o login dentro, a forma da janela passa.
+  const semLogin = 'window.getTokenMW = async () => { try{ return (await msalApp.acquireTokenSilent({})).idToken; }catch(e){ return null; } };';
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semBearer}\n${semLogin}` })), []);
+});
+
+test('a leitura só do código: o conteúdo dos textos, o texto dos templates e o corpo das regex viram espaços', () => {
+  // [o script, o que sai]: o mesmo tamanho, sem os comentários e sem o que está dentro dos textos; o `${...}` fica.
+  const casos = [
+    ["x = sair('a b'); // c", "x = sair('   ');     "],
+    ['x = "sair()" + y; /* z */', 'x = "      " + y;        '],
+    ['x = `a ${sair()} b`;', 'x = `  ${sair()}  `;'],
+    ['r = /sair\\(/g; s()', 'r = /      /g; s()'],
+    ["x = 'a\nsair()", "x = ' \nsair()"],
+  ];
+  for (const [js, esperado] of casos) {
+    assert.equal(soCodigoNoScript(js), esperado, JSON.stringify(js));
+    assert.equal(soCodigoNoScript(js).length, js.length);
+  }
+});
+
 test('push: o getTokenMW não pode abrir o login (a casca o chama sozinha, no meio do preenchimento)', () => {
   const semBearer = pushFicticio({ semBearer: true });
   for (const abre of ['loginRedirect', 'acquireTokenRedirect', 'loginPopup', 'acquireTokenPopup']) {
@@ -643,18 +719,18 @@ test('abrir-os: o nome só dentro de outro, só citado ou noutro atributo não v
   assert.deepEqual(conferirContrato(htmlFicticio({ busca: `${semCampo}<input id='busca-os'>` })), []);
 });
 
-test('abrir-os: o contrato exige também o setTab, a aba de Tarefas e o sinal da Ronda em andamento', () => {
-  // A regra do dono (o toque não interrompe o técnico) lê a Ronda em andamento (o .rd-voltar dentro da #tela-ronda.on) e,
-  // livre, troca para Tarefas pelo setTab('tarefas'). Sem um deles a OS abriria por cima da ronda, ou a busca ficaria
-  // escondida noutra aba: a falta vem com o rótulo abrir-os, além do voltar.
+test('abrir-os: o contrato exige também o setTab, a aba de Tarefas e o sinal da Ronda numa etapa', () => {
+  // A regra do dono (o toque não interrompe o técnico) lê a Ronda numa etapa (o .rd-voltar dentro da #tela-ronda.on, que
+  // segura a OS com a ronda começada) e, livre, troca para Tarefas pelo setTab('tarefas'). Sem um deles a OS abriria por
+  // cima da ronda, ou a busca ficaria escondida noutra aba: a falta vem com o rótulo abrir-os, além do voltar.
   const semSetTab = conferirContrato(htmlFicticio({ voltar: voltarFicticio({ semFuncao: ABRIR_OS.funcao.aba }).script }));
   assert.ok(semSetTab.includes(`abrir-os: função ${ABRIR_OS.funcao.aba}`), semSetTab.join(' | '));
   const semAba = conferirContrato(htmlFicticio({ voltar: voltarFicticio({ semAba: true }).script }));
   assert.ok(semAba.includes(`abrir-os: aba '${ABRIR_OS.aba}'`), semAba.join(' | '));
   const semRonda = conferirContrato(htmlFicticio({ marcacao: voltarFicticio({ semId: ABRIR_OS.id.ronda }).marcacao }));
   assert.ok(semRonda.includes(`abrir-os: id '${ABRIR_OS.id.ronda}'`), semRonda.join(' | '));
-  const semSinal = conferirContrato(htmlFicticio({ marcacao: voltarFicticio({ semClasse: ABRIR_OS.classe.rondaEmAndamento }).marcacao }));
-  assert.ok(semSinal.includes(`abrir-os: classe '${ABRIR_OS.classe.rondaEmAndamento}'`), semSinal.join(' | '));
+  const semSinal = conferirContrato(htmlFicticio({ marcacao: voltarFicticio({ semClasse: ABRIR_OS.classe.rondaNumaEtapa }).marcacao }));
+  assert.ok(semSinal.includes(`abrir-os: classe '${ABRIR_OS.classe.rondaNumaEtapa}'`), semSinal.join(' | '));
   const semAtiva = conferirContrato(htmlFicticio({ marcacao: voltarFicticio({ semClasse: ABRIR_OS.classe.abaAtiva }).marcacao }));
   assert.ok(semAtiva.includes(`abrir-os: classe '${ABRIR_OS.classe.abaAtiva}'`), semAtiva.join(' | '));
 });
@@ -675,13 +751,70 @@ test('abrir-os: a ronda começada pelo critério do site (o let RONDA e o voltar
     [`abrir-os: global ${R.global}`]);
 });
 
+test('abrir-os: a expressão inteira do comecou do rdVoltar é a que a casca repete, não só os campos', () => {
+  // A casca repete o critério (rondaComecada: a usina, uma resposta ou um disperso, e não finalizada). Um `||` trocado por
+  // `&&`, o `.length` que sai ou o `!` que some mudam o que é "começada" sem tirar campo nenhum: só a presença dos campos
+  // deixava passar.
+  const R = ABRIR_OS.ronda;
+  const G = R.global;
+  const item = [`abrir-os: ${R.criterio} com outro critério de começada`];
+  for (const comecou of [
+    `${G}&&(${G}.usina&&Object.keys(${G}.respostas||{}).length||Object.keys(${G}.dispersos||{}).length)`,
+    `${G}&&(${G}.usina||Object.keys(${G}.respostas||{})||Object.keys(${G}.dispersos||{}).length)`,
+    `${G}&&(${G}.usina||${G}.respostas||${G}.dispersos)`,
+    `(${G}.usina||Object.keys(${G}.respostas||{}).length||Object.keys(${G}.dispersos||{}).length)`,
+  ]) {
+    assert.deepEqual(conferirContrato(htmlFicticio({ ronda: rondaFicticia({ comecou }) })), item, comecou);
+  }
+  // O uso do comecou junto do `!RONDA.finalizadaNoServidor`: sem o `!`, ou a finalizada fora do comecou, é outro critério.
+  for (const uso of [`${R.comecou}&&${G}.${R.finalizada}&&pend`, `pend&&!${G}.${R.finalizada}`]) {
+    assert.deepEqual(conferirContrato(htmlFicticio({ ronda: rondaFicticia({ uso }) })), item, uso);
+  }
+  // Os espaços e as quebras de linha não contam, e um comentário dentro do rdVoltar também não.
+  const comEspacos = `${G} && ( ${G}.usina\n    || Object.keys( ${G}.respostas || {} ).length /* as respostas */ || Object.keys( ${G}.dispersos || {} ).length )`;
+  assert.deepEqual(conferirContrato(htmlFicticio({ ronda: rondaFicticia({ comecou: comEspacos }) })), []);
+});
+
+test('abrir-os: a entrada do site (a restauração da tela e o fim da carga da fila) é exigida', () => {
+  // A casca só põe a OS do toque na busca depois de a entrada terminar: lê pelo nome o _telaRestaurada (a restauração da
+  // tela de antes rodou) e o pollTimer (o entrarComIdentidade só o liga depois do await carregarDados()). Sem eles, a OS
+  // espera o teto em toda entrada, ou vai à busca antes de a página reabrir por cima dela a folha de antes.
+  const E = ABRIR_OS.entrada;
+  const casos = [
+    ['restaurada', [`abrir-os: global ${E.restaurada}`]],
+    ['fila', [`abrir-os: global ${E.filaCarregada}`]],
+    ['restaurar', [`abrir-os: função ${E.restaurar}`]],
+    ['marca', [`abrir-os: ${E.restaurar} sem ${E.restaurada} = true`]],
+    ['render', [`abrir-os: função ${E.render}`]],
+    ['chama', [`abrir-os: ${E.render} sem ${E.restaurar}()`]],
+    ['entrar', [`abrir-os: função ${E.entrar}`]],
+    ['semCarga', [`abrir-os: ${E.entrar} sem await ${E.carregarFila}`]],
+    ['semLiga', [`abrir-os: ${E.entrar} sem ${E.filaCarregada}`]],
+    ['antes', [`abrir-os: ${E.filaCarregada} antes do ${E.carregarFila}`]],
+  ];
+  for (const [sem, itens] of casos) {
+    assert.deepEqual(conferirContrato(htmlFicticio({ entrada: entradaFicticia({ sem }) })), itens, sem);
+  }
+  // O let dentro de uma função não é o de topo; a chamada ou a atribuição só num comentário não valem.
+  const semRestaurada = entradaFicticia({ sem: 'restaurada' });
+  assert.deepEqual(conferirContrato(htmlFicticio({ entrada: `${semRestaurada}\nfunction x(){\n  let ${E.restaurada}=false;\n}` })),
+    [`abrir-os: global ${E.restaurada}`]);
+  const comentada = entradaFicticia({ sem: 'chama' }).replace('renderProgresso();', `renderProgresso(); /* ${E.restaurar}() */`);
+  assert.deepEqual(conferirContrato(htmlFicticio({ entrada: comentada })), [`abrir-os: ${E.render} sem ${E.restaurar}()`]);
+  // A comparação (==) não é a atribuição do pollTimer.
+  const comparada = entradaFicticia({ sem: 'semLiga' }).replace(`${E.render}();\n}`, `if(${E.filaCarregada}==null) x();\n  ${E.render}();\n}`);
+  assert.deepEqual(conferirContrato(htmlFicticio({ entrada: comparada })), [`abrir-os: ${E.entrar} sem ${E.filaCarregada}`]);
+});
+
 test('abrir-os: o ABRIR_OS do inicio.js tem as partes que o contrato lê', () => {
   assert.equal(typeof ABRIR_OS.funcao.buscar, 'string');
   assert.equal(typeof ABRIR_OS.funcao.aba, 'string');
   assert.equal(typeof ABRIR_OS.id.busca, 'string');
   assert.equal(typeof ABRIR_OS.id.ronda, 'string');
   assert.equal(typeof ABRIR_OS.classe.abaAtiva, 'string');
-  assert.equal(typeof ABRIR_OS.classe.rondaEmAndamento, 'string');
+  assert.equal(typeof ABRIR_OS.classe.rondaNumaEtapa, 'string');
+  assert.equal(typeof ABRIR_OS.ronda.comecou, 'string');
+  for (const nome of Object.values(ABRIR_OS.entrada)) assert.equal(typeof nome, 'string');
   assert.equal(typeof ABRIR_OS.aba, 'string');
 });
 

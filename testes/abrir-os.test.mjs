@@ -9,9 +9,14 @@
 //     pendência; a última emergência vence;
 //   - a tela de login conta como ocupada: toda partida a frio cai nela, e o Entrar recarrega a página pelo
 //     loginRedirect (a busca posta ali se perdia); a pendência atravessa a recarga e abre com a tela do App na frente;
-//   - livre, troca para Tarefas (só se não estiver nela) e preenche o campo ANTES do setBusca, e avisa o nativo
-//     ({t:'osAberta', os}), que repete a OS a cada carga até ouvir isso; a mesma OS entregue de novo na mesma carga é um
-//     pedido novo (livre, volta à busca; ocupado, fica pendente), e o osAberta só sai com a OS mostrada;
+//   - a entrada do site também: a tela do App vem antes da fila, e a fila que chega restaura a tela de antes uma vez (o
+//     _telaRestaurar do campo.html volta à aba anterior ou reabre a folha), por cima da busca. A OS espera a restauração
+//     rodar, ou a fila carregar sem nada a restaurar, ou o teto de 20 s; e até o teto a Ronda reaberta que ainda abre
+//     (sem etapa) também segura;
+//   - livre, troca para Tarefas (só se não estiver nela) e preenche o campo ANTES do setBusca; o nativo só ouve o
+//     osAberta ({t:'osAberta', os}, que tira a emergência da barra e para de repetir a OS) depois de a conferência de
+//     1,5 s ver a OS à vista (a aba Tarefas sem nada por cima e o número no campo); fora da vista, ela volta a pendente. A
+//     mesma OS entregue de novo na mesma carga é um pedido novo (livre, volta à busca; ocupado, fica pendente);
 //   - só entra número de OS (1 a 12 dígitos ASCII), porque o nativo valida mas o extra do Intent vem de fora e o texto
 //     vai parar numa busca; a página sem o campo ou sem o setBusca devolve false sem lançar e sem tocar em nada; e o
 //     setBusca que quebra vira só o rótulo `abrirOS` ao nativo.
@@ -22,7 +27,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { JSDOM } from 'jsdom';
-import { criarJanela, ENDERECO_APP } from './apoio.mjs';
+import { criarJanela, criarRelogio, assentar, ENDERECO_APP } from './apoio.mjs';
 
 const require = createRequire(import.meta.url);
 const { instalar, ABRIR_OS, VOLTAR, PUSH } = require('../www/casca/inicio.js');
@@ -30,6 +35,11 @@ const CODIGO = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 
 
 // A chave da pendência no sessionStorage (dura a partida, atravessa as recargas da mesma WebView).
 const CHAVE = 'gc_casca_os_pendente';
+// A conferência de que a OS posta na busca ficou à vista, e o teto da espera da entrada do site.
+const CONFERE_MS = 1500;
+const TETO_MS = 20000;
+// A OS da emergência de teste do servidor (o /push/teste da v287 manda sempre esta).
+const OS_DO_TESTE = '999999999';
 
 // O relógio da janela (o script lê o win.Date, como lê o win.setTimeout), parado num dia: o teste não depende da hora em
 // que roda, e a virada do dia é trocar a classe.
@@ -49,9 +59,15 @@ const HOJE = '2026-10-18';
 // campo de busca (`<input id="busca-os">`, dentro da tela do App, como no site) e o `setBusca` de topo da página, que
 // anota o que recebeu e o que o campo já tinha naquela hora. Cada peça pode faltar. `chamadas` junta, na ordem, o
 // setBusca, as funções de topo postas por `funcao` e os cliques dos elementos com `rotulo`.
-function montar({ semCampo = false, semBusca = false, busca = null, tela = 'app', semSessao = false, Data = diaFixo(2026, 10, 18), ...opcoes } = {}) {
+// `entrada` é a entrada do site (os `let` de topo _telaRestaurada e pollTimer do campo.html, que na janela falsa são
+// propriedades): 'terminada' é o App em uso (a restauração da tela já rodou nesta carga), 'em curso' a fila ainda a
+// caminho (nenhum dos dois ligado) e 'ilegivel' o site sem os dois nomes.
+function montar({ semCampo = false, semBusca = false, busca = null, tela = 'app', semSessao = false, entrada = 'terminada',
+  Data = diaFixo(2026, 10, 18), ...opcoes } = {}) {
   const j = criarJanela(opcoes);
   j.win.Date = Data;
+  if (entrada === 'terminada') j.win._telaRestaurada = true;
+  if (entrada === 'em curso') { j.win._telaRestaurada = false; j.win.pollTimer = null; }
   // O sessionStorage negado (SecurityError ao ler a propriedade), já antes do script de início.
   if (semSessao) Object.defineProperty(j.win, 'sessionStorage', { get() { throw new DOMException('negado', 'SecurityError'); } });
   const casca = instalar(j.win, j.canal, j.retrato);
@@ -102,7 +118,9 @@ function montar({ semCampo = false, semBusca = false, busca = null, tela = 'app'
   };
   // O Entrar que deu certo (o entrarComIdentidade do site): a tela de login sai e a do App entra.
   const entrar = () => { login.classList.remove('on'); app.classList.add('on'); };
-  return { ...j, casca, doc, campo, buscas, chamadas, elemento, funcao, abrir, erros, abertas, pendente, entrar, app, login };
+  // A conferência de 1,5 s depois da busca posta.
+  const conferir = () => j.avancar(CONFERE_MS);
+  return { ...j, casca, doc, campo, buscas, chamadas, elemento, funcao, abrir, erros, abertas, pendente, entrar, conferir, app, login };
 }
 
 // A carga seguinte na mesma partida (o loginRedirect, o "Tentar de novo"): o localStorage e o sessionStorage de antes.
@@ -125,10 +143,14 @@ function abrirOs(j) {
 }
 
 // A tela de uma aba (a de Tarefas não tem tela com .on), ativa ou não, e o setTab da página, que tira o .on das telas das
-// abas (as telas de login e do App não são abas).
+// abas (as telas de login e do App não são abas) e põe na da aba pedida, quando ela tem tela.
 const tela = (j, id, ativa = true) => j.elemento('div', { id, classes: ativa ? 'on' : '', dentro: j.app });
 function comSetTab(j) {
-  j.funcao('setTab', () => { for (const el of [...j.doc.querySelectorAll('[id^="tela-"].on')]) el.classList.remove('on'); });
+  j.funcao('setTab', (aba) => {
+    for (const el of [...j.doc.querySelectorAll('[id^="tela-"].on')]) el.classList.remove('on');
+    const destino = j.doc.getElementById('tela-' + aba);
+    if (destino) destino.classList.add('on');
+  });
 }
 
 // A aba Ronda numa etapa, como o renderRonda do campo.html (v284) a desenha: o .rd-voltar no cabeçalho de TODAS as etapas,
@@ -147,7 +169,7 @@ const rondaVazia = () => ({ usina: '', respostas: {}, dispersos: {}, etapa: 0, f
 // A regra do dono: o toque nunca interrompe o técnico
 // ---------------------------------------------------------------------------------------------------------------
 
-test('livre: abre na hora, troca para Tarefas e busca', () => {
+test('livre: abre na hora, troca para Tarefas e busca; o nativo ouve o osAberta depois da conferência', () => {
   // Noutra aba (a Sincronização), sem nada aberto: troca para Tarefas pelo setTab da página, e só depois preenche e busca.
   const j = montar();
   comSetTab(j);
@@ -158,8 +180,14 @@ test('livre: abre na hora, troca para Tarefas e busca', () => {
   assert.deepEqual(j.buscas, [{ v: '4521', noCampo: '4521' }], 'o campo já estava preenchido quando o setBusca rodou');
   assert.equal(sync.classList.contains('on'), false);
   assert.equal(j.pendente(), null, 'aberta na hora: nada pendente');
-  assert.equal(j.timersAtivos(), 0, 'e nada agendado');
+  // O osAberta (o nativo tira a emergência da barra) só sai com a OS à vista, conferida 1,5 s depois.
+  assert.deepEqual(j.enviados, [], 'antes da conferência, nada ao nativo');
+  assert.equal(j.timersAtivos(), 1, 'só a conferência de 1,5 s');
+  j.avancar(CONFERE_MS - 1);
+  assert.deepEqual(j.enviados, []);
+  j.avancar(1);
   assert.deepEqual(j.enviados, [{ t: 'osAberta', os: '4521' }], 'o nativo fica sabendo que abriu (e para de repetir)');
+  assert.equal(j.timersAtivos(), 0, 'e nada mais agendado');
 
   // Já em Tarefas (nenhuma tela de aba com .on): sem setTab, que só troca quando não é a aba atual.
   const t = montar();
@@ -169,20 +197,26 @@ test('livre: abre na hora, troca para Tarefas e busca', () => {
   assert.deepEqual(t.chamadas, ['setBusca:4521']);
 
   // A Ronda sem etapa na tela (sem o checklist baixado, ou a de hoje já finalizada: sem o .rd-voltar), a Zeladoria na
-  // lista dos serviços e as outras abas não seguram.
+  // lista dos serviços e as outras abas não seguram, com o App em uso.
   for (const id of ['tela-ronda', 'tela-zl', 'tela-conquistas', 'tela-acomp']) {
     const k = montar();
     comSetTab(k);
     tela(k, id);
     assert.equal(k.abrir('77'), 'aberta', id);
     assert.deepEqual(k.chamadas, ['setTab:tarefas', 'setBusca:77'], id);
+    k.conferir();
+    assert.deepEqual(k.abertas(), ['77'], id);
   }
 
-  // Sem o setTab na página (o site trocou o nome), noutra aba: a busca vai assim mesmo (o contrato diário avisa o dono).
+  // Sem o setTab na página (o site trocou o nome), noutra aba: a busca vai assim mesmo (o contrato diário avisa o dono),
+  // mas a OS não fica à vista (a outra aba continua na frente), e a conferência a devolve à pendência.
   const s = montar();
   tela(s, 'tela-sync');
   assert.equal(s.abrir('4521'), 'aberta');
   assert.deepEqual(s.chamadas, ['setBusca:4521']);
+  s.conferir();
+  assert.deepEqual(s.abertas(), [], 'fora da vista, sem osAberta');
+  assert.deepEqual(s.pendente(), { os: '4521', dia: HOJE });
 });
 
 test('com a OS aberta: fica pendente, nada é fechado', () => {
@@ -230,15 +264,17 @@ test('na tela de login: fica pendente, atravessa o loginRedirect e abre com a te
   // O nativo entrega a mesma OS de novo nesta carga (ele repete até ouvir o osAberta): continua pendente, uma só.
   assert.equal(volta.abrir('4521'), 'pendente');
   assert.equal(volta.timersAtivos(), 1);
-  // O entrarComIdentidade liga a tela do App: a conferência seguinte abre, uma vez.
+  // O entrarComIdentidade liga a tela do App, e a fila já está lá (a restauração da tela já rodou): a conferência
+  // seguinte abre, uma vez.
   volta.entrar();
   volta.avancar(2000);
   assert.deepEqual(volta.chamadas, ['setBusca:4521']);
   assert.equal(volta.campo.value, '4521');
-  assert.deepEqual(volta.abertas(), ['4521']);
   assert.equal(volta.pendente(), null);
-  assert.equal(volta.timersAtivos(), 0);
-  volta.avancar(10000);
+  volta.conferir();
+  assert.deepEqual(volta.abertas(), ['4521']);
+  assert.equal(volta.timersAtivos(), 0, 'à vista: a conferência e o teto da entrada acabam');
+  volta.avancar(30000);
   assert.deepEqual(volta.chamadas, ['setBusca:4521'], 'uma vez só');
 
   // Logado, mas com uma camada aberta por cima do App: segura como sempre.
@@ -268,41 +304,45 @@ test('a mesma OS entregue de novo na mesma carga é um pedido novo: livre, volta
   // osAberta tirava da barra uma emergência que ninguém viu.
   const j = montar();
   comSetTab(j);
-  assert.equal(j.abrir('4521'), 'aberta');
+  assert.equal(j.abrir(OS_DO_TESTE), 'aberta');
+  j.conferir();
   // Ele limpou a busca e foi à lista da Zeladoria: a mesma OS volta à aba Tarefas, com o número no campo.
   j.campo.value = '';
   const zl = tela(j, 'tela-zl');
-  assert.equal(j.abrir('4521'), 'aberta');
-  assert.deepEqual(j.chamadas, ['setBusca:4521', 'setTab:tarefas', 'setBusca:4521']);
-  assert.deepEqual(j.buscas[1], { v: '4521', noCampo: '4521' }, 'o campo preenchido antes do setBusca');
+  assert.equal(j.abrir(OS_DO_TESTE), 'aberta');
+  assert.deepEqual(j.chamadas, ['setBusca:' + OS_DO_TESTE, 'setTab:tarefas', 'setBusca:' + OS_DO_TESTE]);
+  assert.deepEqual(j.buscas[1], { v: OS_DO_TESTE, noCampo: OS_DO_TESTE }, 'o campo preenchido antes do setBusca');
   assert.equal(zl.classList.contains('on'), false);
+  j.conferir();
   // Em Tarefas, com a busca ainda nela: a busca de novo, sem trocar de aba (o toque é o pedido de ver a OS).
-  assert.equal(j.abrir('4521'), 'aberta');
-  assert.deepEqual(j.chamadas.slice(3), ['setBusca:4521']);
-  assert.deepEqual(j.abertas(), ['4521', '4521', '4521'], 'cada vez que a OS é mostrada, o nativo fica sabendo');
+  assert.equal(j.abrir(OS_DO_TESTE), 'aberta');
+  assert.deepEqual(j.chamadas.slice(3), ['setBusca:' + OS_DO_TESTE]);
+  j.conferir();
+  assert.deepEqual(j.abertas(), [OS_DO_TESTE, OS_DO_TESTE, OS_DO_TESTE], 'cada vez que a OS é mostrada, o nativo fica sabendo');
 
   // Ele abriu a OS que a busca trouxe (ou outra), e a mesma OS chega de novo: pendente, nada vai por baixo da OS dele, e
   // o nativo não ouve o osAberta (a emergência fica na barra) até ela ser mostrada.
   const modal = abrirOs(j);
   j.campo.value = '';
-  assert.equal(j.abrir('4521'), 'pendente');
-  assert.deepEqual(j.pendente(), { os: '4521', dia: HOJE });
+  assert.equal(j.abrir(OS_DO_TESTE), 'pendente');
+  assert.deepEqual(j.pendente(), { os: OS_DO_TESTE, dia: HOJE });
   assert.equal(j.campo.value, '');
-  assert.deepEqual(j.abertas(), ['4521', '4521', '4521'], 'pendente não é aberta');
+  assert.deepEqual(j.abertas(), [OS_DO_TESTE, OS_DO_TESTE, OS_DO_TESTE], 'pendente não é aberta');
   j.avancar(4000);
   assert.deepEqual(j.chamadas.slice(4), [], 'com a OS aberta, nada');
   modal.classList.remove('open');
   j.avancar(2000);
-  assert.deepEqual(j.chamadas.slice(4), ['setBusca:4521']);
-  assert.equal(j.campo.value, '4521');
-  assert.deepEqual(j.abertas(), ['4521', '4521', '4521', '4521'], 'mostrada pela pendência, o osAberta');
+  assert.deepEqual(j.chamadas.slice(4), ['setBusca:' + OS_DO_TESTE]);
+  assert.equal(j.campo.value, OS_DO_TESTE);
+  j.conferir();
+  assert.deepEqual(j.abertas(), [OS_DO_TESTE, OS_DO_TESTE, OS_DO_TESTE, OS_DO_TESTE], 'mostrada pela pendência, o osAberta');
   assert.equal(j.pendente(), null);
   assert.equal(j.timersAtivos(), 0);
 
   // O nativo entrega de novo na carga seguinte a OS cujo osAberta não chegou: abre como sempre.
   const k = recarregar(j);
-  assert.equal(k.abrir('4521'), 'aberta');
-  assert.deepEqual(k.chamadas, ['setBusca:4521']);
+  assert.equal(k.abrir(OS_DO_TESTE), 'aberta');
+  assert.deepEqual(k.chamadas, ['setBusca:' + OS_DO_TESTE]);
 });
 
 test('com um serviço da Zeladoria aberto: fica pendente; na lista dos serviços, não', () => {
@@ -319,6 +359,8 @@ test('com um serviço da Zeladoria aberto: fica pendente; na lista dos serviços
   volta.remove(); // ele voltou à lista dos serviços
   j.avancar(2000);
   assert.deepEqual(j.chamadas, ['setTab:tarefas', 'setBusca:4521']);
+  j.conferir();
+  assert.deepEqual(j.abertas(), ['4521']);
 });
 
 test('toda camada da pilha do voltar segura a OS do toque, mesmo a que o voltar não saberia fechar', () => {
@@ -429,7 +471,9 @@ test('pendente abre sozinha quando a camada fecha', () => {
   assert.equal(j.campo.value, '4521');
   assert.equal(sync.classList.contains('on'), false, 'foi para Tarefas');
   assert.equal(j.pendente(), null, 'aberta, a pendência sai');
-  assert.equal(j.timersAtivos(), 0, 'e a conferência para');
+  assert.equal(j.timersAtivos(), 1, 'a conferência de 2 s para; a de 1,5 s espera a OS ficar à vista');
+  j.conferir();
+  assert.equal(j.timersAtivos(), 0);
   assert.deepEqual(j.abertas(), ['4521'], 'aberta pela pendência: o nativo fica sabendo');
   j.avancar(10000);
   assert.deepEqual(j.chamadas, ['setTab:tarefas', 'setBusca:4521'], 'uma vez só');
@@ -465,6 +509,8 @@ test('a pendência atravessa a recarga da página na mesma sessão', () => {
   j.avancar(2000);
   assert.deepEqual(j.chamadas, ['setBusca:4521']);
   assert.equal(j.pendente(), null);
+  j.conferir();
+  assert.deepEqual(j.abertas(), ['4521']);
   assert.equal(j.timersAtivos(), 0);
 
   // A página ainda montando (sem o campo e sem o setBusca): a conferência espera, sem perder a pendência.
@@ -477,6 +523,7 @@ test('a pendência atravessa a recarga da página na mesma sessão', () => {
   k.avancar(2000);
   assert.deepEqual(k.chamadas, ['setBusca:4521']);
   assert.equal(campo.value, '4521');
+  k.conferir();
   assert.equal(k.timersAtivos(), 0);
 });
 
@@ -520,7 +567,9 @@ test('a conferência de 2 s só roda com pendência', () => {
   comSetTab(j);
   assert.equal(j.timersAtivos(), 0, 'sem pendência, nada agendado na carga');
   assert.equal(j.abrir('1'), 'aberta');
-  assert.equal(j.timersAtivos(), 0, 'aberta na hora: nada agendado');
+  assert.equal(j.timersAtivos(), 1, 'aberta na hora: só a conferência de 1,5 s');
+  j.conferir();
+  assert.equal(j.timersAtivos(), 0);
 
   const modal = abrirOs(j);
   assert.equal(j.abrir('2'), 'pendente');
@@ -533,7 +582,9 @@ test('a conferência de 2 s só roda com pendência', () => {
   }
   modal.classList.remove('open');
   j.avancar(2000);
-  assert.equal(j.timersAtivos(), 0, 'aberta, a conferência para');
+  assert.equal(j.timersAtivos(), 1, 'aberta, a conferência de 2 s para (fica a de 1,5 s)');
+  j.conferir();
+  assert.equal(j.timersAtivos(), 0);
   assert.deepEqual(j.chamadas, ['setBusca:1', 'setBusca:3']);
 
   // A pendência que some por fora (a página limpou o sessionStorage no "limpar só o login"): a conferência para sem abrir.
@@ -557,6 +608,7 @@ test('a última emergência vence', () => {
   modal.classList.remove('open');
   j.avancar(12000);
   assert.deepEqual(j.chamadas, ['setBusca:222']);
+  assert.deepEqual(j.abertas(), ['222']);
 
   // A pendente esperando e uma emergência nova com ele já livre: a nova abre na hora, e a velha não vem depois.
   const k = montar();
@@ -565,9 +617,32 @@ test('a última emergência vence', () => {
   m.classList.remove('open');
   assert.equal(k.abrir('333'), 'aberta');
   assert.equal(k.pendente(), null);
-  assert.equal(k.timersAtivos(), 0, 'sem pendência, a conferência já parou');
   k.avancar(10000);
   assert.deepEqual(k.chamadas, ['setBusca:333']);
+  assert.deepEqual(k.abertas(), ['333']);
+  assert.equal(k.timersAtivos(), 0, 'sem pendência, a conferência já parou');
+
+  // Uma OS nova chega durante a conferência de 1,5 s da anterior: só a nova é conferida, e a velha não volta a pendente.
+  const n = montar();
+  assert.equal(n.abrir('444'), 'aberta');
+  n.avancar(500);
+  assert.equal(n.abrir('555'), 'aberta');
+  n.avancar(10000);
+  assert.deepEqual(n.abertas(), ['555']);
+  assert.equal(n.pendente(), null);
+  // E a que fica pendente (ele abriu uma OS) durante a conferência da anterior, que não ficou à vista: a pendente é a
+  // nova, e a anterior não toma o lugar dela.
+  const p = montar();
+  assert.equal(p.abrir('666'), 'aberta');
+  const om = abrirOs(p);
+  assert.equal(p.abrir('777'), 'pendente');
+  p.conferir();
+  assert.deepEqual(p.abertas(), [], 'a 666 não ficou à vista (a OS por cima)');
+  assert.deepEqual(p.pendente(), { os: '777', dia: HOJE }, 'a última vence');
+  om.classList.remove('open');
+  p.avancar(2000);
+  p.conferir();
+  assert.deepEqual(p.abertas(), ['777']);
 });
 
 test('sem onde guardar a pendência (o sessionStorage cheio ou negado), ela fica na página até a recarga', () => {
@@ -584,6 +659,7 @@ test('sem onde guardar a pendência (o sessionStorage cheio ou negado), ela fica
   modal.classList.remove('open');
   j.avancar(2000);
   assert.deepEqual(j.chamadas, ['setBusca:4521']);
+  j.conferir();
   assert.deepEqual(j.abertas(), ['4521']);
   assert.equal(j.timersAtivos(), 0);
 
@@ -604,6 +680,17 @@ test('sem onde guardar a pendência (o sessionStorage cheio ou negado), ela fica
   om.classList.remove('open');
   s.avancar(2000);
   assert.deepEqual(s.chamadas, ['setBusca:9']);
+
+  // A OS que não ficou à vista volta à pendência na variável, também sem sessionStorage.
+  const v = montar({ semSessao: true });
+  assert.equal(v.abrir('10'), 'aberta');
+  const ov = abrirOs(v);
+  v.conferir();
+  assert.deepEqual(v.abertas(), []);
+  ov.classList.remove('open');
+  v.avancar(2000);
+  v.conferir();
+  assert.deepEqual(v.abertas(), ['10']);
 });
 
 test('no Sair, a OS pendente sai: a conta seguinte não recebe a emergência da anterior', { timeout: 10000 }, async () => {
@@ -634,6 +721,240 @@ test('no Sair, a OS pendente sai: a conta seguinte não recebe a emergência da 
   om.classList.remove('open');
   v.avancar(10000);
   assert.deepEqual(v.chamadas, []);
+
+  // A OS posta na busca, com a conferência de 1,5 s em curso: o Sair a tira dali (nem o osAberta, nem a volta a
+  // pendente para a conta seguinte).
+  const s = montar();
+  s.win.sair = async function () { return 'saiu'; };
+  s.win.dispatchEvent({ type: 'load' });
+  assert.equal(s.abrir('88'), 'aberta');
+  await s.win.sair();
+  abrirOs(s);
+  s.avancar(10000);
+  assert.deepEqual(s.abertas(), []);
+  assert.equal(s.pendente(), null);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// A entrada do site: a fila que chega depois da tela do App e a restauração da tela de antes
+// ---------------------------------------------------------------------------------------------------------------
+
+// A entrada do campo.html (v287), na janela falsa: o entrarComIdentidade liga a tela do App e espera a fila; a fila que
+// chega monta a lista e o renderTudo chama o _telaRestaurar UMA vez, que volta à aba anterior (setTab) ou reabre a folha
+// (o abrirFechamentoTask: o #sheet.open). `marca` é o que o site guardou da tela de antes (o gc_tela).
+function comEntrada(j) {
+  comSetTab(j);
+  const folha = j.elemento('div', { id: 'sheet' });
+  const sync = tela(j, 'tela-sync', false);
+  const ronda = tela(j, 'tela-ronda', false);
+  // A fila chegou (o fim do carregarDados): com tarefas, a restauração roda e marca o _telaRestaurada; o entrarComIdentidade
+  // liga o pollTimer logo depois, nos dois casos.
+  const filaChegou = ({ tarefas = true, marca = null } = {}) => {
+    if (tarefas) {
+      j.win._telaRestaurada = true;
+      if (marca && marca.tab) j.win.setTab(marca.tab);
+      if (marca && marca.folha) { j.win.setTab('tarefas'); folha.classList.add('open'); }
+    }
+    j.win.pollTimer = 3;
+  };
+  return { folha, sync, ronda, filaChegou };
+}
+
+test('na entrada: a OS espera a fila, e a folha que a restauração reabre por cima da busca a segura até ele fechar', () => {
+  // O toque com o app fechado: a tela de login, o Entrar, a tela do App na frente ANTES da fila (o entrarComIdentidade
+  // espera o carregarMinhasOS e o carregarDados depois de ligá-la). Quando a fila chega, o site reabre a folha em que o
+  // técnico estava (o "Você estava aqui"). Caso que criou a regra: a busca posta logo depois do Entrar ficava por baixo
+  // da folha reaberta, e o osAberta já tinha tirado a emergência da barra.
+  const j = montar({ tela: 'login', entrada: 'em curso' });
+  const e = comEntrada(j);
+  assert.equal(j.abrir(OS_DO_TESTE), 'pendente');
+  j.entrar();
+  j.avancar(2000);
+  assert.deepEqual(j.chamadas, [], 'a tela do App na frente, mas a fila ainda a caminho: a OS espera');
+  j.avancar(4000);
+  assert.deepEqual(j.chamadas, []);
+  assert.deepEqual(j.pendente(), { os: OS_DO_TESTE, dia: HOJE });
+  // A fila chega e a restauração reabre a folha (o setTab('tarefas') e o #sheet.open).
+  e.filaChegou({ marca: { folha: true } });
+  j.avancar(2000);
+  assert.deepEqual(j.chamadas, ['setTab:tarefas'], 'só o setTab da restauração: a folha reaberta segura a OS');
+  assert.equal(j.campo.value, '');
+  j.avancar(10000);
+  assert.deepEqual(j.chamadas, ['setTab:tarefas']);
+  assert.deepEqual(j.abertas(), []);
+  // Ele fecha a folha: a OS vai à busca e, à vista, o nativo fica sabendo.
+  e.folha.classList.remove('open');
+  j.avancar(2000);
+  assert.deepEqual(j.chamadas, ['setTab:tarefas', 'setBusca:' + OS_DO_TESTE]);
+  j.conferir();
+  assert.deepEqual(j.abertas(), [OS_DO_TESTE]);
+  assert.equal(j.timersAtivos(), 0, 'nada mais agendado: nem a conferência, nem o teto da entrada');
+});
+
+test('na entrada: a restauração que troca de aba; a Ronda reaberta segura a OS enquanto abre, e a começada segura depois', () => {
+  // A restauração voltou à Sincronização (outra aba sem nada aberto): a OS vai à aba Tarefas, como sempre.
+  const j = montar({ tela: 'login', entrada: 'em curso' });
+  const e = comEntrada(j);
+  assert.equal(j.abrir('4521'), 'pendente');
+  j.entrar();
+  j.avancar(2000);
+  e.filaChegou({ marca: { tab: 'sync' } });
+  assert.ok(e.sync.classList.contains('on'), 'a restauração voltou à Sincronização');
+  j.avancar(2000);
+  assert.deepEqual(j.chamadas, ['setTab:sync', 'setTab:tarefas', 'setBusca:4521']);
+  j.conferir();
+  assert.deepEqual(j.abertas(), ['4521']);
+
+  // A restauração voltou à Ronda: a aba abre pela rede (a conta do Fracttal e o checklist), sem etapa até lá, e o RONDA
+  // ainda nulo. Nesse meio-tempo a OS não tira o técnico da ronda em que ele estava.
+  const k = montar({ tela: 'login', entrada: 'em curso' });
+  const r = comEntrada(k);
+  assert.equal(k.abrir('4521'), 'pendente');
+  k.entrar();
+  k.avancar(2000);
+  k.win.RONDA = null;
+  r.filaChegou({ marca: { tab: 'ronda' } });
+  k.avancar(6000);
+  assert.deepEqual(k.chamadas, ['setTab:ronda'], 'a Ronda abrindo: a OS espera');
+  // A Ronda abriu na etapa em que ele estava (o rascunho com a usina): a ronda começada segura.
+  k.win.RONDA = { ...rondaVazia(), usina: 'Usina Ficticia' };
+  k.elemento('button', { classes: 'rd-voltar', dentro: r.ronda });
+  k.avancar(30000);
+  assert.deepEqual(k.chamadas, ['setTab:ronda'], 'passado o teto, a ronda começada segura como sempre');
+  // Ele sai da Ronda: a OS vai à busca.
+  r.ronda.classList.remove('on');
+  k.avancar(2000);
+  assert.deepEqual(k.chamadas, ['setTab:ronda', 'setBusca:4521']);
+  k.conferir();
+  assert.deepEqual(k.abertas(), ['4521']);
+
+  // A entrada rápida (a fila já tinha chegado quando a casca viu a tela do App, depois de ver a tela de login): é a
+  // entrada desta carga do mesmo jeito, e a Ronda reaberta que ainda abre segura a OS.
+  const q = montar({ tela: 'login', entrada: 'em curso' });
+  const rq = comEntrada(q);
+  assert.equal(q.abrir('4521'), 'pendente');
+  q.entrar();
+  rq.filaChegou({ marca: { tab: 'ronda' } });
+  q.avancar(6000);
+  assert.deepEqual(q.chamadas, ['setTab:ronda'], 'a Ronda abrindo segura, mesmo com a entrada já terminada');
+
+  // A Ronda reaberta que não abre (a conta do Fracttal pede conexão: sem etapa, o RONDA nulo) segura só até o teto.
+  const t = montar({ tela: 'login', entrada: 'em curso' });
+  const rt = comEntrada(t);
+  assert.equal(t.abrir('4521'), 'pendente');
+  t.entrar();
+  t.avancar(1000);
+  rt.filaChegou({ marca: { tab: 'ronda' } });
+  t.avancar(TETO_MS - 2000);
+  assert.deepEqual(t.chamadas, ['setTab:ronda'], 'até o teto, a Ronda sem etapa segura');
+  t.avancar(4000);
+  assert.deepEqual(t.chamadas, ['setTab:ronda', 'setTab:tarefas', 'setBusca:4521'], 'passado o teto, é outra aba');
+});
+
+test('na entrada: a fila vazia (nada a restaurar) libera pelo fim da carga; sem sinal nenhum, o teto de 20 s', () => {
+  // Com a fila vazia o site não restaura nada (o _telaRestaurar só roda com a fila montada) e o _telaRestaurada fica
+  // false: o fim da entrada é o pollTimer, que o entrarComIdentidade só liga depois do await carregarDados().
+  const j = montar({ tela: 'login', entrada: 'em curso' });
+  const e = comEntrada(j);
+  assert.equal(j.abrir('4521'), 'pendente');
+  j.entrar();
+  j.avancar(4000);
+  assert.deepEqual(j.chamadas, []);
+  e.filaChegou({ tarefas: false });
+  assert.equal(j.win._telaRestaurada, false, 'nada a restaurar');
+  j.avancar(2000);
+  assert.deepEqual(j.chamadas, ['setBusca:4521']);
+  j.conferir();
+  assert.deepEqual(j.abertas(), ['4521']);
+
+  // A fila que não chega (o carregarMinhasOS esperando o Fracttal): o teto, contado desde que a casca viu a tela do App.
+  const k = montar({ tela: 'login', entrada: 'em curso' });
+  comEntrada(k);
+  assert.equal(k.abrir('4521'), 'pendente');
+  k.avancar(2000);
+  k.entrar();
+  k.avancar(2000); // a casca vê a tela do App aqui
+  k.avancar(TETO_MS - 2000);
+  assert.deepEqual(k.chamadas, [], 'antes do teto');
+  k.avancar(2000);
+  assert.deepEqual(k.chamadas, ['setBusca:4521'], 'no teto');
+  k.conferir();
+  assert.deepEqual(k.abertas(), ['4521']);
+
+  // O site sem os dois nomes (trocou o _telaRestaurada e o pollTimer): a OS que chega com o App na frente espera o teto.
+  const s = montar({ entrada: 'ilegivel' });
+  assert.equal(s.abrir('4521'), 'pendente');
+  s.avancar(TETO_MS);
+  assert.deepEqual(s.chamadas, ['setBusca:4521']);
+});
+
+test('o App já em uso quando a OS chega não espera a entrada: ela terminou antes, nesta carga', () => {
+  // O toque com o app aberto (a fila já carregada, a restauração já rodou ou não tinha o que restaurar): a OS vai à busca
+  // na hora, e nada de teto.
+  for (const sinal of ['_telaRestaurada', 'pollTimer']) {
+    const j = montar({ entrada: 'em curso' });
+    j.win[sinal] = sinal === 'pollTimer' ? 5 : true;
+    assert.equal(j.abrir('4521'), 'aberta', sinal);
+    j.conferir();
+    assert.deepEqual(j.abertas(), ['4521'], sinal);
+    assert.equal(j.timersAtivos(), 0, sinal);
+  }
+  // Com a Ronda sem etapa na frente (ele está na tela da ronda finalizada, ou sem o checklist): é outra aba, como sempre.
+  const k = montar();
+  comSetTab(k);
+  tela(k, 'tela-ronda');
+  assert.equal(k.abrir('4521'), 'aberta');
+  assert.deepEqual(k.chamadas, ['setTab:tarefas', 'setBusca:4521']);
+});
+
+test('a conferência de 1,5 s: o osAberta só sai com a OS à vista; fora dela, a OS volta a pendente', () => {
+  // A restauração da tela que vem depois da busca posta (a OS aberta pelo teto, com a fila chegando logo em seguida): a
+  // folha reaberta por cima da busca. Sem o osAberta, a emergência fica na barra, e a OS volta à busca quando ele fechar.
+  const j = montar({ tela: 'login', entrada: 'em curso' });
+  const e = comEntrada(j);
+  assert.equal(j.abrir('4521'), 'pendente');
+  j.entrar();
+  j.avancar(2000);
+  j.avancar(TETO_MS);
+  assert.deepEqual(j.chamadas, ['setBusca:4521'], 'o teto abriu');
+  e.filaChegou({ marca: { folha: true } });
+  j.conferir();
+  assert.deepEqual(j.abertas(), [], 'a folha por cima da busca: sem osAberta');
+  assert.deepEqual(j.pendente(), { os: '4521', dia: HOJE }, 'a OS volta a pendente');
+  j.avancar(6000);
+  assert.deepEqual(j.chamadas, ['setBusca:4521', 'setTab:tarefas'], 'com a folha aberta, nada');
+  e.folha.classList.remove('open');
+  j.avancar(2000);
+  assert.deepEqual(j.chamadas, ['setBusca:4521', 'setTab:tarefas', 'setBusca:4521']);
+  j.conferir();
+  assert.deepEqual(j.abertas(), ['4521']);
+
+  // A restauração que volta a outra aba depois da busca: a OS some atrás dela, e volta à aba Tarefas na conferência.
+  const k = montar({ entrada: 'em curso' });
+  const ek = comEntrada(k);
+  k.win.pollTimer = 1; // a fila já carregou, sem nada a restaurar ainda
+  assert.equal(k.abrir('4521'), 'aberta');
+  k.win.setTab('sync');
+  k.conferir();
+  assert.deepEqual(k.abertas(), [], 'outra aba na frente');
+  k.avancar(2000);
+  assert.ok(!ek.sync.classList.contains('on'), 'de volta a Tarefas');
+  k.conferir();
+  assert.deepEqual(k.abertas(), ['4521']);
+
+  // O número que saiu do campo (a página redesenhou a busca, ou ele a limpou) e a tela do App que saiu: fora da vista.
+  const c = montar();
+  assert.equal(c.abrir('4521'), 'aberta');
+  c.campo.value = '';
+  c.conferir();
+  assert.deepEqual(c.abertas(), []);
+  assert.deepEqual(c.pendente(), { os: '4521', dia: HOJE });
+  const t = montar();
+  assert.equal(t.abrir('4521'), 'aberta');
+  t.app.classList.remove('on');
+  t.conferir();
+  assert.deepEqual(t.abertas(), []);
+  assert.deepEqual(t.pendente(), { os: '4521', dia: HOJE });
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -642,15 +963,24 @@ test('no Sair, a OS pendente sai: a conta seguinte não recebe a emergência da 
 
 test('preenche o campo de busca e chama o setBusca com o número, nessa ordem', () => {
   const j = montar();
-  assert.equal(j.abrir('12345'), 'aberta');
-  assert.equal(j.campo.value, '12345');
-  assert.deepEqual(j.buscas, [{ v: '12345', noCampo: '12345' }], 'o campo já estava preenchido quando o setBusca rodou');
+  assert.equal(j.abrir(OS_DO_TESTE), 'aberta');
+  assert.equal(j.campo.value, OS_DO_TESTE);
+  assert.deepEqual(j.buscas, [{ v: OS_DO_TESTE, noCampo: OS_DO_TESTE }], 'o campo já estava preenchido quando o setBusca rodou');
   assert.deepEqual(j.erros(), []);
 
   // Outra OS no lugar da primeira: o campo troca, sem acumular.
   assert.equal(j.abrir('7'), 'aberta');
   assert.equal(j.campo.value, '7');
-  assert.deepEqual(j.buscas.map((b) => b.v), ['12345', '7']);
+  assert.deepEqual(j.buscas.map((b) => b.v), [OS_DO_TESTE, '7']);
+});
+
+test('a OS de 9 dígitos do teste do servidor passa, inteira', () => {
+  // O /push/teste da v287 manda a OS 999999999 (fora da faixa das OS reais): a casca a aceita do mesmo jeito.
+  const j = montar();
+  assert.equal(j.abrir(OS_DO_TESTE), 'aberta');
+  assert.equal(j.campo.value, OS_DO_TESTE);
+  j.conferir();
+  assert.deepEqual(j.abertas(), [OS_DO_TESTE]);
 });
 
 test('a função não é enumerável, existe em toda carga e não manda nada ao nativo', () => {
@@ -740,6 +1070,8 @@ test('o setBusca que lança: devolve false e avisa o nativo só com o rótulo ab
   const erros = j.erros();
   assert.equal(erros.length, 1);
   assert.equal(erros[0].onde, 'abrirOS');
+  j.avancar(10000);
+  assert.deepEqual(j.abertas(), [], 'a busca que quebrou não vira osAberta');
 
   // Na conferência: a pendente cujo setBusca lança sai da pendência (não se repete a cada 2 s) e avisa uma vez.
   const k = montar({ busca: quebra });
@@ -761,6 +1093,14 @@ test('o setBusca que lança: devolve false e avisa o nativo só com o rótulo ab
   assert.deepEqual(q.erros().map((m) => m.onde), ['abrirOS']);
   assert.equal(q.pendente(), null);
   assert.equal(q.timersAtivos(), 0);
+
+  // A conferência de 1,5 s que quebra (a página que lança ao procurar a camada): um aviso, sem osAberta.
+  const c = montar();
+  assert.equal(c.abrir('4521'), 'aberta');
+  c.doc.getElementById = () => { throw new Error('quebrou com tecnico.ficticio@exemplo.com.br'); };
+  c.conferir();
+  assert.deepEqual(c.erros().map((m) => m.onde), ['abrirOS']);
+  assert.deepEqual(c.abertas(), []);
 });
 
 test('no navegador: o function setBusca de topo da página é achado pelo nome na janela', () => {
@@ -794,6 +1134,7 @@ test('no navegador: o function setBusca de topo da página é achado pelo nome n
     rodar(`
       let BUSCA = '';
       let RONDA = null;
+      let _houveQueda = false, _telaRestaurada = true;
       function setBusca(v) { BUSCA = String(v || '').trim(); window.buscouPor = BUSCA; document.getElementById('busca-x').style.display = BUSCA ? '' : 'none'; }
     `);
     assert.equal(window.setBusca === undefined, false, 'a função de topo é propriedade da janela');
@@ -826,14 +1167,118 @@ test('no navegador: o function setBusca de topo da página é achado pelo nome n
   }
 });
 
+test('no navegador: a entrada do site de verdade, com o _telaRestaurada e o pollTimer de topo lidos pelo nome', async () => {
+  // O jsdom roda o inicio.js e uma página com a entrada do campo.html (v287) como scripts clássicos de verdade: o
+  // entrarComIdentidade liga a tela do App, espera a fila e só então liga o pollTimer; o renderTudo chama o _telaRestaurar,
+  // que reabre a folha com a fila montada. Os `let` de topo não são propriedades da janela: a casca os lê pelo nome. O
+  // relógio da casca é falso (posto na janela antes dela), e a rede da página são promessas que o teste solta.
+  const relogio = criarRelogio();
+  const enviados = [];
+  const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+    url: ENDERECO_APP,
+    runScripts: 'dangerously',
+    beforeParse(window) {
+      window.gcCasca = { postMessage(texto) { enviados.push(JSON.parse(texto)); } };
+      window.__GC_RETRATO__ = { temEspelho: true, filaHashes: [], idbChaves: [] };
+      window.localStorage.setItem('gc_casca_sentinela', '1');
+      window.setTimeout = relogio.setTimeout;
+      window.clearTimeout = relogio.clearTimeout;
+    },
+  });
+  const { window } = dom;
+  try {
+    const rodar = (codigo) => {
+      const s = window.document.createElement('script');
+      s.textContent = codigo;
+      window.document.head.appendChild(s);
+    };
+    rodar(CODIGO);
+    window.document.body.innerHTML =
+      '<div id="s-login" class="scr on"></div><div id="s-app" class="scr">' +
+      '<input id="busca-os" type="search"><div id="tela-sync"></div></div><div id="sheet"></div>';
+    // A rede da página: o teste solta a lista "minhas OS" e a fila quando quer.
+    let soltarMinhas;
+    let soltarFila;
+    window.__minhas = new window.Promise((r) => { soltarMinhas = r; });
+    window.__fila = new window.Promise((r) => { soltarFila = r; });
+    rodar(`
+      let BUSCA = '';
+      let TASKI = {};
+      let primeiroLoad = true, snapFila = null, pollTimer = null, semanaAtiva = '';
+      let _houveQueda = false, _quedaAto = '', _telaRestaurada = false, _wakeLock = null;
+      function setBusca(v) { BUSCA = String(v || '').trim(); window.buscouPor = BUSCA; }
+      function setTab(t) {
+        document.getElementById('tela-sync').classList.toggle('on', t === 'sync');
+      }
+      function abrirFechamentoTask(tid) { document.getElementById('sheet').classList.add('open'); }
+      function _telaRestaurar() {
+        if (_telaRestaurada) return false;
+        if (!Object.keys(TASKI).length) return false;
+        _telaRestaurada = true;
+        setTab('tarefas');
+        abrirFechamentoTask(1);
+        return true;
+      }
+      function renderTudo() {
+        try { _telaRestaurar(); } catch (e) {}
+      }
+      async function carregarMinhasOS() { await window.__minhas; }
+      async function carregarDados() { TASKI = await window.__fila; renderTudo(); }
+      async function entrarComIdentidade() {
+        document.getElementById('s-login').classList.remove('on');
+        document.getElementById('s-app').classList.add('on');
+        await carregarMinhasOS();
+        await carregarDados();
+        if (!pollTimer) pollTimer = 1;
+        renderTudo();
+      }
+    `);
+    assert.equal(window._telaRestaurada, undefined, 'o let não é propriedade da janela');
+    assert.equal(window.pollTimer, undefined);
+    const abertas = () => enviados.filter((m) => m.t === 'osAberta').map((m) => m.os);
+    const campo = () => window.document.getElementById('busca-os').value;
+
+    // O toque com o app fechado: a tela de login.
+    assert.equal(window.__gcCascaAbrirOS(OS_DO_TESTE), 'pendente');
+    // O Entrar: a tela do App na frente, a fila ainda a caminho.
+    const entrada = window.entrarComIdentidade();
+    relogio.avancar(2000);
+    relogio.avancar(4000);
+    assert.equal(campo(), '', 'a fila a caminho: a OS espera');
+    soltarMinhas();
+    await assentar();
+    relogio.avancar(2000);
+    assert.equal(campo(), '', 'ainda sem a fila');
+    // A fila chega com tarefas: a restauração reabre a folha, e a OS espera ele fechar.
+    soltarFila({ 1: { key: 'k1' } });
+    await entrada;
+    assert.ok(window.document.getElementById('sheet').classList.contains('open'), 'a folha reaberta pelo site');
+    relogio.avancar(6000);
+    assert.equal(campo(), '', 'a folha reaberta segura a OS');
+    assert.deepEqual(abertas(), []);
+    window.document.getElementById('sheet').classList.remove('open');
+    relogio.avancar(2000);
+    assert.equal(campo(), OS_DO_TESTE);
+    assert.equal(window.buscouPor, OS_DO_TESTE);
+    relogio.avancar(CONFERE_MS);
+    assert.deepEqual(abertas(), [OS_DO_TESTE], 'à vista: o osAberta');
+  } finally {
+    window.close();
+  }
+});
+
 test('o ABRIR_OS do inicio.js tem os nomes que o contrato com o site exige, e a seção 9 só os usa por ele', () => {
   assert.deepEqual(ABRIR_OS, {
     funcao: { buscar: 'setBusca', aba: 'setTab' },
     id: { busca: 'busca-os', ronda: 'tela-ronda', app: 's-app' },
-    classe: { abaAtiva: 'on', rondaEmAndamento: 'rd-voltar' },
+    classe: { abaAtiva: 'on', rondaNumaEtapa: 'rd-voltar' },
     ronda: {
-      global: 'RONDA', criterio: 'rdVoltar', usina: 'usina', respostas: 'respostas', dispersos: 'dispersos',
-      finalizada: 'finalizadaNoServidor',
+      global: 'RONDA', criterio: 'rdVoltar', comecou: 'comecou', usina: 'usina', respostas: 'respostas',
+      dispersos: 'dispersos', finalizada: 'finalizadaNoServidor',
+    },
+    entrada: {
+      restaurada: '_telaRestaurada', restaurar: '_telaRestaurar', render: 'renderTudo',
+      filaCarregada: 'pollTimer', entrar: 'entrarComIdentidade', carregarFila: 'carregarDados',
     },
     aba: 'tarefas',
   });
@@ -843,12 +1288,12 @@ test('o ABRIR_OS do inicio.js tem os nomes que o contrato com o site exige, e a 
   assert.equal(ABRIR_OS.aba, VOLTAR.abaInicial);
   assert.equal(ABRIR_OS.id.ronda, VOLTAR.id.ronda);
   assert.equal(ABRIR_OS.classe.abaAtiva, VOLTAR.classe.abaAtiva);
-  assert.equal(ABRIR_OS.classe.rondaEmAndamento, VOLTAR.classe.rondaVolta);
+  assert.equal(ABRIR_OS.classe.rondaNumaEtapa, VOLTAR.classe.rondaVolta);
   assert.equal(ABRIR_OS.id.app, PUSH.id.app);
   // E vêm do VOLTAR e do PUSH no código, não repetidos: o nome trocado num lugar só não pode deixar o outro para trás.
   const objeto = CODIGO.slice(CODIGO.indexOf('  var ABRIR_OS = {'), CODIGO.indexOf('\n  };', CODIGO.indexOf('  var ABRIR_OS = {')));
   for (const ref of ['aba: VOLTAR.funcao.aba', 'ronda: VOLTAR.id.ronda', 'abaAtiva: VOLTAR.classe.abaAtiva',
-    'rondaEmAndamento: VOLTAR.classe.rondaVolta', 'aba: VOLTAR.abaInicial', 'app: PUSH.id.app']) {
+    'rondaNumaEtapa: VOLTAR.classe.rondaVolta', 'aba: VOLTAR.abaInicial', 'app: PUSH.id.app']) {
     assert.ok(objeto.includes(ref), ref);
   }
 
@@ -857,19 +1302,24 @@ test('o ABRIR_OS do inicio.js tem os nomes que o contrato com o site exige, e a 
   const codigo = secao.split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
   for (const usado of ['ABRIR_OS.funcao.buscar', 'ABRIR_OS.id.busca', 'ABRIR_OS.funcao.aba', 'ABRIR_OS.aba',
     'ABRIR_OS.ronda.global', 'ABRIR_OS.ronda.usina', 'ABRIR_OS.ronda.respostas', 'ABRIR_OS.ronda.dispersos',
-    'ABRIR_OS.ronda.finalizada']) {
+    'ABRIR_OS.ronda.finalizada', 'ABRIR_OS.entrada']) {
     assert.ok(codigo.includes(usado), 'usado: ' + usado);
   }
   // O "ocupado" é a camada de cima da seção 7, a mesma do voltar, e a tela do App da seção 8: a seção 9 não refaz a lista.
   assert.ok(codigo.includes('camadaDeCima(ctx)'), 'a seção 9 pergunta à seção 7');
   assert.ok(codigo.includes('appNaTela(win)'), 'e à seção 8');
   assert.equal(codigo.match(/VOLTAR\.|getElementById\(VOLTAR|querySelector/g), null, 'nenhuma camada procurada aqui');
-  // Nenhum nome do site escrito por fora do objeto: um nome trocado lá ficaria sem o contrato ver. O único sem aspas é o
-  // `let` da ronda lido pelo nome, numa linha só, que tem de ser o do objeto.
-  assert.equal(codigo.match(/setBusca|busca-os|setTab|tarefas|tela-|rd-voltar|s-app|'modal'|'open'|'on'|(?<!ABRIR_OS\.ronda\.)\b(?:usina|respostas|dispersos)\b|finalizadaNoServidor|rdVoltar/g), null);
-  const peloNome = codigo.split('\n').filter((l) => /\bRONDA\b/.test(l));
-  assert.equal(peloNome.length, 1, peloNome.join('\n'));
-  assert.ok(peloNome[0].includes('typeof ' + ABRIR_OS.ronda.global + ' '), peloNome[0]);
+  // Nenhum nome do site escrito por fora do objeto: um nome trocado lá ficaria sem o contrato ver. Os únicos sem aspas são
+  // os `let` lidos pelo nome (o da ronda e os dois da entrada), cada um numa linha só, que tem de ser a do objeto.
+  const peloNome = { RONDA: ABRIR_OS.ronda.global, _telaRestaurada: ABRIR_OS.entrada.restaurada, pollTimer: ABRIR_OS.entrada.filaCarregada };
+  const semOsPeloNome = codigo.split('\n').filter((l) => !Object.keys(peloNome).some((n) => new RegExp(`typeof ${n} `).test(l))).join('\n');
+  assert.equal(semOsPeloNome.match(/setBusca|busca-os|setTab|tarefas|tela-|rd-voltar|s-app|'modal'|'open'|'on'|(?<!ABRIR_OS\.ronda\.)\b(?:usina|respostas|dispersos)\b|finalizadaNoServidor|rdVoltar|\bcomecou\b|_telaRestaura|\brenderTudo\b|\bpollTimer\b|entrarComIdentidade|carregarDados|\bRONDA\b/g), null);
+  for (const [nome, doObjeto] of Object.entries(peloNome)) {
+    assert.equal(nome, doObjeto, `o ${nome} lido pelo nome é o do objeto`);
+    const linhas = codigo.split('\n').filter((l) => new RegExp(`\\b${nome}\\b`).test(l));
+    assert.equal(linhas.length, 1, linhas.join('\n'));
+    assert.ok(linhas[0].includes('typeof ' + nome + ' '), linhas[0]);
+  }
 });
 
 // O nativo não roda no JVM com WebView, então a ligação das peças (que a regra pura não vê) se confere no texto do Java:

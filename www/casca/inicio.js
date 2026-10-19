@@ -123,20 +123,30 @@
   //   id.busca:      o campo de busca por OS (sem o '#');
   //   funcao.aba e aba: o setTab('tarefas') que leva à aba da busca, quando ele está noutra;
   //   id.app:        a tela do App, a mesma do registro (PUSH): fora dela (a tela de login) a OS espera;
-  //   id.ronda, classe.abaAtiva e classe.rondaEmAndamento: a Ronda numa etapa (o .rd-voltar dentro da #tela-ronda.on).
-  //                  Quem o lê é a camada de cima da seção 7, a mesma do voltar: por isso estes vêm do VOLTAR, e o nome
-  //                  de cada coisa do site continua num lugar só;
+  //   id.ronda, classe.abaAtiva e classe.rondaNumaEtapa: a Ronda numa etapa (o .rd-voltar dentro da #tela-ronda.on),
+  //                  que só segura a OS com a ronda começada (abaixo). Quem o lê é a camada de cima da seção 7, a mesma
+  //                  do voltar: por isso estes vêm do VOLTAR, e o nome de cada coisa do site continua num lugar só;
   //   ronda:         o critério do próprio site para "a ronda começou" (o `comecou` do rdVoltar, v284): o `let RONDA` de
   //                  topo (lido pelo nome, como o sheetTask) com a usina escolhida, uma resposta ou um disperso, e não
   //                  finalizada no servidor. O site desenha o .rd-voltar em TODA etapa, até na Chegada antes de começar,
-  //                  então só o .rd-voltar seguraria a OS com a aba apenas aberta.
+  //                  então só o .rd-voltar seguraria a OS com a aba apenas aberta;
+  //   entrada:       o fim da entrada do site (v287, lido em 19/10/2026). O entrarComIdentidade liga a tela do App ANTES
+  //                  de esperar a fila (o carregarMinhasOS e o carregarDados), e o renderTudo, com a fila montada, chama
+  //                  UMA vez o _telaRestaurar, que pode voltar à aba anterior ou reabrir a folha que estava aberta (o
+  //                  "Você estava aqui" da página) por cima da busca. Os dois `let` de topo, lidos pelo nome: o
+  //                  _telaRestaurada (true: a restauração rodou) e o pollTimer (o entrarComIdentidade só o liga depois do
+  //                  await carregarDados(): a fila terminou de carregar, e com a fila vazia não há o que restaurar).
   var ABRIR_OS = {
     funcao: { buscar: 'setBusca', aba: VOLTAR.funcao.aba },
     id: { busca: 'busca-os', ronda: VOLTAR.id.ronda, app: PUSH.id.app },
-    classe: { abaAtiva: VOLTAR.classe.abaAtiva, rondaEmAndamento: VOLTAR.classe.rondaVolta },
+    classe: { abaAtiva: VOLTAR.classe.abaAtiva, rondaNumaEtapa: VOLTAR.classe.rondaVolta },
     ronda: {
-      global: 'RONDA', criterio: 'rdVoltar', usina: 'usina', respostas: 'respostas', dispersos: 'dispersos',
-      finalizada: 'finalizadaNoServidor',
+      global: 'RONDA', criterio: 'rdVoltar', comecou: 'comecou', usina: 'usina', respostas: 'respostas',
+      dispersos: 'dispersos', finalizada: 'finalizadaNoServidor',
+    },
+    entrada: {
+      restaurada: '_telaRestaurada', restaurar: '_telaRestaurar', render: 'renderTudo',
+      filaCarregada: 'pollTimer', entrar: 'entrarComIdentidade', carregarFila: 'carregarDados',
     },
     aba: VOLTAR.abaInicial,
   };
@@ -1727,15 +1737,17 @@
   // câmera) são de propósito sem saída, ou a única saída envia algo.
   var CONSUMIR = {};
 
-  // A camada de cima: null (Tarefas, sem nada aberto) ou { acao, ocupa, ronda }. `acao` é como fechá-la: uma função (que
-  // roda no tempo seguinte), CONSUMIR, ou null (o jeito de fechar sumiu). `ocupa` diz se ela segura o técnico, e é o que a
-  // abertura da OS pelo toque (seção 9) pergunta, sem fechar nada (regra do dono, 18/10/2026: "Continua no preenchimento
-  // de OS ou ronda, a da notificação fica pendente"): toda camada de 1 a 9 ocupa, mesmo a que o voltar não saberia
-  // fechar, e também o serviço aberto da Zeladoria (o .zl-volta, que o site só desenha dentro de um serviço: é
-  // preenchimento, como a OS) e a Ronda numa etapa (o .rd-voltar), esta marcada com `ronda: true`, porque só segura com a
-  // ronda começada, e quem sabe disso pelo critério do site é a seção 9. Outra aba sem nada aberto nela não ocupa (a lista
-  // dos serviços da Zeladoria inclusive). A ordem é a do z-index do campo.html, de cima para baixo. A lista é uma só para
-  // as duas seções: a camada que o site acrescentar entra aqui e vale para o voltar e para o toque juntos.
+  // A camada de cima: null (Tarefas, sem nada aberto) ou { acao, ocupa, ronda, rondaSemEtapa }. `acao` é como fechá-la:
+  // uma função (que roda no tempo seguinte), CONSUMIR, ou null (o jeito de fechar sumiu). `ocupa` diz se ela segura o
+  // técnico, e é o que a abertura da OS pelo toque (seção 9) pergunta, sem fechar nada (regra do dono, 18/10/2026:
+  // "Continua no preenchimento de OS ou ronda, a da notificação fica pendente"): toda camada de 1 a 9 ocupa, mesmo a que
+  // o voltar não saberia fechar, e também o serviço aberto da Zeladoria (o .zl-volta, que o site só desenha dentro de um
+  // serviço: é preenchimento, como a OS) e a Ronda numa etapa (o .rd-voltar), esta marcada com `ronda: true`, porque só
+  // segura com a ronda começada, e quem sabe disso pelo critério do site é a seção 9. Outra aba sem nada aberto nela não
+  // ocupa (a lista dos serviços da Zeladoria inclusive); a Ronda sem etapa vem marcada com `rondaSemEtapa: true`, porque na
+  // entrada do site ela pode ser a Ronda que a restauração da tela reabriu e que ainda abre pela rede (seção 9). A ordem é
+  // a do z-index do campo.html, de cima para baixo. A lista é uma só para as duas seções: a camada que o site acrescentar
+  // entra aqui e vale para o voltar e para o toque juntos.
   function camadaDeCima(ctx) {
     var win = ctx.win;
     var doc = win.document;
@@ -1827,7 +1839,8 @@
     var ronda = porId(VOLTAR.id.ronda);
     if (ativa(ronda)) {
       var rondaNumaEtapa = dentro(ronda, VOLTAR.classe.rondaVolta);
-      return rondaNumaEtapa ? { acao: clicar(rondaNumaEtapa), ocupa: true, ronda: true } : outraAba(irParaTarefas);
+      if (rondaNumaEtapa) return { acao: clicar(rondaNumaEtapa), ocupa: true, ronda: true };
+      return { acao: irParaTarefas, ocupa: false, rondaSemEtapa: true };
     }
     var zeladoria = porId(VOLTAR.id.zeladoria);
     if (ativa(zeladoria)) {
@@ -1926,8 +1939,11 @@
   //     abertura sem sinal: o SDK do Firebase só obtém o token quando a rede volta);
   //   - a tela do App na frente e o Bearer null (a entrada sem sinal, a sessão vencida): o próximo online ou a volta ao app;
   //   - 404: a rota ainda não está no ar; não tenta mais nesta carga;
-  //   - outro erro, ou sem rede: tenta no próximo `online`, no máximo uma vez a cada 10 minutos (o online que chega
-  //     dentro da espera tenta quando ela acaba);
+  //   - sem rede (o pedido que falhou com o aparelho fora do ar): tenta no próximo `online`, no máximo uma vez a cada 10
+  //     minutos (o online que chega dentro da espera tenta quando ela acaba);
+  //   - com a rede de pé (o servidor respondeu outro erro, como o 5xx, ou o pedido falhou com o aparelho no ar: o tempo
+  //     esgotado): também na volta ao app, com a mesma espera. Caso que criou a regra: o online não vem para quem nunca
+  //     perdeu a rede, e o registro que deu 503 ou esgotou o tempo ficava sem nova tentativa até a carga seguinte;
   //   - a carga seguinte pede o token e registra de novo.
   //
   // O "SAIR" (o aparelho dividido entre técnicos), embrulhado:
@@ -2043,8 +2059,9 @@
     var emCurso = false;         // um registro no ar
     var rotaFora = false;        // 404, ou a página sem o que esta seção usa: nada mais de registro nesta carga
     // O que faz tentar de novo: 'token' (o token veio null: pede de novo), 'login' (a tela do App sem Bearer: registra de
-    // novo) ou 'rede' (erro ou sem rede: registra de novo). null é "nada a esperar" (registrado, ou à espera da tela do
-    // App, que tem a vigia dela, ou parado). O online e a volta ao app retomam, respeitando a espera de 10 minutos.
+    // novo), 'rede' (sem rede: registra de novo no online) ou 'servidor' (o erro com a rede de pé: registra de novo no
+    // online e na volta ao app). null é "nada a esperar" (registrado, ou à espera da tela do App, que tem a vigia dela, ou
+    // parado). O online e a volta ao app retomam, respeitando a espera de 10 minutos.
     var aguardando = null;
     var esfriando = false;       // a última tentativa tem menos de 10 minutos
     var esfriamento = null;      // o timer dela
@@ -2142,15 +2159,15 @@
     function retomar() {
       if (saiu) return;
       if (aguardando === 'token') pedirTokenDeNovo();
-      else if (aguardando === 'login' || aguardando === 'rede') registrar();
+      else if (aguardando === 'login' || aguardando === 'rede' || aguardando === 'servidor') registrar();
     }
-    // O online (todas as esperas) e a volta ao app (o token e o login; a rede, não: a volta ao app não diz que a rede
-    // voltou).
+    // O online (todas as esperas) e a volta ao app (o token, o login e o erro com a rede de pé; a falta de rede, não: a
+    // volta ao app não diz que a rede voltou).
     function aoPoderTentar(peloOnline) {
       if (saiu) return;
       if (aoEntrar.length && !conferirLogin()) vigiar();
       if (aguardando === 'login') { registrar(); return; }
-      if (aguardando === 'token' || (aguardando === 'rede' && peloOnline)) {
+      if (aguardando === 'token' || aguardando === 'servidor' || (aguardando === 'rede' && peloOnline)) {
         if (esfriando) tentarDepois = true;
         else retomar();
       }
@@ -2217,11 +2234,21 @@
       return win.fetch(enderecoDoServidor(win) + rota, opcoes);
     }
 
-    // A falha que espera a rede: a próxima tentativa sai no próximo online, e não antes de 10 minutos.
-    function esperarARede(texto) {
+    // A falha que espera: a próxima tentativa sai no próximo online, e não antes de 10 minutos; com a rede de pé, também na
+    // volta ao app.
+    function esperarARede(texto, redeDePe) {
       avisar(texto);
-      aguardando = 'rede';
+      aguardando = redeDePe ? 'servidor' : 'rede';
       esfriar();
+    }
+    // O aparelho estava no ar quando o pedido falhou (o navigator.onLine da WebView): a falha não foi a falta de rede (o
+    // tempo esgotado, a conexão que caiu no meio). Sem como saber, conta como sem rede (espera o online, como antes).
+    function aRedeEstaDePe() {
+      try {
+        return !!win.navigator && win.navigator.onLine === true;
+      } catch (e) {
+        return false;
+      }
     }
 
     // --- O registro ------------------------------------------------------------------------------------------------
@@ -2251,11 +2278,15 @@
             rotaFora = true;
             avisar('a rota de registro do aparelho ainda não está no ar (404): nada mais nesta carga');
           } else {
-            esperarARede('o registro do aparelho respondeu ' + situacao(resposta) + '; tenta no próximo online');
+            // O servidor respondeu: a rede está de pé.
+            esperarARede('o registro do aparelho respondeu ' + situacao(resposta) +
+              '; tenta no próximo online ou na volta ao app', !!resposta);
           }
         });
       }).then(null, function (e) {
-        esperarARede('o registro do aparelho falhou (' + nomeDoErro(e) + '); tenta no próximo online');
+        var dePe = aRedeEstaDePe();
+        esperarARede('o registro do aparelho falhou (' + nomeDoErro(e) + '); tenta no próximo online' +
+          (dePe ? ' ou na volta ao app' : ''), dePe);
       }).then(function () {
         emCurso = false;
         // Um token novo chegou com este registro no ar, e este deu certo: o novo registra agora (se este falhou, a espera
@@ -2453,11 +2484,21 @@
   //   - com uma camada aberta (a camada de cima da seção 7, a mesma pilha do voltar, perguntada sem fechar nada; o
   //     serviço aberto da Zeladoria inclusive);
   //   - com a Ronda numa etapa E a ronda começada pelo critério do próprio site (ver rondaComecada): o site desenha o
-  //     voltar da Ronda em toda etapa, até na Chegada antes de começar, e a aba só aberta segurava a OS.
+  //     voltar da Ronda em toda etapa, até na Chegada antes de começar, e a aba só aberta segurava a OS;
+  //   - NA ENTRADA DO SITE (ver naEntrada): a tela do App vem para a frente ANTES da fila, e quando a fila chega o site
+  //     restaura a tela de antes uma vez (o _telaRestaurar: volta à aba anterior ou reabre a folha que estava aberta, o
+  //     "Você estava aqui"), por cima do que estiver ali. Caso que criou a regra: o toque com o app fechado, a OS posta na
+  //     busca logo depois do Entrar, a folha reaberta por cima dela segundos depois, e o osAberta já tinha tirado da barra
+  //     a emergência que o técnico não viu. A entrada termina quando a restauração rodou ou a fila carregou sem nada para
+  //     restaurar (os sinais do ABRIR_OS.entrada), ou no teto de 20 s desde que a casca viu a tela do App; e, até o teto,
+  //     a Ronda na frente sem etapa ainda está abrindo (a restauração que voltou à Ronda espera a conta do Fracttal e o
+  //     checklist pela rede, e a aba fica sem etapa até lá). A OS que chega com o App já em uso não espera entrada nenhuma.
   // Então:
   //   - livre: vai à aba Tarefas pelo setTab da página (só se estiver noutra aba), preenche o #busca-os ANTES do setBusca
   //     (a ordem do phTrazer do site, v284: o setBusca recebe o valor por argumento e não escreve no campo; sem isso a
-  //     lista ficaria filtrada com a caixa de busca vazia), busca e avisa o nativo ({t:'osAberta', os}). Devolve 'aberta'.
+  //     lista ficaria filtrada com a caixa de busca vazia) e busca. Devolve 'aberta'. O nativo só ouve o osAberta depois
+  //     da conferência de 1,5 s (ver conferirAbertura): a OS à vista, na aba Tarefas sem nada por cima e com o número no
+  //     campo; sem isso, ela volta a pendente.
   //     Toda entrega é um pedido novo, mesmo a de uma OS já mostrada nesta carga (ele toca de novo; o Testar avisos manda
   //     sempre a mesma OS): livre, ela volta à busca; ocupado, fica pendente. Caso que criou a regra: a página guardava as
   //     OS abertas na carga e devolvia 'aberta' sem fazer nada, e o osAberta tirava da barra uma emergência que ninguém
@@ -2484,6 +2525,10 @@
   var OS_DO_TOQUE = /^[0-9]{1,12}$/;
   var SESSAO_OS_PENDENTE = 'gc_casca_os_pendente';
   var CONFERENCIA_MS = 2000;
+  // O teto da espera da entrada do site, desde que a casca viu a tela do App, e a conferência de que a OS posta na busca
+  // ficou à vista.
+  var TETO_DA_ENTRADA_MS = 20000;
+  var CONFERENCIA_DA_ABERTURA_MS = 1500;
 
   // O dia de hoje no relógio do aparelho (AAAA-MM-DD, na hora local: a emergência das 23 h é de hoje, não de amanhã em
   // UTC). Pelo Date da janela, como o setTimeout dela: o teste para o relógio num dia.
@@ -2521,6 +2566,24 @@
     return !!r[ABRIR_OS.ronda.usina] || temItens(r[ABRIR_OS.ronda.respostas]) || temItens(r[ABRIR_OS.ronda.dispersos]);
   }
 
+  // A entrada do site terminou, pelo que a própria página diz dela (ver ABRIR_OS.entrada): a restauração da tela rodou, ou
+  // a fila terminou de carregar (com a fila vazia não há o que restaurar). Os dois `let` de topo do campo.html não viram
+  // propriedade da janela: lidos pelo nome, com typeof dentro de try (antes da declaração, a zona morta), como o RONDA. Na
+  // janela falsa dos testes vêm da propriedade. Sem como ler nenhum dos dois (o site trocou os nomes), a entrada só
+  // termina no teto, e o contrato diário avisa.
+  function entradaDoSiteTerminou(win) {
+    var E = ABRIR_OS.entrada;
+    var restaurada = false;
+    if (Object.prototype.hasOwnProperty.call(win, E.restaurada)) {
+      restaurada = win[E.restaurada] === true;
+    } else {
+      try { restaurada = typeof _telaRestaurada !== 'undefined' && _telaRestaurada === true; } catch (e) { restaurada = false; }
+    }
+    if (restaurada) return true;
+    if (Object.prototype.hasOwnProperty.call(win, E.filaCarregada)) return !!win[E.filaCarregada];
+    try { return typeof pollTimer !== 'undefined' && !!pollTimer; } catch (e) { return false; }
+  }
+
   function instalarAbrirOS(ctx) {
     var win = ctx.win;
     // Guardados agora, atados à janela, como no voltar.
@@ -2528,6 +2591,13 @@
     var cancelar = win.clearTimeout.bind(win);
     var conferencia = null;  // o timer da conferência; só existe enquanto houver pendência
     var naPagina = null;     // a pendência que o sessionStorage não guardou: { os, dia }
+    var mostrando = null;    // a OS posta na busca, à espera da conferência de 1,5 s: { os, timer }
+    // A entrada do site nesta carga (ver naEntrada): se a casca viu a tela de login, o timer do teto (ligado na primeira
+    // vez que ela vê a tela do App numa entrada) e o fim da espera (o teto passou, a OS da entrada ficou à vista, o Sair,
+    // ou o App já estava em uso quando a OS chegou).
+    var viuOLogin = false;
+    var teto = null;
+    var semEntrada = false;
 
     function deHoje(p) {
       return !!p && typeof p === 'object' && typeof p.os === 'string' && OS_DO_TOQUE.test(p.os) && p.dia === diaDeHoje(win);
@@ -2559,7 +2629,8 @@
       }
       naPagina = p;
     }
-    // Sem pendência, sem conferência.
+    // Sem pendência, sem conferência, e a OS que estava sendo mostrada sai da conferência de 1,5 s (a que vem agora, ou
+    // nenhuma, toma o lugar dela: a última vence).
     function esquecerPendente() {
       if (ctx.ls) apagarSessao(ctx.ls, SESSAO_OS_PENDENTE);
       naPagina = null;
@@ -2567,9 +2638,23 @@
         cancelar(conferencia);
         conferencia = null;
       }
+      if (mostrando !== null) {
+        cancelar(mostrando.timer);
+        mostrando = null;
+      }
     }
-    // O Sair (seção 8) apaga a pendência.
-    ctx.esquecerOsPendente = esquecerPendente;
+    function encerrarEntrada() {
+      semEntrada = true;
+      if (teto !== null) {
+        cancelar(teto);
+        teto = null;
+      }
+    }
+    // O Sair (seção 8) apaga a pendência e a OS que estava sendo mostrada: nada dela volta a pendente nem vai ao nativo.
+    ctx.esquecerOsPendente = function () {
+      esquecerPendente();
+      encerrarEntrada();
+    };
     function conferirDepois() {
       if (conferencia === null) conferencia = agendar(conferir, CONFERENCIA_MS);
     }
@@ -2583,17 +2668,73 @@
     }
     // Ele está ocupado com a camada de cima `cima` (ver o começo da seção).
     function ocupado(cima) {
-      if (!appNaTela(win)) return true;
+      if (!appNaTela(win)) {
+        viuOLogin = true;
+        return true;
+      }
+      if (naEntrada(cima)) return true;
       if (!cima || !cima.ocupa) return false;
       return cima.ronda ? rondaComecada(win) : true;
     }
-    // Com ele livre: a aba Tarefas (quando a camada de cima é outra aba), o número no campo, a busca e o aviso ao nativo.
+    // A entrada do site ainda em curso, com a tela do App na frente (ver o começo da seção): a fila não terminou de
+    // carregar, ou a Ronda na frente ainda sem etapa (a que a restauração da tela reabriu espera a rede), até o teto de
+    // 20 s desde que a casca viu a tela do App. Uma entrada é a desta carga: a casca viu a tela de login antes, ou a
+    // página ainda não terminou a entrada quando a casca viu a tela do App; a OS que chega com o App já em uso não espera.
+    function naEntrada(cima) {
+      if (semEntrada) return false;
+      var terminou = entradaDoSiteTerminou(win);
+      if (teto === null) {
+        if (terminou && !viuOLogin) {
+          semEntrada = true;
+          return false;
+        }
+        teto = agendar(function () {
+          teto = null;
+          semEntrada = true;
+        }, TETO_DA_ENTRADA_MS);
+      }
+      if (!terminou) return true;
+      return !!cima && cima.rondaSemEtapa === true;
+    }
+    // Com ele livre: a aba Tarefas (quando a camada de cima é outra aba), o número no campo e a busca. O aviso ao nativo
+    // espera a conferência de 1,5 s.
     function abrirAgora(os, pecas, cima) {
       var irParaAba = win[ABRIR_OS.funcao.aba];
       if (cima && typeof irParaAba === 'function') irParaAba.call(win, ABRIR_OS.aba);
       pecas.campo.value = os;
       pecas.buscar.call(win, os);
-      ctx.enviar({ t: 'osAberta', os: os }, 'abrirOS');
+      conferirAbertura(os);
+    }
+    // A OS posta na busca está à vista: a tela do App na frente, a aba Tarefas sem nada por cima (a camada de cima da
+    // seção 7 vazia: nenhuma camada, nenhuma outra aba) e o número no campo.
+    function aVista(os) {
+      var pecas = pecasDaBusca();
+      return appNaTela(win) && !!pecas && pecas.campo.value === os && camadaDeCima(ctx) === null;
+    }
+    // 1,5 s depois de pôr a OS na busca, confere que ela ficou à vista, e só então avisa o nativo ({t:'osAberta', os}),
+    // que tira a emergência da barra e para de repetir a OS a cada carga. Caso que criou a regra: a restauração da tela do
+    // site (o _telaRestaurar) voltava à aba anterior ou reabria a folha por cima da busca logo depois, e o osAberta já
+    // tinha tirado da barra a emergência que o técnico não viu. Fora da vista, a OS volta a pendente (se outra mais nova
+    // não estiver pendente: a última vence), e a conferência de 2 s a põe na busca de novo quando ele ficar livre.
+    function conferirAbertura(os) {
+      if (mostrando !== null) cancelar(mostrando.timer);
+      var esta = { os: os, timer: null };
+      mostrando = esta;
+      esta.timer = agendar(function () {
+        if (mostrando !== esta) return;
+        mostrando = null;
+        try {
+          if (aVista(os)) {
+            encerrarEntrada();
+            ctx.enviar({ t: 'osAberta', os: os }, 'abrirOS');
+            return;
+          }
+          if (lerPendente() === null) guardarPendente(os);
+          conferirDepois();
+        } catch (e) {
+          ctx.falhou('abrirOS', e);
+        }
+      }, CONFERENCIA_DA_ABERTURA_MS);
     }
 
     function conferir() {

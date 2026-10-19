@@ -342,8 +342,9 @@ test('404: não tenta mais nesta sessão', async () => {
   assert.equal(j.erros().length, 1);
 });
 
-test('outro erro ou sem rede: tenta no próximo online, no máximo 1 vez a cada 10 minutos', async () => {
+test('sem rede: tenta no próximo online, no máximo 1 vez a cada 10 minutos (a volta ao app não diz que a rede voltou)', async () => {
   const j = montar({ servidor: semRede });
+  j.win.navigator = { onLine: false };
   await carregar(j, { token: TOKEN });
   assert.equal(j.pedidos.length, 1);
   assert.deepEqual(j.erros().map((e) => e.onde), ['push']);
@@ -359,25 +360,67 @@ test('outro erro ou sem rede: tenta no próximo online, no máximo 1 vez a cada 
   j.avancar(1);
   await assentar();
   assert.equal(j.pedidos.length, 2, 'o online que chegou na espera tenta quando ela acaba');
-
-  // O servidor responde 500: outra espera; passados os 10 minutos sem online, nada; o online seguinte tenta.
-  j.estado.servidor = status(500);
-  j.win.dispatchEvent({ type: 'online' });
+  // Sem rede de novo: passados os 10 minutos, a volta ao app não tenta; o online, sim.
   j.avancar(DEZ_MIN_MS);
+  mostrar(j);
   await assentar();
-  assert.equal(j.pedidos.length, 3);
-  j.avancar(DEZ_MIN_MS);
-  await assentar();
-  assert.equal(j.pedidos.length, 3, 'sem online, não tenta sozinho');
+  assert.equal(j.pedidos.length, 2, 'a volta ao app não tenta o que falhou sem rede');
   j.estado.servidor = ok;
   j.win.dispatchEvent({ type: 'online' });
   await assentar();
-  assert.equal(j.pedidos.length, 4);
-  assert.equal(j.registros().length, 4, 'todas as tentativas são o registro');
+  assert.equal(j.pedidos.length, 3);
   j.win.dispatchEvent({ type: 'online' });
   j.avancar(DEZ_MIN_MS);
   await assentar();
-  assert.equal(j.pedidos.length, 4, 'registrado, para');
+  assert.equal(j.pedidos.length, 3, 'registrado, para');
+
+  // O aparelho que não diz se está no ar (sem o navigator.onLine): conta como sem rede.
+  const k = montar({ servidor: semRede });
+  await carregar(k, { token: TOKEN });
+  k.avancar(DEZ_MIN_MS);
+  mostrar(k);
+  await assentar();
+  assert.equal(k.pedidos.length, 1);
+});
+
+test('com a rede de pé (5xx, ou o pedido que falhou com o aparelho no ar): tenta também na volta ao app, com a espera', async () => {
+  // O online não vem para quem nunca perdeu a rede: o registro que deu 503, ou que esgotou o tempo com o aparelho no ar,
+  // ficava sem nova tentativa até a carga seguinte, que no app vivo no fundo pode ser o dia inteiro.
+  for (const [nome, servidor] of [['503', status(503)], ['500', status(500)], ['tempo esgotado', semRede]]) {
+    const j = montar({ servidor });
+    j.win.navigator = { onLine: true };
+    await carregar(j, { token: TOKEN });
+    assert.equal(j.registros().length, 1, nome);
+    // A volta ao app logo depois espera os 10 minutos, e tenta quando eles acabam (uma vez).
+    mostrar(j);
+    await assentar();
+    assert.equal(j.registros().length, 1, nome + ': menos de 10 minutos desde a tentativa');
+    j.avancar(DEZ_MIN_MS);
+    await assentar();
+    assert.equal(j.registros().length, 2, nome + ': a volta ao app que chegou na espera tenta quando ela acaba');
+    // Passada a espera, a volta ao app tenta na hora; depois do registro, nada mais.
+    j.avancar(DEZ_MIN_MS);
+    j.estado.servidor = ok;
+    mostrar(j);
+    await assentar();
+    assert.equal(j.registros().length, 3, nome);
+    j.avancar(DEZ_MIN_MS);
+    mostrar(j);
+    j.win.dispatchEvent({ type: 'online' });
+    await assentar();
+    assert.equal(j.registros().length, 3, nome + ': registrado, para');
+    // O online também tenta, como sempre (o caso de cima, sem rede, prova o online).
+  }
+  // O 5xx com o online: a espera vale do mesmo jeito.
+  const k = montar({ servidor: status(500) });
+  await carregar(k, { token: TOKEN });
+  k.win.dispatchEvent({ type: 'online' });
+  k.avancar(DEZ_MIN_MS);
+  await assentar();
+  assert.equal(k.registros().length, 2, 'o online que chegou na espera tenta quando ela acaba');
+  k.avancar(DEZ_MIN_MS);
+  await assentar();
+  assert.equal(k.registros().length, 2, 'sem online nem volta ao app, não tenta sozinho');
 });
 
 test('sem token do Firebase (null): nada a registrar, e o online e a volta ao app pedem de novo, no máximo 1 vez a cada 10 minutos', async () => {
@@ -440,16 +483,29 @@ test('o token que chega depois da carga, ou um token diferente, registra uma vez
   // O nativo manda o pushToken a qualquer hora (o onNewToken com a página viva): o token renovado, com o servidor apagando
   // o velho, deixava o aparelho fora até recarregar.
   const j = montar();
+  j.win.sair = async function () { return 'saiu'; };
   await carregar(j, doNativo());
   assert.deepEqual(j.registros().map((p) => p.corpo.token), [TOKEN]);
   j.responder(doNativo('tokenNovoFicticio'));
   await assentar();
   assert.deepEqual(j.registros().map((p) => p.corpo.token), [TOKEN, 'tokenNovoFicticio']);
-  // O mesmo de novo, ou o primeiro outra vez depois de registrado nesta carga: nada.
+  // O mesmo de novo (o token de agora, já registrado nesta carga): nada.
   j.responder(doNativo('tokenNovoFicticio'));
   await assentar();
   assert.equal(j.registros().length, 2);
   assert.deepEqual(j.doTipo('pushRegistrado').length, 2, 'um aviso ao nativo por registro');
+
+  // O token antigo que volta (a resposta atrasada de um pedido de antes, depois do token novo): é DIFERENTE do de agora,
+  // vira o de agora e registra uma vez; o mesmo de novo, não. O registrado é sempre o último token que o nativo mandou, e
+  // é ele que o Sair manda o servidor esquecer.
+  j.responder(doNativo(TOKEN));
+  await assentar();
+  assert.deepEqual(j.registros().map((p) => p.corpo.token), [TOKEN, 'tokenNovoFicticio', TOKEN]);
+  j.responder(doNativo(TOKEN));
+  await assentar();
+  assert.equal(j.registros().length, 3);
+  await j.win.sair();
+  assert.deepEqual(j.esquecimentos().map((p) => p.corpo.token), [TOKEN], 'o Sair esquece o token de agora');
 
   // O token novo chega com o registro do anterior ainda no ar: registra o novo quando o primeiro termina.
   let soltar;

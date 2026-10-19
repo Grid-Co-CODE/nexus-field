@@ -262,7 +262,7 @@ test('as folhas de baixo (fora da programação, feedback) e o menu do usuário'
 });
 
 test('as abas: a Ronda pelo Voltar dela, a Zeladoria pelo dela, as outras para Tarefas; em Tarefas, false', () => {
-  // Ronda com a seção aberta: o .rd-voltar (o rdVoltar da página pede confirmação com pendência).
+  // A Ronda numa etapa: o .rd-voltar (o rdVoltar da página pede confirmação com pendência).
   const j = montar();
   j.funcao('setTab');
   const ronda = j.elemento('div', { id: 'tela-ronda', classes: 'on' });
@@ -270,7 +270,7 @@ test('as abas: a Ronda pelo Voltar dela, a Zeladoria pelo dela, as outras para T
   assert.equal(j.voltar(), true);
   j.avancar(0);
   assert.deepEqual(j.chamadas, ['rd-voltar']);
-  // Ronda sem seção aberta: Tarefas.
+  // A Ronda sem etapa (sem o checklist, ou a de hoje já finalizada): Tarefas.
   ronda.innerHTML = '';
   j.chamadas.length = 0;
   assert.equal(j.voltar(), true);

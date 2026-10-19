@@ -111,10 +111,13 @@ function temStoreDasFotos(html) {
 
 // O trecho da função de nível alto `nome`: do parêntese dela até a próxima função na coluna 0 (ou até o teto), como
 // { inicio, fim } no HTML. A indentação do site pode mudar, por isso só a coluna 0 delimita; o teto evita ler a página
-// inteira se a função for a última.
+// inteira se a função for a última. A declaração vale primeiro; sem ela, a atribuição à janela (window.nome = function,
+// async function ou arrow), que também é de topo (ver temFuncaoDeTopo): o corpo começa no parêntese ou na seta.
 const TETO_DA_FUNCAO = 12000;
 function trechoDaFuncao(html, nome) {
-  const inicio = new RegExp(`\\bfunction\\s+${escapar(nome)}\\s*\\(`).exec(html);
+  const n = escapar(nome);
+  const inicio = new RegExp(`\\bfunction\\s+${n}\\s*\\(`).exec(html) ||
+    new RegExp(`\\bwindow\\.${n}\\s*=\\s*(?:async\\s+)?(?:function\\b[^(]*\\(|\\([^()]*\\)\\s*=>|[\\w$]+\\s*=>)`).exec(html);
   if (!inicio) return null;
   const comeco = inicio.index + inicio[0].length;
   const proxima = /\n(?:async\s+)?function\s+[\w$]+\s*\(/.exec(html.slice(comeco));
@@ -165,22 +168,33 @@ const ANTES_DE_REGEX = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'n
   'do', 'else', 'yield', 'await']);
 const LETRA_DE_NOME = /[A-Za-z0-9_$\u0080-\uffff]/;
 export function semComentariosNoScript(js) {
+  return lerJavaScript(js, false);
+}
+// O mesmo, e também sem o que está DENTRO dos textos: o conteúdo de cada texto entre aspas, o texto de cada template
+// (o `${...}` dele é código e fica) e o corpo de cada regex viram espaços. É onde se procura uma chamada: o nome num
+// texto (um toast, um innerHTML montado num texto) não é a chamada.
+export function soCodigoNoScript(js) {
+  return lerJavaScript(js, true);
+}
+function lerJavaScript(js, apagarTextos) {
   const n = js.length;
   const saida = js.split('');
-  const apagar = (de, ate) => { for (let k = de; k < ate; k++) if (saida[k] !== '\n' && saida[k] !== '\r') saida[k] = ' '; };
+  const apagar = (de, ate) => { for (let k = de; k < Math.min(ate, n); k++) if (saida[k] !== '\n' && saida[k] !== '\r') saida[k] = ' '; };
   const templates = []; // a profundidade das chaves em que cada `${` de um template abriu
   let chaves = 0;
   let regexPode = true;
   let antes = '';        // o último caractere de código (fora de espaço), para o nome depois de um ponto
   // O texto de um template, de `p` até a crase que o fecha ou até um `${`, que volta ao código.
   function template(p) {
+    const de = p;
     while (p < n) {
       const c = js[p];
       if (c === '\\') p += 2;
-      else if (c === '`') return p + 1;
-      else if (c === '$' && js[p + 1] === '{') { templates.push(chaves); return p + 2; }
+      else if (c === '`') { if (apagarTextos) apagar(de, p); return p + 1; }
+      else if (c === '$' && js[p + 1] === '{') { if (apagarTextos) apagar(de, p); templates.push(chaves); return p + 2; }
       else p++;
     }
+    if (apagarTextos) apagar(de, n);
     return n;
   }
   let i = 0;
@@ -197,6 +211,7 @@ export function semComentariosNoScript(js) {
     if (c === "'" || c === '"') {
       let p = i + 1;
       while (p < n && js[p] !== c && js[p] !== '\n') p += js[p] === '\\' ? 2 : 1;
+      if (apagarTextos) apagar(i + 1, p);
       i = p < n && js[p] === c ? p + 1 : p;
       regexPode = false;
       antes = c;
@@ -218,6 +233,7 @@ export function semComentariosNoScript(js) {
         else if (js[p] === ']') classe = false;
         p++;
       }
+      if (apagarTextos) apagar(i + 1, p);
       i = p < n && js[p] === '/' ? p + 1 : p;
       regexPode = false;
       antes = '/';
@@ -259,29 +275,37 @@ function compila(js) {
   }
 }
 
-// O HTML com os comentários dos scripts de JavaScript (o clássico e o de módulo) trocados por espaços, do mesmo tamanho.
-// O resto (as marcações, os atributos, o onclick, os scripts que não são JavaScript) fica como está: ali não há comentário
-// de JavaScript, e é lá que o botão do menu chama o sair. O script que compilava e deixa de compilar sem os comentários
-// foi lido errado: ele fica inteiro (o código dele não some atrás de um comentário falso) e `ilegivel` diz que houve um.
-let comentariosLidos = { html: null, texto: '', ilegivel: false };
+// O HTML com os comentários dos scripts de JavaScript (o clássico e o de módulo) trocados por espaços, do mesmo tamanho
+// (`texto`), e o mesmo sem o que está dentro dos textos desses scripts (`codigo`, ver soCodigoNoScript). O resto (as
+// marcações, os atributos, o onclick, os scripts que não são JavaScript) fica como está: ali não há comentário de
+// JavaScript, e é lá que o botão do menu chama o sair. O script que compilava e deixa de compilar sem os comentários foi
+// lido errado: ele fica inteiro nos dois (o código dele não some atrás de um comentário falso) e `ilegivel` diz que houve
+// um. Limite: o `node:vm` compila como script clássico, e o script de módulo com import ou export não compila nem com os
+// comentários; nele a leitura não tem essa defesa.
+let comentariosLidos = { html: null, texto: '', codigo: '', ilegivel: false };
 function semComentarios(html) {
   if (comentariosLidos.html === html) return comentariosLidos;
   let texto = '';
+  let codigo = '';
   let desde = 0;
   let ilegivel = false;
   for (const b of blocosDeScript(html)) {
     if (!b.js) continue;
     const original = html.slice(b.inicio, b.fim);
     let limpo = semComentariosNoScript(original);
+    let soCodigo = soCodigoNoScript(original);
     if (limpo !== original && !compila(limpo) && compila(original)) {
       limpo = original;
+      soCodigo = original;
       ilegivel = true;
     }
     texto += html.slice(desde, b.inicio) + limpo;
+    codigo += html.slice(desde, b.inicio) + soCodigo;
     desde = b.fim;
   }
   texto += html.slice(desde);
-  comentariosLidos = { html, texto, ilegivel };
+  codigo += html.slice(desde);
+  comentariosLidos = { html, texto, codigo, ilegivel };
   return comentariosLidos;
 }
 function emScriptClassico(html, indice) {
@@ -445,13 +469,14 @@ function conferirPush(html, falta) {
   for (const id of Object.values(PUSH.id)) if (!temId(html, id)) falta(`push: id '${id}'`);
   for (const classe of Object.values(PUSH.classe)) if (!temClasse(html, classe)) falta(`push: classe '${classe}'`);
 
-  // A chamada do sair, o logout e o corpo do getTokenMW são lidos sem os comentários do JavaScript (ver
-  // semComentarios): o que só um comentário cita não é código. A declaração (`function sair(`, `async function sair(`)
-  // não é chamada.
-  const { texto: semComentario, ilegivel } = semComentarios(html);
+  // O logout e o corpo do getTokenMW são lidos sem os comentários do JavaScript (ver semComentarios): o que só um
+  // comentário cita não é código. A chamada do sair, também fora dos textos do JavaScript (o nome num toast, ou num
+  // innerHTML montado num texto, não é quem chama). A declaração (`function sair(`, `async function sair(`) não é
+  // chamada.
+  const { texto: semComentario, codigo, ilegivel } = semComentarios(html);
   if (ilegivel) falta('push: comentários de um script que o contrato não lê');
-  const chamadas = [...semComentario.matchAll(CHAMADA_DO_SAIR(PUSH.funcao.sair))]
-    .filter((m) => !/\bfunction\s+$/.test(semComentario.slice(Math.max(0, m.index - 20), m.index)));
+  const chamadas = [...codigo.matchAll(CHAMADA_DO_SAIR(PUSH.funcao.sair))]
+    .filter((m) => !/\bfunction\s+$/.test(codigo.slice(Math.max(0, m.index - 20), m.index)));
   if (!chamadas.length) falta(`push: chamada do ${PUSH.funcao.sair}`);
   const sairSemComentario = trechoDaFuncao(semComentario, PUSH.funcao.sair);
   for (const m of semComentario.matchAll(LOGOUT)) {
@@ -468,8 +493,9 @@ function conferirPush(html, falta) {
 // --- A abertura da OS pelo toque na notificação -----------------------------------------------------------------
 // O toque numa emergência abre o app e o script de início põe o número da OS no campo de busca (`<input id="busca-os">`) e
 // chama a função de topo setBusca, que é o que o técnico faria à mão; antes, se ele está noutra aba, vai a Tarefas pelo
-// setTab('tarefas'). Com a Ronda em andamento (o .rd-voltar dentro da #tela-ronda.on) a OS espera ele terminar, como
-// com qualquer camada do voltar aberta. Sem um desses nomes o app abre sem a OS na tela, ou com ela por cima da ronda, em
+// setTab('tarefas'). Com a Ronda numa etapa (o .rd-voltar dentro da #tela-ronda.on) e a ronda começada, a OS espera ele
+// terminar, como com qualquer camada do voltar aberta, e na entrada do site ela espera a página restaurar a tela de antes.
+// Sem um desses nomes o app abre sem a OS na tela, ou com ela por cima da ronda ou por baixo da folha reaberta, em
 // silêncio: o aviso vem daqui. O setTab, a aba e o sinal da Ronda também são do voltar, e faltam nas duas listas.
 function conferirAbrirOS(html, falta) {
   for (const funcao of Object.values(ABRIR_OS.funcao)) if (!temFuncaoDeTopo(html, funcao)) falta(`abrir-os: função ${funcao}`);
@@ -478,22 +504,69 @@ function conferirAbrirOS(html, falta) {
   const aba = new RegExp(`\\b${escapar(ABRIR_OS.funcao.aba)}\\s*\\(\\s*\\\\?(['"])${escapar(ABRIR_OS.aba)}\\\\?\\1\\s*\\)`);
   if (!aba.test(html)) falta(`abrir-os: aba '${ABRIR_OS.aba}'`);
   conferirRonda(html, falta);
+  conferirEntrada(html, falta);
 }
 
 // A ronda começada, pelo critério do próprio site: a casca lê o `let RONDA` de topo pelo nome e repete o `comecou` do
 // voltar da Ronda (o rdVoltar: a usina escolhida, uma resposta ou um disperso, e não finalizada no servidor). Se o site
 // trocar o nome ou o critério, a OS do toque passaria a abrir por cima de uma ronda começada (ou a esperar uma que nem
-// começou): o critério tem de continuar no corpo do rdVoltar, campo por campo.
+// começou): o critério tem de continuar no corpo do rdVoltar, campo por campo, e a expressão inteira do `comecou` (sem
+// os espaços) tem de ser a que a casca repete, com o uso dela junto do `!RONDA.finalizadaNoServidor`. Caso que criou a
+// regra: a conferência só da presença dos campos deixava passar um `||` trocado por `&&`, ou o `.length` que saísse, que
+// mudam o que é "começada" sem tirar campo nenhum. Lido sem os comentários do JavaScript.
 function conferirRonda(html, falta) {
   const R = ABRIR_OS.ronda;
-  if (!temDeclaracao(html, R.global)) falta(`abrir-os: global ${R.global}`);
-  const criterio = corpoDaFuncao(html, R.criterio);
+  const G = R.global;
+  if (!temDeclaracao(html, G)) falta(`abrir-os: global ${G}`);
+  const criterio = corpoDaFuncao(semComentarios(html).texto, R.criterio);
   if (criterio === null || !temFuncaoDeTopo(html, R.criterio)) { falta(`abrir-os: função ${R.criterio}`); return; }
+  let semCampo = false;
   for (const campo of [R.usina, R.respostas, R.dispersos, R.finalizada]) {
-    if (!new RegExp(`\\b${escapar(R.global)}\\s*\\.\\s*${escapar(campo)}\\b`).test(criterio)) {
-      falta(`abrir-os: ${R.criterio} sem ${R.global}.${campo}`);
+    if (!new RegExp(`\\b${escapar(G)}\\s*\\.\\s*${escapar(campo)}\\b`).test(criterio)) {
+      falta(`abrir-os: ${R.criterio} sem ${G}.${campo}`);
+      semCampo = true;
     }
   }
+  if (semCampo) return;
+  const esperado = `${G}&&(${G}.${R.usina}||Object.keys(${G}.${R.respostas}||{}).length||` +
+    `Object.keys(${G}.${R.dispersos}||{}).length)`;
+  const compacto = criterio.replace(/\s+/g, '');
+  const declarado = new RegExp(`(?<![\\w$])(?:const|let|var)${escapar(R.comecou)}=([^;]*);`).exec(compacto);
+  if (!declarado || declarado[1] !== esperado || !compacto.includes(`${R.comecou}&&!${G}.${R.finalizada}`)) {
+    falta(`abrir-os: ${R.criterio} com outro critério de começada`);
+  }
+}
+
+// A entrada do site (o ABRIR_OS.entrada): a casca só põe a OS do toque na busca depois de a entrada terminar, e lê dois
+// `let` de topo pelo nome: o _telaRestaurada (a restauração da tela de antes rodou) e o pollTimer (a fila terminou de
+// carregar). O contrato prende: os dois `let` no topo de um script clássico; o _telaRestaurar de topo, que liga o
+// _telaRestaurada; o renderTudo de topo, que chama o _telaRestaurar; e o entrarComIdentidade de topo, que só liga o
+// pollTimer depois do `await carregarDados()`. Sem eles, a casca espera o teto de 20 s em toda entrada, ou põe a OS na
+// busca antes de a página reabrir por cima dela a folha de antes. Os corpos são lidos sem os comentários do JavaScript.
+function conferirEntrada(html, falta) {
+  const E = ABRIR_OS.entrada;
+  const { texto } = semComentarios(html);
+  for (const global of [E.restaurada, E.filaCarregada]) if (!temDeclaracao(html, global)) falta(`abrir-os: global ${global}`);
+  const corpo = (nome) => {
+    const c = temFuncaoDeTopo(html, nome) ? corpoDaFuncao(texto, nome) : null;
+    if (c === null) falta(`abrir-os: função ${nome}`);
+    return c;
+  };
+  const restaurar = corpo(E.restaurar);
+  if (restaurar !== null && !new RegExp(`(?<![\\w$.])${escapar(E.restaurada)}\\s*=\\s*true\\b`).test(restaurar)) {
+    falta(`abrir-os: ${E.restaurar} sem ${E.restaurada} = true`);
+  }
+  const render = corpo(E.render);
+  if (render !== null && !new RegExp(`(?<![\\w$.])${escapar(E.restaurar)}\\s*\\(`).test(render)) {
+    falta(`abrir-os: ${E.render} sem ${E.restaurar}()`);
+  }
+  const entrar = corpo(E.entrar);
+  if (entrar === null) return;
+  const carga = new RegExp(`\\bawait\\s+${escapar(E.carregarFila)}\\s*\\(`).exec(entrar);
+  const liga = new RegExp(`(?<![\\w$.])${escapar(E.filaCarregada)}\\s*=(?!=)`).exec(entrar);
+  if (!carga) falta(`abrir-os: ${E.entrar} sem await ${E.carregarFila}`);
+  else if (!liga) falta(`abrir-os: ${E.entrar} sem ${E.filaCarregada}`);
+  else if (liga.index < carga.index) falta(`abrir-os: ${E.filaCarregada} antes do ${E.carregarFila}`);
 }
 
 /**
