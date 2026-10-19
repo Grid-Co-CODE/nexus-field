@@ -13,9 +13,9 @@
     <string name="custom_url_scheme">br.com.gridco.nexusfield</string>
 
     <!--
-      Os diálogos da casca. Vão ao campo, e os textos estão PENDENTES de aprovação do dono da casca na prévia
-      (docs/previas/telas.html), também os que passaram a dizer Nexus Field em 17/10/2026. Quando ele aprovar, esta
-      nota passa a dizer "aprovados", com a data; daí em diante não se muda texto sem nova prévia.
+      Os diálogos da casca. Vão ao campo, e os textos foram aprovados pelo dono da casca na prévia
+      (docs/previas/telas.html) em 19/10/2026, também os que passaram a dizer Nexus Field em 17/10/2026 e os das
+      notificações e dos atalhos; daí em diante não se muda texto sem nova prévia (o novo entra marcado PENDENTE).
     -->
 
     <!-- Primeira abertura: pede a câmera, a localização precisa e (Android 13+) as notificações. -->
@@ -24,7 +24,7 @@
     <string name="casca_permissoes_continuar">Continuar</string>
 
     <!-- Quem já tinha o Nexus Field e atualizou para a 1.1.0 (Android 13+) vê este aviso antes de o Android pedir a
-         notificação. Texto novo de 18/10/2026, PENDENTE de aprovação do dono da casca na prévia. Em 19/10/2026 o "na
+         notificação. Texto novo de 18/10/2026, aprovado pelo dono da casca na prévia em 19/10/2026. Em 19/10/2026 o "na
          hora" virou "em poucos minutos (sem som fora do expediente)": a emergência chega em até 10 minutos e, fora do
          dia útil e do expediente, sem som (spec 2026-10-18, seção 1); "na hora" prometia mais, e o técnico que visse a das
          18h chegar muda acharia que o alarme quebrou. -->
@@ -49,7 +49,7 @@
     <string name="casca_webview_abrir_loja">Abrir a Play Store</string>
 
     <!--
-      A atualização da casca (spec, seção 7). Mesma regra: texto PENDENTE de aprovação do dono da casca na prévia.
+      A atualização da casca (spec, seção 7). Mesma regra: texto aprovado pelo dono da casca na prévia em 19/10/2026.
       O texto da versão leva o versionName e uma linha "- item" por novidade do versao.json; o "_simples" é o caso de
       uma Release sem nenhuma novidade (não aparece "Novidades:" com a lista vazia).
     -->
@@ -59,8 +59,8 @@
     <string name="casca_atualizacao_atualizar">Atualizar agora</string>
     <string name="casca_atualizacao_depois">Depois</string>
 
-    <!-- O toque em "Atualizar agora": o download começou (toast). PENDENTE de aprovação do dono da casca na prévia (texto
-         novo de 17/10/2026, que o plano não previa). -->
+    <!-- O toque em "Atualizar agora": o download começou (toast). Aprovado pelo dono da casca na prévia em 19/10/2026
+         (texto novo de 17/10/2026, que o plano não previa). -->
     <string name="casca_atualizacao_baixando">Baixando a versão nova…</string>
 
     <!-- O Android pede a permissão "Instalar apps desconhecidos" para este app antes de abrir o instalador. -->
@@ -72,8 +72,8 @@
 
     <!--
       Os canais das notificações (spec 2026-10-18), com os nomes que o técnico vê nos ajustes do Android (Apps > Nexus
-      Field > Notificações) e ao segurar uma notificação. PENDENTES de aprovação do dono da casca na prévia, no quadro
-      dos ajustes da seção Notificações (#t-canais). Os ids (resumo, emergencia, emergencia_silenciosa) são o contrato
+      Field > Notificações) e ao segurar uma notificação. Aprovados pelo dono da casca na prévia em 19/10/2026, no
+      quadro dos ajustes da seção Notificações (#t-canais). Os ids (resumo, emergencia, emergencia_silenciosa) são o contrato
       com o servidor e ficam no código (Notificacoes); só o nome sai daqui. Prefixo próprio, não casca_: não são diálogo
       nem toast. O testes/previas.test.mjs confere que os três estão no quadro e que são os do CanaisDeNotificacao.
     -->
@@ -89,8 +89,8 @@
       O launcher mostra o rótulo longo quando cabe (até uns 25 caracteres) e o curto quando não cabe (o do atalho fixado
       na tela inicial), cortado a uns 10. O "_desligado" é o que o launcher mostra no toque do atalho fixado que ficou
       desligado (a conta não é Admin, ou saiu). Rótulos de 19/10/2026 ("Testar" e "Testar avisos"; "Sem alarme" e "Testar
-      sem alarme", no lugar de "Silencioso" e "Testar avisos fora do expediente", que passava dos 25), PENDENTES de
-      aprovação do dono da casca na prévia (o quadro #t-atalhos). Prefixo próprio, não casca_: não são diálogo nem toast.
+      sem alarme", no lugar de "Silencioso" e "Testar avisos fora do expediente", que passava dos 25), aprovados pelo
+      dono da casca na prévia em 19/10/2026 (o quadro #t-atalhos). Prefixo próprio, não casca_: não são diálogo nem toast.
       O testes/previas.test.mjs confere que são os do AtalhosDeTeste, e o AtalhosDeTesteTest, o tamanho.
     -->
     <string name="atalho_teste_avisos_curto">Testar</string>
@@ -102,8 +102,8 @@
     <!-- O resultado do teste pedido pelo atalho (toast). Sem dado da conta: só a contagem de aparelhos. O "(s)" fica, e
          não um plurals: no pt-BR o Android põe o 0 no singular ("0 aparelho"), e o 0 é o caso que a prova procura (o
          aparelho que não se registrou). Textos novos de 18/10/2026 (o "_sem_contagem", o 200 cuja contagem não se lê, e o
-         "_ja_pedido", o segundo toque em menos de 10 s, de 19/10/2026), PENDENTES de aprovação do dono da casca na
-         prévia. -->
+         "_ja_pedido", o segundo toque em menos de 10 s, de 19/10/2026), aprovados pelo dono da casca na prévia em
+         19/10/2026. -->
     <string name="casca_teste_enviado">Aviso de teste enviado para %1$d aparelho(s)</string>
     <string name="casca_teste_enviado_sem_contagem">Aviso de teste enviado</string>
     <string name="casca_teste_so_admin">Só administrador pode testar</string>

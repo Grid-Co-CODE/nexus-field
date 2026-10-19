@@ -534,8 +534,8 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
       prova recebe pelo próprio aviso de atualização. Caso que criou a regra: a revisão final das notificações viu que a
       tag final, posta antes da prova, levaria a 1.1.0 (e os canais, que não mudam depois) a quem tivesse a 1.0.0.
     - Os textos novos (os canais e o som, a vibração e a importância de cada um, os atalhos e o texto do atalho
-      desligado, os avisos rápidos, o "Avisos do Nexus Field", o novo "Antes de começar" e as novidades da 1.1.0) estão
-      PENDENTES de aprovação; quando ele aprovar, os cabeçalhos do `strings.xml` passam a dizer "aprovados", com a data.
+      desligado, os avisos rápidos, o "Avisos do Nexus Field", o novo "Antes de começar" e as novidades da 1.1.0) foram
+      aprovados pelo dono na prévia em 19/10/2026, e os cabeçalhos do `strings.xml` dizem isso.
 - **Abrir a OS pelo toque na emergência** (notificações, 18/10/2026; `MainActivity.osDoToque`, `CascaPlugin.AberturaDaOS`,
   `OsDoToque` e a seção 9 do `inicio.js`; testes `CascaPluginTest`, `OsDoToqueTest`, `PushNaCascaTest`, `MainActivityTest`,
   `MainActivityNaTelaTest` e `testes/abrir-os.test.mjs`). O Intent do toque traz o extra `gc_os` (o número da OS, só na
@@ -687,7 +687,7 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
     `testes/atalho-teste.test.mjs` compara); o 200 sem contagem que se leia vai `{ok:true, status:200, aparelhos:null}` e
     dá o toast de enviado sem o número (`casca_teste_enviado_sem_contagem`): o de falha convidaria a repetir. Quem decide
     o texto do toast é o nativo (`casca_teste_*`). A página que nem aceitou o pedido dá o toast de falha.
-  - Os textos (rótulos `atalho_teste_*`, o do atalho desligado e os toasts) estão PENDENTES de aprovação na prévia
+  - Os textos (rótulos `atalho_teste_*`, o do atalho desligado e os toasts), aprovados pelo dono na prévia em 19/10/2026
     (`#t-atalhos`): "Testar" e "Testar avisos" (o canal alto), "Sem alarme" e "Testar sem alarme" (o silencioso). Nenhum
     rótulo promete "sem som" (o teste manda também um resumo, que toca com o som normal no canal dele; o "sem alarme" é o
     da emergência de teste), os curtos têm no máximo 10 caracteres (o launcher corta o do atalho fixado) e os longos no
@@ -721,8 +721,8 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
     apagaria o espelho.
   - O `cache/atualizacao/` é limpo a cada checagem de 6 h (sobra da versão instalada, diálogo fechado) e, antes do
     instalador, fica só o APK novo. O `confere` lê em pedaços de 64 KB.
-  - Os textos estão no `strings.xml` (`casca_atualizacao_*`, `casca_instalar_*`), PENDENTES de aprovação do
-    dono da casca na prévia. O `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) e o
+  - Os textos estão no `strings.xml` (`casca_atualizacao_*`, `casca_instalar_*`), aprovados pelo dono da casca na
+    prévia em 19/10/2026. O `casca_atualizacao_texto_simples` (só "Versão X.", Release sem novidades) e o
     `casca_atualizacao_baixando` (17/10/2026) não estavam no plano.
   - Do `Atualizador` testa-se em JVM o fluxo inteiro com rede, telas e relógio falsos (`AtualizadorTest`; a tela falsa
     também diz "fora da frente"); os diálogos de verdade, o toast e o instalador do sistema só se veem no aparelho. **Os
@@ -759,9 +759,9 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
   ajustes do Android) e os atalhos de teste do ícone (o quadro `#t-atalhos`), cada tela numa moldura de 360 px, para o
   dono da casca aprovar texto e visual antes de ir ao campo. A lista "O que aprovar", no topo, pede também o que não é
   texto e não muda depois de a versão chegar aos aparelhos: o som, a vibração e a importância de cada canal. **O ícone,
-  o nome e os textos estão PENDENTES de aprovação do dono da casca** (a página é publicada como Artifact privado do
-  claude.ai e ele aprova por lá); quando ele aprovar, esta frase e os cabeçalhos do `strings.xml` passam a dizer
-  "aprovados", com a data. O texto vive no arquivo-fonte, não na prévia: pedido de mudança se faz no `strings.xml`, no
+  o nome e os textos foram aprovados pelo dono da casca na prévia em 19/10/2026** (a página é publicada como Artifact
+  privado do claude.ai e ele aprova por lá); texto novo ou mudado volta à prévia, marcado PENDENTE no `strings.xml`,
+  antes de ir ao campo. O texto vive no arquivo-fonte, não na prévia: pedido de mudança se faz no `strings.xml`, no
   `erro.html`, no `inicio.js` ou no `novidades/`, e a prévia acompanha.
   - **Ícone e nome:** o PNG do APK (o `ic_launcher_foreground` de xxxhdpi, byte a byte) embutido UMA vez como `data:` URI
     num `<image id="g-nexus-field">`, e cada cópia é um `<use>` (oito ícones e a abertura sem repetir 9 KB de base64).
