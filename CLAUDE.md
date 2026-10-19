@@ -325,8 +325,10 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   camada de baixo no lugar da de cima. O `sheetTask` é um `let` de topo do site, que não vira propriedade da janela: é
   lido pelo nome (o teste prova num jsdom que roda o script e a página como scripts de verdade). Se o site adotar o
   histórico (pushState ao abrir camada), a seção sai e o nativo passa ao `goBack()`. A pilha mora numa função só,
-  `camadaDeCima`, que devolve também se a camada segura o técnico (`ocupa`): é ela que a abertura da OS pelo toque (seção
-  9) pergunta, sem fechar nada. Camada nova do site entra ali e vale para o voltar e para o toque juntos.
+  `camadaDeCima`, que devolve também se a camada segura o técnico (`ocupa`; o serviço aberto da Zeladoria ocupa, e a
+  Ronda numa etapa vem marcada com `ronda: true`, porque só segura com a ronda começada, o que a seção 9 decide pelo
+  critério do site): é ela que a abertura da OS pelo toque (seção 9) pergunta, sem fechar nada. O que o voltar faz não
+  muda com isso. Camada nova do site entra ali e vale para o voltar e para o toque juntos.
 - **O voltar do Android, do lado nativo** (`Voltar`, ligado pelo `CascaPlugin` no começo do `load()`, também com a
   WebView antiga): um `OnBackPressedCallback` do androidx.activity, que cobre o voltar preditivo do targetSdk 36
   (sobrescrever o `onBackPressed` não cobriria). Com a página do App aberta (a URL na origem do `server.url` e o caminho
@@ -358,8 +360,11 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
       renomeia): mudá-los exige id de canal novo, com o contrato do servidor junto.
     - As rotas, todas com o Bearer da página e no ar desde a v286 do App de Campo: `POST {MIDDLEWARE_URL}/push/registrar
       {token, aparelho:'android', app:'NexusField/<versionName>'}`, `POST /push/esquecer {token}`, `GET /me` (o papel
-      `Admin`) e `POST /push/teste {canal}` (só Admin). O contrato diário exige da página o `getTokenMW`, a `async function
-      sair` e a declaração do `MIDDLEWARE_URL` (`PUSH`); o resto da conversa é do servidor.
+      `Admin`) e `POST /push/teste {canal}` (só Admin), no endereço do `MIDDLEWARE_URL` sem a barra do fim (como a página
+      faz em toda chamada: com a barra, a casca pedia `…/api//push/…`, e o 404 parava o registro em silêncio). O contrato
+      diário exige da página o que o `PUSH` lê (o `getTokenMW` sem abrir o login, a `async function sair` com o único
+      logout da página e chamada pelo menu, a declaração do `MIDDLEWARE_URL` e o `#s-app`; ver o contrato, mais abaixo);
+      o resto da conversa é do servidor.
     - Os ids das notificações: o resumo tem id fixo (o das 13h toma o lugar do das 7h, e toca de novo) e a emergência, id
       pela OS (a mesma OS substitui a anterior, sem tocar outra vez: `setOnlyAlertOnce` só nela). O `PendingIntent` do toque
       tem por código o id da notificação: com o mesmo código o Android acharia "igual" o que só muda nos extras, e a
@@ -377,23 +382,50 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
       Field" (não cancelável) e o pedido só da notificação. A marca `jaPediuNotificacao` (no arquivo `push`) só grava
       quando o técnico RESPONDE: negada, não se pede de novo (ligar é nos ajustes do Android), e o app morto com a tela do
       sistema aberta pergunta na abertura seguinte. Ninguém pode dar `clear()` no arquivo `push`.
-    - O registro é da PÁGINA (seção 8 do `inicio.js`), uma vez por carga e depois do login, com o Bearer da conta de agora
-      (Ruling N3): o nativo só entrega o token do Firebase (`{t:'pushPedirToken'}` e `{t:'pushToken'}`; sem o
-      `google-services.json` o `getInstance` lança e vai `token: null`), nunca vê token da Microsoft e não guarda nada do
-      registro. O `sair()` da página é embrulhado: antes dele, o servidor esquece o token (prazo de 3 s), e o original roda
-      sempre. Erro vira `{t:'erro', onde:'push'}` com um texto nosso (nunca o token, o Bearer nem o e-mail); 404, a rota
-      fora do ar, para nesta carga; sem rede, tenta no próximo `online`, no máximo uma vez a cada 10 minutos. Caso que
-      criou a regra: a primeira versão pulava o registro feito há menos de 7 dias, e o "já registrado" não sabia de QUEM
-      (trocar de conta sem o Sair mandava os avisos ao e-mail anterior, e depois do Sair o aparelho ficava sem aviso por
-      até 7 dias). O custo é uma chamada ao servidor do App de Campo por abertura, e nenhuma ao Fracttal.
+    - O registro é da PÁGINA (seção 8 do `inicio.js`, `testes/push.test.mjs`), uma vez por token em cada carga, com o
+      Bearer da conta de agora; o nativo só entrega o token do Firebase e nunca vê token da Microsoft. Caso que criou a
+      regra: a primeira versão pulava o registro feito há menos de 7 dias, e o "já registrado" não sabia de QUEM (trocar de
+      conta sem o Sair mandava os avisos ao e-mail anterior, e depois do Sair o aparelho ficava sem aviso por até 7 dias).
+      O custo é uma chamada ao servidor do App de Campo por abertura, e nenhuma ao Fracttal. A conversa com o nativo:
+      - página → nativo: `{t:'pushPedirToken'}` 5 s depois do load (e de novo quando o token veio null, abaixo);
+        `{t:'pushRegistrado'}` quando o servidor respondeu 2xx (não depois do Sair); `{t:'pushSaiu'}` no Sair, com token
+        ou sem; e o `pushAdmin`/`pushTeste` do atalho de teste.
+      - nativo → página: `{t:'pushToken', token, versao, avisos}`, a resposta, que também chega SOZINHA a qualquer hora (o
+        token renovado com a página viva, a volta ao app com os avisos ligados de novo). A página aceita um token
+        DIFERENTE do atual e registra uma vez por token, e só com `avisos` true (ausente, do nativo antigo, vale true;
+        qualquer outro valor, não): com as notificações desligadas o servidor contaria um aparelho que não mostra nada.
+        Sem o `google-services.json` o `getInstance` lança e vai `token: null`.
+      - **"Logado" é a tela do App na frente (`#s-app.on`, o `PUSH.id.app`), não "o getTokenMW devolveu algo"**: o site
+        só liga o `.on` no `entrarComIdentidade`, depois do `setActiveAccount` da conta escolhida. Caso: o aparelho
+        dividido; A não saiu; B toca em Entrar e volta do login com 4G fraco: até a tela do App, o MSAL ainda tinha A como
+        ativa, e o registro e o `/me` saíam com A (as emergências de A na mão de B, os atalhos de Admin de A para B). Antes
+        dela, o registro, o `/me` e o teste dos avisos esperam (o `MutationObserver` na classe do `#s-app`; sem ele, uma
+        consulta de 1 s por 3 minutos), além do `online` e da volta ao app. A página sem o `#s-app` nunca "loga": nada sai,
+        e o contrato diário avisa.
+      - Sem laço: o token null espera o próximo `online` ou a volta ao app para pedir de novo (a primeira abertura sem
+        sinal: o SDK do Firebase só obtém o token quando a rede volta); a tela do App com o Bearer null (a entrada sem sinal,
+        a sessão vencida), o próximo `online` ou a volta ao app; 404, a rota fora do ar, para nesta carga; sem rede, o
+        próximo `online`. Entre tentativas (o pedido do token de novo, o registro que falhou), no mínimo 10 minutos; o
+        `online` que chega na espera tenta quando ela acaba. Erro vira `{t:'erro', onde:'push'}` com um texto nosso (nunca
+        o token, o Bearer nem o e-mail).
+      - **O Sair**, embrulhado (o `sair` do site troca as telas na primeira linha e vai ao `logoutRedirect`): manda o
+        `pushSaiu` (o nativo cala as notificações até o próximo `pushRegistrado` e apaga o token do Firebase: é o que segura
+        o Sair sem rede, com o servidor fora ou com a sessão vencida, quando o esquecer não chega ao servidor e o aparelho
+        seguia com os avisos de quem saiu), o `pushAdmin:false` e apaga a OS pendente do toque (a da conta que saiu não
+        abre para a que entra); depois pede ao servidor que esqueça o token com `keepalive: true` (o pedido sobrevive à
+        navegação do logout) e roda o sair da página assim que o pedido sai, sem esperar a resposta (o teto de 3 s fica
+        para o Bearer que não vem). O segundo toque com o primeiro em curso recebe a mesma Promise (o segundo
+        `logoutRedirect` lançava `interaction_in_progress`, e a reserva da página apagava as contas enquanto o primeiro
+        navegava). Nenhum registro começa depois do Sair nesta carga (o `online`, o fim da espera ou um token novo
+        mandariam o Bearer de quem está saindo ao lado do esquecer); a carga seguinte registra.
     - O ícone pequeno é o `ic_notificacao.xml`: o G da Grid em vetor branco de 24 dp, sem fundo (o Android só usa o alfa e
       pinta com a cor da barra; o PNG do ícone do app viraria um quadrado). O traçado saiu do `docs/marca/grid-g-branco.png`
       (99,3% da área igual) e o desenho está explicado no próprio arquivo. O manifesto também o dá como ícone padrão do
       Firebase, e o canal do resumo como o padrão (uma mensagem com `notification` mostrada pelo próprio Firebase não cai no
       "Miscellaneous").
-    - O toque na emergência e o atalho de teste dos avisos, abaixo: "Abrir a OS pelo toque na emergência" (Ruling N6: a OS
-      fica PENDENTE se o técnico está no meio de uma OS, de uma ronda ou de outra camada) e "O atalho de teste dos avisos"
-      (Ruling N7: só Admin, no toque longo do ícone).
+    - O toque na emergência e o atalho de teste dos avisos, abaixo: "Abrir a OS pelo toque na emergência" (a OS fica
+      PENDENTE se o técnico está na tela de login, numa OS, numa ronda começada, num serviço da Zeladoria ou noutra
+      camada) e "O atalho de teste dos avisos" (só Admin, no toque longo do ícone).
   - **O Firebase no build:** `firebase-bom:34.19.0` fixo e só o `firebase-messaging` (sem Analytics), para o APK de hoje e o
     de daqui a um mês saírem das mesmas bibliotecas. O `android/app/google-services.json` (do `applicationId`
     `br.com.gridco.nexusfield`) NÃO é segredo (só identifica o projeto; a chave de serviço mora só nas App Settings do
@@ -432,46 +464,68 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     com ela.
   - **No script, o toque nunca interrompe o técnico** (regra do dono, 18/10/2026: "Continua no preenchimento de OS ou
     ronda, a da notificação fica pendente"; o caso: a busca posta por baixo da OS aberta, que ele não via).
-    `window.__gcCascaAbrirOS(os)` (não enumerável) confere `^[0-9]{1,12}$` de novo e pergunta à `camadaDeCima` da seção 7
-    (a pilha do voltar, sem fechar nada) se ele está ocupado: qualquer camada aberta, mesmo a que o voltar não saberia
-    fechar, ou a Ronda em andamento (o `.rd-voltar` dentro da `#tela-ronda.on`). Outra aba sem nada aberto (a Zeladoria
-    inclusive) não ocupa.
+    `window.__gcCascaAbrirOS(os)` (não enumerável) confere `^[0-9]{1,12}$` de novo e vê se ele está ocupado:
+    - **fora da tela do App** (`#s-app` sem o `.on`, a mesma porta do registro): a tela de login. Caso que criou a regra:
+      toda partida a frio cai nela (online não há entrada automática), que é o caso de quem recebe a notificação com o app
+      fechado, e o Entrar vai ao `loginRedirect`, que recarrega a página: a busca posta por trás do login se perdia. A
+      pendência atravessa o redirecionamento (o sessionStorage é da aba) e abre com a tela do App na frente;
+    - com uma camada aberta, pela `camadaDeCima` da seção 7 (a pilha do voltar, sem fechar nada), mesmo a que o voltar não
+      saberia fechar, e o **serviço aberto da Zeladoria** (o `.zl-volta`, que o site só desenha dentro de um serviço: é
+      preenchimento, como a OS; a lista dos serviços não ocupa);
+    - com a **Ronda numa etapa (o `.rd-voltar` na `#tela-ronda.on`) e a ronda começada pelo critério do próprio site**: o
+      `comecou` do `rdVoltar` (v284), que a casca repete lendo o `let RONDA` de topo pelo nome (como o `sheetTask`): a
+      usina escolhida, uma resposta ou um disperso, e não finalizada no servidor. Caso que criou a regra: o `renderRonda`
+      desenha o `.rd-voltar` em TODA etapa, até na Chegada antes de começar, e a aba só aberta segurava a OS. O `RONDA`
+      nulo é a ronda que nem abriu nesta carga (livre); sem como ler o `RONDA` (o site trocou o nome), vale a regra de
+      antes, a Ronda numa etapa segura, pelo lado de não interromper. O contrato prende o nome e o critério.
+    Outra aba sem nada aberto não ocupa.
     - Livre: `setTab('tarefas')` se ele está noutra aba, o número no `#busca-os` e `setBusca(os)`, nessa ordem (a do
-      `phTrazer` do site); a busca local e, sem achar, ao vivo no Fracttal é a do próprio site. Devolve `'aberta'`.
+      `phTrazer` do site); a busca local e, sem achar, ao vivo no Fracttal é a do próprio site. Avisa o nativo
+      (`{t:'osAberta', os}`, que ele espera para cancelar a notificação e parar de repetir a OS a cada carga) e devolve
+      `'aberta'`. A mesma OS entregue de novo na mesma carga (o nativo repete; o técnico toca duas vezes) não reabre:
+      devolve `'aberta'` e repete só o aviso (reabrir puxaria a busca por baixo do que ele abriu depois).
     - Ocupado: nada é fechado, nenhuma aba trocada, nenhuma tela nova (a notificação já foi o aviso). A OS fica no
       sessionStorage, `gc_casca_os_pendente` = `{os, dia}`, e devolve `'pendente'`. Uma conferência de 2 s, que só existe
-      enquanto houver pendência, a abre como acima quando ele ficar livre. A pendência vale só no dia (a de outro dia, ou
-      torta, sai na leitura), atravessa as recargas da mesma partida (a carga nova retoma a conferência, porque o nativo
-      entrega uma vez só) e a OS nova a substitui: a última emergência vence.
-    - `false`, sem lançar e sem avisar o nativo, se faltar o campo ou o `setBusca`, ou se a pendência não couber no
-      sessionStorage. O `setBusca` que lança vira `{t:'erro', onde:'abrirOS'}`; na conferência, a pendente que lança sai
-      da pendência (o erro não se repete a cada 2 s).
-    - Os nomes são o `ABRIR_OS` (o `setTab`, a aba e o sinal da Ronda vêm do `VOLTAR`, por referência), e o contrato diário
-      os exige com o rótulo `abrir-os` (função `setBusca` e `setTab`, ids `busca-os` e `tela-ronda`, classes `on` e
-      `rd-voltar`, aba `tarefas`); os que são também do voltar faltam nas duas listas.
-  - **O que isto não faz** (conhecido, para a prova no aparelho): o toque que cai na tela de login do App (livre, com o
-    campo e o `setBusca` já definidos) põe a busca, e o redirecionamento do login a perde; a pendência não sobrevive ao
-    app fechado (o sessionStorage é da partida). A Zeladoria dentro de um serviço não segura a OS (a regra do dono fala
-    em OS e ronda): o toque troca de aba por cima dela. Sem prova no aparelho ainda: o `setTab` que não apaga a busca,
-    e a camada que a página abrir fora da lista do `VOLTAR` (o toque a trataria como livre).
-- **O atalho de teste dos avisos, só para administrador** (Ruling N7, 18/10/2026; `AtalhosDeTeste`,
+      enquanto houver pendência, a abre como acima (com o `osAberta`) quando ele ficar livre. A pendência vale só no dia
+      (a de outro dia, ou torta, sai na leitura), atravessa as recargas da mesma partida (a carga nova retoma a
+      conferência sozinha) e a OS nova a substitui: a última emergência vence. Sem onde guardar (o sessionStorage cheio
+      ou negado), ela fica numa variável da página, até a recarga, e a gravação que falha apaga a velha antes (a última
+      vence assim mesmo). O Sair da seção 8 apaga a pendência (`ctx.esquecerOsPendente`).
+    - `false`, sem lançar e sem avisar o nativo, se faltar o campo ou o `setBusca` (o nativo entrega de novo na carga
+      seguinte). O `setBusca` que lança vira `{t:'erro', onde:'abrirOS'}`; na conferência, a pendente que lança sai da
+      pendência (o erro não se repete a cada 2 s).
+    - Os nomes são o `ABRIR_OS` (o `setTab`, a aba e a Ronda numa etapa vêm do `VOLTAR`, e o `#s-app` do `PUSH`, por
+      referência), e o contrato diário os exige com o rótulo `abrir-os` (função `setBusca` e `setTab`, ids `busca-os`,
+      `tela-ronda` e `s-app`, classes `on` e `rd-voltar`, aba `tarefas`, o `let RONDA` de topo e o `rdVoltar` com
+      `RONDA.usina`, `RONDA.respostas`, `RONDA.dispersos` e `RONDA.finalizadaNoServidor`); os que são também do voltar ou
+      do registro faltam em cada lista.
+  - **O que isto não faz** (conhecido, para a prova no aparelho): a pendência da página não sobrevive ao app fechado (o
+    sessionStorage é da partida): quem segura a emergência aí é o nativo, que a entrega de novo a cada carga até ouvir o
+    `osAberta`. Sem prova no aparelho ainda: o `setTab` que não apaga a busca, a volta do login que abre a OS pendente e
+    a camada que a página abrir fora da lista do `VOLTAR` (o toque a trataria como livre).
+- **O atalho de teste dos avisos, só para administrador** (18/10/2026; `AtalhosDeTeste`,
   `CascaPlugin.TesteDosAvisos`, `MainActivity.testeDoAtalho` e a seção 8 do `inicio.js`; testes `AtalhosDeTesteTest`,
   `CascaPluginTest`, `MensageiroTest`, `MainActivityTest` e `testes/atalho-teste.test.mjs`). O dono quis testar as
   notificações no celular por um botão que só quem é Admin vê, e o botão é um atalho do ícone (toque longo), não um botão
   na página: a casca não desenha nada no App de Campo, e o técnico nunca o vê.
-  - **Quem decide é a página, uma vez por carga:** junto do registro do aparelho, com o mesmo Bearer, o
-    `GET {MIDDLEWARE_URL}/me`; ao nativo vai só `{t:'pushAdmin', admin}` (nada do e-mail nem do nome). True (papel
-    `Admin`) publica os dois atalhos dinâmicos (`teste_avisos`, canal `emergencia`; `teste_fora_expediente`, canal
-    `emergencia_silenciosa`); qualquer outro papel, erro, 401, a mensagem torta, o Sair e o 403 do teste os tiram. O
-    `/me` só sai com o token do Firebase (é o fluxo do registro); sem token, os atalhos ficam como estavam até o Sair ou
-    a próxima carga com token.
+  - **Quem decide é a página, uma vez por carga:** 5 s depois do load, com a tela do App na frente (a mesma porta do
+    registro: antes dela o Bearer seria o da conta anterior) e sem depender do token do Firebase (o teste manda aos
+    aparelhos da conta, e o aparelho sem Firebase não pode deixar o Admin sem o atalho), o `GET {MIDDLEWARE_URL}/me` com
+    o Bearer da página; ao nativo vai só `{t:'pushAdmin', admin}` (nada do e-mail nem do nome). True (papel `Admin`)
+    publica os dois atalhos dinâmicos (`teste_avisos`, canal `emergencia`; `teste_fora_expediente`, canal
+    `emergencia_silenciosa`); qualquer outro papel, erro, 401, a mensagem torta, a página sem o `getTokenMW` ou o
+    `MIDDLEWARE_URL`, o `getTokenMW` que lança, o Sair e o 403 do teste os tiram. O Bearer null (a sessão vencida) espera
+    o próximo `online` ou a volta ao app, e os atalhos ficam como estavam até lá.
   - **O toque** abre a `MainActivity` com o extra `gc_teste` (ação VIEW, sem CLEAR_TASK: com o app aberto a página não
     recarrega), lido como o `gc_os` (consumido, só os dois canais, ignorado o Intent dos recentes). O plugin o entrega
     como a OS do toque (as duas usam a `EntregaNaPagina`: a folga de 1,5 s depois da carga do App, o último pedido
     guardado) e segura o toque aceito há menos de 10 s (dois toques mandariam dois pares de avisos a cada aparelho). A
     página chama `POST {MIDDLEWARE_URL}/push/teste {canal}` com o Bearer dela e devolve `{t:'pushTeste', ok, status,
-    aparelhos}` em no máximo 20 s; o nativo mostra o toast (`casca_teste_*`). A página que nem aceitou o pedido dá o
-    toast de falha.
+    aparelhos}` em no máximo 20 s; na tela de login, espera a tela do App dentro desse prazo (o pedido entregue na volta
+    do login), e sem ela devolve `status: 'sem login'`. A contagem só vai como inteiro de 0 ao teto do nativo
+    (`APARELHOS_NO_MAXIMO`, o mesmo número no `inicio.js` e no `AtalhosDeTeste`, que o `testes/atalho-teste.test.mjs`
+    compara); o 200 sem contagem que se leia vai `{ok:true, status:200, aparelhos:null}`, e quem decide o texto do toast
+    é o nativo (`casca_teste_*`). A página que nem aceitou o pedido dá o toast de falha.
   - **Limite conhecido:** o atalho que o administrador fixar na tela inicial não sai com o `removeDynamicShortcuts`;
     tocado por outra conta, o servidor recusa (403) e o toast diz "Só administrador pode testar". Os textos (rótulos
     `atalho_teste_*` e toasts) estão PENDENTES de aprovação na prévia (`#t-atalhos`). O lint dá o aviso
@@ -661,9 +715,24 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
       `fotos` por perto, a `conectarFracttal` com o `window.open('','_blank')`, o `loginRedirect`, o `'/api/app'`, o
       `msal-browser` na 2.38.1 (no mesmo endereço), ou um id, classe, função de topo, o `let sheetTask` ou o
       `setTab('tarefas')` do `VOLTAR` (nome trocado no site só faz o voltar daquela camada minimizar o app); ou o que as
-      notificações usam: a função `getTokenMW`, a `async function sair` e a declaração do `MIDDLEWARE_URL` (o `PUSH`: sem
-      elas o aparelho não se registra, sem erro na tela) e a `setBusca`, o `setTab`, o `#busca-os` e o resto do `ABRIR_OS`
-      (sem eles o toque na emergência não abre a OS); o rótulo de cada um sai na mensagem (`push:`, `abrir-os:`);
+      notificações usam: a função `getTokenMW`, a `async function sair`, a declaração do `MIDDLEWARE_URL` e o `#s-app` (o
+      `PUSH`: sem elas o aparelho não se registra, sem erro na tela) e a `setBusca`, o `setTab`, o `#busca-os`, o `let
+      RONDA`, o `rdVoltar` com o critério da ronda começada (`RONDA.usina`, `.respostas`, `.dispersos` e
+      `.finalizadaNoServidor`) e o resto do `ABRIR_OS` (sem eles o toque na emergência não abre a OS, ou abre por cima de
+      uma ronda começada); o rótulo de cada um sai na mensagem (`push:`, `abrir-os:`). **Toda declaração que a casca lê da
+      página tem de estar no topo de um script clássico**: a função e o `let`/`const`/`var` na coluna 0 (a mesma regra
+      que delimita o corpo das funções) de um `<script>` sem `type` ou com um `type` de JavaScript; a atribuição
+      `window.nome = ...` vale em qualquer script. Caso que criou a regra: o contrato aceitava a declaração dentro de uma
+      função, de um bloco ou de um `<script type="module">`, que não vira propriedade da janela nem entra no ambiente
+      global, e a casca ficaria sem o endereço do servidor em todo aparelho com o contrato verde;
+    - o Sair deixar de passar pelo embrulho (`push: logout fora do sair`, `push: chamada do sair`): todo `logoutRedirect(`
+      ou `logoutPopup(` da página (fora dos comentários) mora no corpo do `sair`, e alguém chama o `sair(` fora da
+      declaração (o `onclick` do menu; `window.sair(` vale, `menu.sair(` ou `sairDaConta(` não). Caso: um "Trocar de
+      conta" com o próprio logout, ao lado do `sair` antigo, deixaria o aparelho com a conta que saiu;
+    - o `getTokenMW` abrir o login (`push: getTokenMW abre o login`): `loginRedirect`, `acquireTokenRedirect`,
+      `loginPopup` ou `acquireTokenPopup` no corpo dele. A casca o chama sem o técnico pedir (5 s depois do load, no
+      `online`, na volta ao app, no Sair e no atalho), e o login interativo levaria a página para a Microsoft no meio do
+      preenchimento;
     - **aparecer** no site uma chave `gc_` (entre aspas, em qualquer uso: `setItem`, o `lsS`/`lsG` do site, constante,
       lista; ou começo de template com `${`) que o `classificar` não classifique e que não esteja na `IGNORAR` do próprio
       contrato (cada entrada com o motivo: o que a spec manda nunca espelhar, preferências, contadores, cópias do que o
@@ -680,7 +749,11 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     descartada (5xx, 4xx, outro host, não HTML) tem o corpo cancelado. Limites: a chave citada entre aspas simples num
     comentário conta (como presente e como nova; entre crases não conta); chave com caractere fora de `[A-Za-z0-9_.:-]`
     não é vista. Medido em 17/10/2026: passa no site vivo e na cópia v282, e cada mudança de uma peça no HTML real (versão
-    do MSAL, store, `window.open`, prefixo, chave nova, versão do banco, keyPath, um id ou função do voltar) é pega. Nota
+    do MSAL, store, `window.open`, prefixo, chave nova, versão do banco, keyPath, um id ou função do voltar) é pega. Em
+    19/10/2026, com as regras do Sair, do `getTokenMW`, do topo de script clássico, do `#s-app` e da ronda: passa no site
+    vivo (v284), e cada uma dessas peças mudada no HTML real (o id, um logout noutra função, o menu chamando outra
+    função, um `acquireTokenRedirect` no `getTokenMW`, o `MIDDLEWARE_URL` fora da coluna 0, o `RONDA` renomeado, um campo
+    a menos no critério) é pega com o nome certo. Nota
     para quem classifica: o `gc_campo_status_meta` (a hora de cada ação do técnico por tarefa, o `META_KEY` do site) é
     TRABALHO, ao lado do `gc_campo_status`: sem ele, depois de uma restauração, o `reconciliar` do site (o reparo do
     estado órfão) descarta os estados locais sem item na fila. Que o "limpar só o login" do site o apague não muda nada:
@@ -691,7 +764,9 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     `contrato-erro` (o próprio teste quebrou: código 3, ou a saída sem a linha do contrato, como o erro de sintaxe ao
     carregar o `inicio.js`, que sai com 1; fecha sozinha quando o contrato voltar a rodar). Com uma issue só para tudo,
     um site fora do ar passageiro escondia a quebra de verdade do dia seguinte. O corpo vai pelo stdin do `gh`, e sem
-    conseguir listar as abertas nada é criado. O job fica vermelho quando o contrato falha.
+    conseguir listar as abertas nada é criado. O job fica vermelho quando o contrato falha. O corpo da issue de quebra
+    diz onde conferir: a `CLASSES`, a `IGNORAR`, o `VOLTAR`, o `PUSH` (os itens `push:`), o `ABRIR_OS` (os itens
+    `abrir-os:`) e a janela do Fracttal (o `testes/issue-do-contrato.test.mjs` confere).
   - **O contrato não morre calado:** o GitHub desliga o agendamento de repositório público sem atividade por 60 dias, e
     esta casca passa meses sem commit. A cada execução o passo "Manter o agendamento ligado" faz
     `gh api --method PUT repos/<repo>/actions/workflows/contrato.yml/enable` (por isso o `actions: write`). Não é

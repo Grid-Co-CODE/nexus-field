@@ -108,15 +108,52 @@ function temStoreDasFotos(html) {
   return false;
 }
 
-// O corpo da função de nível alto `nome`: do parêntese dela até a próxima função na coluna 0 (ou até o teto). A indentação
-// do site pode mudar, por isso só a coluna 0 delimita; o teto evita ler a página inteira se a função for a última.
+// O trecho da função de nível alto `nome`: do parêntese dela até a próxima função na coluna 0 (ou até o teto), como
+// { inicio, fim } no HTML. A indentação do site pode mudar, por isso só a coluna 0 delimita; o teto evita ler a página
+// inteira se a função for a última.
 const TETO_DA_FUNCAO = 12000;
-function corpoDaFuncao(html, nome) {
+function trechoDaFuncao(html, nome) {
   const inicio = new RegExp(`\\bfunction\\s+${escapar(nome)}\\s*\\(`).exec(html);
   if (!inicio) return null;
-  const resto = html.slice(inicio.index + inicio[0].length);
-  const proxima = /\n(?:async\s+)?function\s+[\w$]+\s*\(/.exec(resto);
-  return resto.slice(0, Math.min(proxima ? proxima.index : resto.length, TETO_DA_FUNCAO));
+  const comeco = inicio.index + inicio[0].length;
+  const proxima = /\n(?:async\s+)?function\s+[\w$]+\s*\(/.exec(html.slice(comeco));
+  return { inicio: comeco, fim: comeco + Math.min(proxima ? proxima.index : html.length - comeco, TETO_DA_FUNCAO) };
+}
+function corpoDaFuncao(html, nome) {
+  const trecho = trechoDaFuncao(html, nome);
+  return trecho ? html.slice(trecho.inicio, trecho.fim) : null;
+}
+
+// Os blocos <script> da página, cada um com { inicio, fim, classico }: o que fica entre a tag que abre e a que fecha, e se
+// ele é um script clássico (sem type, ou com um type de JavaScript). Num script de módulo, a declaração de topo não vira
+// propriedade da janela nem entra no ambiente léxico global, e a casca não a enxerga. Guardado para o último HTML lido:
+// o contrato pergunta várias vezes do mesmo.
+const TIPOS_CLASSICOS = new Set(['', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript']);
+let blocosLidos = { html: null, blocos: [] };
+function blocosDeScript(html) {
+  if (blocosLidos.html === html) return blocosLidos.blocos;
+  const blocos = [];
+  const abre = /<script\b([^>]*)>/gi;
+  let m;
+  while ((m = abre.exec(html))) {
+    const inicio = m.index + m[0].length;
+    const fecha = /<\/script\s*>/i.exec(html.slice(inicio));
+    const fim = fecha ? inicio + fecha.index : html.length;
+    const tipo = /\btype\s*=\s*(['"]?)([^'"\s>]*)\1/i.exec(m[1]);
+    blocos.push({ inicio, fim, classico: TIPOS_CLASSICOS.has(tipo ? tipo[2].trim().toLowerCase() : '') });
+    abre.lastIndex = fim;
+  }
+  blocosLidos = { html, blocos };
+  return blocos;
+}
+function emScriptClassico(html, indice) {
+  return blocosDeScript(html).some((b) => b.classico && indice >= b.inicio && indice < b.fim);
+}
+// A declaração na coluna 0 (a mesma regra que delimita o corpo das funções: o que está mais para dentro pode estar dentro
+// de uma função ou de um bloco) e dentro de um script clássico. `padrao` é o texto de uma regex, sem âncora.
+function temNoTopo(html, padrao) {
+  for (const m of html.matchAll(new RegExp(`^${padrao}`, 'gm'))) if (emScriptClassico(html, m.index)) return true;
+  return false;
 }
 
 // Um endereço (sem espaço nem aspas) que traz o msal-browser E a versão fixa: .../browser/2.38.1/js/msal-browser.min.js,
@@ -221,12 +258,17 @@ function temClasse(html, classe) {
   return new RegExp(`(['"])(?:[^'"\\n]*\\s)?${c}(?=[\\s'"\\\\])`).test(html) ||
     new RegExp(`(?<![\\w$-])\\.${c}(?![\\w-])`).test(html);
 }
+// Toda declaração que a casca lê da página está no topo de um script clássico (ver temNoTopo): a função, para ser
+// propriedade da janela (ou a atribuição window.nome = ..., que é propriedade em qualquer script), e o let, o const e o
+// var, para estar no ambiente léxico global, onde a casca os lê pelo nome. Caso que criou a regra: o contrato aceitava a
+// declaração dentro de uma função, de um bloco ou de um script de módulo, e a casca ficaria sem o endereço do servidor
+// em todo aparelho, com o contrato verde.
 function temFuncaoDeTopo(html, nome) {
   const n = escapar(nome);
-  return new RegExp(`\\bfunction\\s+${n}\\s*\\(`).test(html) || new RegExp(`\\bwindow\\.${n}\\s*=`).test(html);
+  return temNoTopo(html, `(?:async\\s+)?function\\s+${n}\\s*\\(`) || new RegExp(`\\bwindow\\.${n}\\s*=`).test(html);
 }
 function temDeclaracao(html, nome) {
-  return new RegExp(`\\b(?:let|var|const)\\s+(?:[\\w$]+\\s*=[^,;\\n]*,\\s*)*${escapar(nome)}\\b`).test(html);
+  return temNoTopo(html, `(?:let|var|const)\\s+(?:[\\w$]+\\s*=[^,;\\n]*,\\s*)*${escapar(nome)}\\b`);
 }
 
 function conferirVoltar(html, falta) {
@@ -245,13 +287,43 @@ function conferirVoltar(html, falta) {
 // o resumo nem a emergência) ou o sair deixa de esquecê-lo (o próximo técnico do aparelho receberia os avisos do
 // anterior), tudo em silêncio. O sair tem de ser async: o embrulho devolve uma Promise.
 function temFuncaoAsync(html, nome) {
-  return new RegExp(`\\basync\\s+function\\s+${escapar(nome)}\\s*\\(`).test(html);
+  return temNoTopo(html, `async\\s+function\\s+${escapar(nome)}\\s*\\(`);
 }
+
+// O embrulho do sair só alcança quem chama o sair pelo nome. Um "Trocar de conta" com o próprio logoutRedirect, ou o menu
+// passando a chamar outra função, deixaria o aparelho com a conta que saiu, e o `async function sair` antigo seguiria
+// no HTML: todo logout da página mora no corpo do sair, e alguém (o botão do menu) chama o sair fora da declaração dele.
+const LOGOUT = /\blogout(?:Redirect|Popup)\s*\(/g;
+const CHAMADA_DO_SAIR = (nome) => new RegExp(`(?<![\\w$.])(?:window\\.)?${escapar(nome)}\\s*\\(`, 'g');
+// O getTokenMW é chamado pela casca sem o técnico pedir (5 s depois do load, no online, na volta ao app, no Sair e no
+// atalho de teste): se ele caísse no login interativo, uma chamada de fundo levaria a página para o login da Microsoft no
+// meio do preenchimento, e o que só estava na memória da página se perderia.
+const ABRE_O_LOGIN = /\b(?:loginRedirect|acquireTokenRedirect|loginPopup|acquireTokenPopup)\s*\(/;
+// Só os comentários de bloco e as linhas que são comentário: o `//` de um endereço entre aspas não corta a linha.
+const semComentarios = (texto) => texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 function conferirPush(html, falta) {
   if (!temFuncaoDeTopo(html, PUSH.funcao.bearer)) falta(`push: função ${PUSH.funcao.bearer}`);
   if (!temFuncaoAsync(html, PUSH.funcao.sair)) falta(`push: async function ${PUSH.funcao.sair}`);
   if (!temDeclaracao(html, PUSH.global.middleware)) falta(`push: global ${PUSH.global.middleware}`);
+  for (const id of Object.values(PUSH.id)) if (!temId(html, id)) falta(`push: id '${id}'`);
+  for (const classe of Object.values(PUSH.classe)) if (!temClasse(html, classe)) falta(`push: classe '${classe}'`);
+
+  // A declaração (`function sair(`, `async function sair(`) não é chamada.
+  const chamadas = [...html.matchAll(CHAMADA_DO_SAIR(PUSH.funcao.sair))]
+    .filter((m) => !/\bfunction\s+$/.test(html.slice(Math.max(0, m.index - 20), m.index)));
+  if (!chamadas.length) falta(`push: chamada do ${PUSH.funcao.sair}`);
+  const semComentario = semComentarios(html);
+  const sairSemComentario = trechoDaFuncao(semComentario, PUSH.funcao.sair);
+  for (const m of semComentario.matchAll(LOGOUT)) {
+    if (!sairSemComentario || m.index < sairSemComentario.inicio || m.index >= sairSemComentario.fim) {
+      falta(`push: logout fora do ${PUSH.funcao.sair}`);
+      break;
+    }
+  }
+
+  const bearer = corpoDaFuncao(html, PUSH.funcao.bearer);
+  if (bearer !== null && ABRE_O_LOGIN.test(semComentarios(bearer))) falta(`push: ${PUSH.funcao.bearer} abre o login`);
 }
 
 // --- A abertura da OS pelo toque na notificação -----------------------------------------------------------------
@@ -266,6 +338,23 @@ function conferirAbrirOS(html, falta) {
   for (const classe of Object.values(ABRIR_OS.classe)) if (!temClasse(html, classe)) falta(`abrir-os: classe '${classe}'`);
   const aba = new RegExp(`\\b${escapar(ABRIR_OS.funcao.aba)}\\s*\\(\\s*\\\\?(['"])${escapar(ABRIR_OS.aba)}\\\\?\\1\\s*\\)`);
   if (!aba.test(html)) falta(`abrir-os: aba '${ABRIR_OS.aba}'`);
+  conferirRonda(html, falta);
+}
+
+// A ronda começada, pelo critério do próprio site: a casca lê o `let RONDA` de topo pelo nome e repete o `comecou` do
+// voltar da Ronda (o rdVoltar: a usina escolhida, uma resposta ou um disperso, e não finalizada no servidor). Se o site
+// trocar o nome ou o critério, a OS do toque passaria a abrir por cima de uma ronda começada (ou a esperar uma que nem
+// começou): o critério tem de continuar no corpo do rdVoltar, campo por campo.
+function conferirRonda(html, falta) {
+  const R = ABRIR_OS.ronda;
+  if (!temDeclaracao(html, R.global)) falta(`abrir-os: global ${R.global}`);
+  const criterio = corpoDaFuncao(html, R.criterio);
+  if (criterio === null || !temFuncaoDeTopo(html, R.criterio)) { falta(`abrir-os: função ${R.criterio}`); return; }
+  for (const campo of [R.usina, R.respostas, R.dispersos, R.finalizada]) {
+    if (!new RegExp(`\\b${escapar(R.global)}\\s*\\.\\s*${escapar(campo)}\\b`).test(criterio)) {
+      falta(`abrir-os: ${R.criterio} sem ${R.global}.${campo}`);
+    }
+  }
 }
 
 /**
@@ -376,7 +465,8 @@ export async function executarContrato({ buscar = fetch, url = URL_DO_APP, esper
       `Contrato quebrado: ${faltou.length} item(ns) do campo.html que a casca supõe não estão como antes.`,
       ...faltou.map((item) => `- ${item}`),
       'Confira com a sessão "App de campo" a classificação em www/casca/inicio.js (CLASSES), a IGNORAR daqui, os nomes ' +
-        'do voltar (VOLTAR), os do registro do aparelho (PUSH), os da abertura da OS (ABRIR_OS) e a janela do Fracttal.',
+        'do voltar (VOLTAR), os do registro do aparelho (PUSH), os da abertura da OS pelo toque (ABRIR_OS) e a janela ' +
+        'do Fracttal.',
     ],
   };
 }

@@ -54,7 +54,7 @@ function stringsDe(prefixo) {
 }
 const stringsDaCasca = () => stringsDe('casca_');
 const stringsDosCanais = () => stringsDe('notificacao_canal_');
-// Os rótulos dos atalhos de teste do ícone (só para administrador, Ruling N7): o curto e o longo de cada um.
+// Os rótulos dos atalhos de teste do ícone (só para administrador, no toque longo do ícone): o curto e o longo de cada um.
 const stringsDosAtalhos = () => stringsDe('atalho_');
 // Só o nome no parâmetro: é usado como `.map(textoDe)`, que passaria o índice num segundo parâmetro.
 const textoDe = (nome) => {
@@ -753,7 +753,8 @@ test('o roteiro da prova das notificações só cita textos do aplicativo e cobr
   }
   for (const t of doServidor) assert.ok(citados.includes(t), `o roteiro não cita o título "${t}" do servidor`);
 
-  // Os casos que a prova no aparelho existe para ver (Ruling N6 e N7): o técnico ocupado, o sem Admin, o app fechado.
+  // Os casos que a prova no aparelho existe para ver (o toque que espera o técnico ficar livre e o atalho só do Admin): o
+  // técnico ocupado, o sem Admin, o app fechado.
   for (const palavra of [/pendente/, /ronda/, /sem Admin/, /fechado/, /12345/]) {
     assert.match(secao, palavra, `o roteiro das notificações não fala de ${palavra}`);
   }

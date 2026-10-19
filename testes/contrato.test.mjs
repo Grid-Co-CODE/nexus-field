@@ -34,12 +34,22 @@ function voltarFicticio({ semId = null, semClasse = null, semFuncao = null, semG
   return { marcacao, script };
 }
 
-// O que o registro do aparelho usa do campo.html, e cada parte pode faltar.
+// O que o registro do aparelho usa do campo.html, e cada parte pode faltar: a const do servidor, a função do Bearer e o
+// sair assíncrono (com o único logout da página dentro dele), como o campo.html v284 os escreve, na coluna 0 de um script
+// clássico.
 function pushFicticio({ semBearer = false, semSair = false, semMiddleware = false } = {}) {
   return [
     semMiddleware ? '' : `const ${PUSH.global.middleware}='https://servidor.exemplo.test/api';   // o servidor`,
-    semBearer ? '' : `async function ${PUSH.funcao.bearer}(){ return null; }`,
-    semSair ? '' : `async function ${PUSH.funcao.sair}(){ document.body.className='login'; }`,
+    semBearer ? '' : `async function ${PUSH.funcao.bearer}(){\n  if(!msalApp) return null;\n  try{ const r=await msalApp.acquireTokenSilent({scopes:[]}); return r.idToken; }catch(e){ return null; }\n}`,
+    semSair ? '' : `async function ${PUSH.funcao.sair}(){\n  document.getElementById('${PUSH.id.app}').className='scr';\n  try{ await msalApp.logoutRedirect({}); return; }catch(e){}\n}`,
+  ].join('\n');
+}
+// A tela do App e o botão Sair do menu (a chamada do sair fora da declaração dele).
+function telaDoAppFicticia({ semTela = false, semBotao = false } = {}) {
+  return [
+    semTela ? '' : `<div id="${PUSH.id.app}" class="scr">`,
+    semBotao ? '' : `<button class="um-item danger" onclick="${PUSH.funcao.sair}()">Sair</button>`,
+    semTela ? '' : '</div>',
   ].join('\n');
 }
 
@@ -50,6 +60,17 @@ function abrirOsFicticio({ semCampo = false, semFuncao = false } = {}) {
     busca: semCampo ? '' : `<input id="${ABRIR_OS.id.busca}" class="busca-inp" type="search" oninput="${ABRIR_OS.funcao.buscar}(this.value)">`,
     script: semFuncao ? '' : `function ${ABRIR_OS.funcao.buscar}(v){ BUSCA=String(v||'').trim(); }`,
   };
+}
+
+// A ronda do campo.html (v284): o `let` de topo e o critério de "começada" do voltar dela, que a casca repete para saber se
+// a Ronda aberta segura a OS do toque. `sem` tira um campo do critério.
+function rondaFicticia({ semGlobal = false, semCriterio = false, sem = null } = {}) {
+  const R = ABRIR_OS.ronda;
+  const campo = (c) => (c === sem ? 'outra' : c);
+  return [
+    semGlobal ? '' : `let ${R.global}=null, RONDA_CTX=null, _rondaBusy=false;`,
+    semCriterio ? '' : `function ${R.criterio}(){\n  const comecou=${R.global}&&(${R.global}.${campo(R.usina)}||Object.keys(${R.global}.${campo(R.respostas)}||{}).length||Object.keys(${R.global}.${campo(R.dispersos)}||{}).length);\n  if(comecou&&!${R.global}.${campo(R.finalizada)}){ if(!confirm('x')) return; }\n  irParaTarefas();\n}`,
+  ].join('\n');
 }
 
 // O HTML fictício que tem tudo. Cada peça pode ser trocada ou tirada pelo teste que quer ver aquela falta.
@@ -76,9 +97,11 @@ function htmlFicticio(pecas = {}) {
     // O campo de busca e o setBusca (o ABRIR_OS do inicio.js), como o campo.html v284 os escreve.
     busca: abrirOsFicticio().busca,
     abrirOs: abrirOsFicticio().script,
+    tela: telaDoAppFicticia(),
+    ronda: rondaFicticia(),
     ...pecas,
   };
-  return `<html><head>${p.msal}</head><body>\n${p.marcacao}\n${p.busca}\n<script>\n${p.banco}\n${p.abrir}\nconst LSK=[${p.chaves}];\nconst FORA=[${p.ignoradas}];\n${p.prefixos}\n${p.rota}\n${p.fracttal}\n${p.login}\n${p.resto}\n${p.voltar}\n${p.push}\n${p.abrirOs}\n</script></body></html>`;
+  return `<html><head>${p.msal}</head><body>\n${p.marcacao}\n${p.tela}\n${p.busca}\n<script>\n${p.banco}\n${p.abrir}\nconst LSK=[${p.chaves}];\nconst FORA=[${p.ignoradas}];\n${p.prefixos}\n${p.rota}\n${p.fracttal}\n${p.login}\n${p.resto}\n${p.voltar}\n${p.push}\n${p.abrirOs}\n${p.ronda}\n</script></body></html>`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -329,10 +352,13 @@ test('o gc_campo_fotos sem versão, na versão 1 por constante, ou com o nome di
 // Os nomes do voltar do Android (o VOLTAR do inicio.js)
 // ---------------------------------------------------------------------------------------------------------------
 
-// Os nomes que o voltar e a abertura da OS usam juntos (o setTab, a aba de Tarefas e o sinal da Ronda em andamento) faltam
-// nas duas listas: a falta diz o que cada uma perde.
-const tambemNaAberturaDaOS = (grupo, nome, item) =>
-  (Object.values(ABRIR_OS[grupo]).includes(nome) ? [item.replace(/^voltar:/, 'abrir-os:')] : []);
+// Os nomes que o voltar usa junto com o registro do aparelho (a classe da tela na frente, o .on) e com a abertura da OS
+// (o setTab, a aba de Tarefas e o sinal da Ronda numa etapa) faltam em cada lista que os usa: a falta diz o que cada uma
+// perde, na ordem em que o contrato confere (o voltar, o registro, a abertura da OS).
+const tambemNaAberturaDaOS = (grupo, nome, item) => [
+  ...(PUSH[grupo] && Object.values(PUSH[grupo]).includes(nome) ? [item.replace(/^voltar:/, 'push:')] : []),
+  ...(Object.values(ABRIR_OS[grupo]).includes(nome) ? [item.replace(/^voltar:/, 'abrir-os:')] : []),
+];
 
 test('o contrato exige cada id, classe e função do VOLTAR, e diz qual sumiu', () => {
   for (const id of Object.values(VOLTAR.id)) {
@@ -399,6 +425,84 @@ test('push: o sair que deixou de ser async, um nome só dentro de outro e o nome
   assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\nlet MIDDLEWARE_URL='x';` })), []);
 });
 
+test('push: o logout da página só dentro do sair; o do sair passa', () => {
+  // O embrulho do sair é o que faz o servidor esquecer o aparelho. Um "Trocar de conta" com o próprio logoutRedirect, ao
+  // lado do sair antigo, deixaria o aparelho com a conta que saiu, sem o contrato ver.
+  for (const outro of [
+    'function trocarConta(){ msalApp.logoutRedirect({}); }',
+    'async function trocarConta(){ await msalGet().logoutPopup({}); }',
+    "botao.onclick=()=>msalApp.logoutRedirect({account:acc});",
+  ]) {
+    assert.deepEqual(conferirContrato(htmlFicticio({ resto: outro })), ['push: logout fora do sair'], outro);
+  }
+  // O sair com os dois (o redirect e o popup de reserva) passa: estão no corpo dele.
+  const sairComOsDois = `${pushFicticio({ semSair: true })}\nasync function sair(){\n  try{ await msalApp.logoutRedirect({}); }catch(e){ await msalApp.logoutPopup({}); }\n}`;
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: sairComOsDois })), []);
+  // O nome só citado num comentário de outra função não é a chamada.
+  assert.deepEqual(conferirContrato(htmlFicticio({ resto: 'function f(){ /* o logoutRedirect fica no sair */ }' })), []);
+});
+
+test('push: o sair tem de ser chamado por alguém fora da declaração dele (o botão do menu)', () => {
+  // Sem chamada nenhuma, o Sair do menu passou a ir a outra função, e o embrulho não alcança mais ninguém.
+  assert.deepEqual(conferirContrato(htmlFicticio({ tela: telaDoAppFicticia({ semBotao: true }) })), ['push: chamada do sair']);
+  // O nome dentro de outro nome, um método de outro objeto ou a própria declaração não são a chamada.
+  for (const parecido of ['<button onclick="sairDaConta()">', '<button onclick="menu.sair()">', '<button onclick="podeSair()">']) {
+    const tela = `${telaDoAppFicticia({ semBotao: true })}\n${parecido}`;
+    assert.deepEqual(conferirContrato(htmlFicticio({ tela })), ['push: chamada do sair'], parecido);
+  }
+  // A chamada pela janela, ou num script, vale.
+  for (const chamada of ['<button onclick="window.sair()">', '<script>document.getElementById(\'x\').onclick=()=>sair();</script>']) {
+    const tela = `${telaDoAppFicticia({ semBotao: true })}\n${chamada}`;
+    assert.deepEqual(conferirContrato(htmlFicticio({ tela })), [], chamada);
+  }
+});
+
+test('push: o getTokenMW não pode abrir o login (a casca o chama sozinha, no meio do preenchimento)', () => {
+  const semBearer = pushFicticio({ semBearer: true });
+  for (const abre of ['loginRedirect', 'acquireTokenRedirect', 'loginPopup', 'acquireTokenPopup']) {
+    const push = `${semBearer}\nasync function getTokenMW(){\n  try{ return (await msalApp.acquireTokenSilent({})).idToken; }\n  catch(e){ await msalApp.${abre}({scopes:[]}); return null; }\n}`;
+    assert.deepEqual(conferirContrato(htmlFicticio({ push })), ['push: getTokenMW abre o login'], abre);
+  }
+  // O Redirect da função seguinte não é do getTokenMW.
+  const vizinha = `${semBearer}\nasync function getTokenMW(){ return null; }\nasync function entrarDeNovo(){ await msalApp.loginRedirect({}); }`;
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: vizinha })), []);
+});
+
+test('push e abrir-os: as declarações que a casca lê ficam no topo de um script clássico', () => {
+  // A casca lê o MIDDLEWARE_URL pelo ambiente léxico global e o getTokenMW, o sair e o setBusca como propriedades da
+  // janela: a declaração dentro de uma função, ou num script de módulo, some dos dois, e o contrato seguia verde.
+  const semMw = pushFicticio({ semMiddleware: true });
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\nfunction iniciar(){\n  const MIDDLEWARE_URL='x';\n}` })),
+    ['push: global MIDDLEWARE_URL']);
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\nif(true){ let MIDDLEWARE_URL='x'; }` })),
+    ['push: global MIDDLEWARE_URL']);
+  const semBearer = pushFicticio({ semBearer: true });
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semBearer}\nconst api={\n  getTokenMW: async function getTokenMW(){ return null; },\n};` })),
+    ['push: função getTokenMW']);
+  // Num script de módulo, a declaração de topo não vira propriedade da janela nem entra no ambiente global.
+  const modulo = (codigo) => `</script><script type="module">\n${codigo}\n</script><script>`;
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\n${modulo("const MIDDLEWARE_URL='x';")}` })),
+    ['push: global MIDDLEWARE_URL']);
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${pushFicticio({ semSair: true })}\n${modulo('async function sair(){ await msalApp.logoutRedirect({}); }')}` })),
+    ['push: async function sair']);
+  assert.deepEqual(conferirContrato(htmlFicticio({ abrirOs: modulo('function setBusca(v){}') })), ['abrir-os: função setBusca']);
+  // O script clássico com o type dito por extenso vale; a propriedade da janela vale em qualquer script.
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\n</script><script type="text/javascript">\nconst MIDDLEWARE_URL='x';\n</script><script>` })), []);
+  assert.deepEqual(conferirContrato(htmlFicticio({ abrirOs: modulo('window.setBusca = function(v){};') })), []);
+  // O nome fora de qualquer script (um texto da página) não é declaração.
+  assert.deepEqual(conferirContrato(htmlFicticio({ push: `${semMw}\n</script>\n<p>\nconst MIDDLEWARE_URL='x';\n</p>\n<script>` })),
+    ['push: global MIDDLEWARE_URL']);
+});
+
+test("push e abrir-os: o id 's-app' (a tela do App, o sinal de logado) falta nas duas listas", () => {
+  // O registro, o /me e o teste dos avisos só saem com a tela do App na frente (#s-app.on), e a OS do toque espera por
+  // ela: sem o id, o aparelho deixa de ser registrado e a OS do toque fica pendente, em silêncio.
+  assert.deepEqual(conferirContrato(htmlFicticio({ tela: telaDoAppFicticia({ semTela: true }) })),
+    [`push: id '${PUSH.id.app}'`, `abrir-os: id '${ABRIR_OS.id.app}'`]);
+  assert.equal(PUSH.id.app, 's-app');
+  assert.equal(ABRIR_OS.id.app, PUSH.id.app);
+});
+
 // ---------------------------------------------------------------------------------------------------------------
 // A abertura da OS pelo toque na notificação (o ABRIR_OS do inicio.js)
 // ---------------------------------------------------------------------------------------------------------------
@@ -440,6 +544,22 @@ test('abrir-os: o contrato exige também o setTab, a aba de Tarefas e o sinal da
   assert.ok(semSinal.includes(`abrir-os: classe '${ABRIR_OS.classe.rondaEmAndamento}'`), semSinal.join(' | '));
   const semAtiva = conferirContrato(htmlFicticio({ marcacao: voltarFicticio({ semClasse: ABRIR_OS.classe.abaAtiva }).marcacao }));
   assert.ok(semAtiva.includes(`abrir-os: classe '${ABRIR_OS.classe.abaAtiva}'`), semAtiva.join(' | '));
+});
+
+test('abrir-os: a ronda começada pelo critério do site (o let RONDA e o voltar da Ronda) é exigida', () => {
+  // A Ronda aberta numa etapa só segura a OS do toque se a ronda começou, pelo mesmo critério do voltar dela (o rdVoltar
+  // do campo.html: a usina escolhida, uma resposta ou um disperso, e não finalizada). A casca lê o `let RONDA` pelo
+  // nome; se o site trocar o nome ou o critério, a casca precisa saber.
+  const R = ABRIR_OS.ronda;
+  assert.deepEqual(conferirContrato(htmlFicticio({ ronda: rondaFicticia({ semGlobal: true }) })), [`abrir-os: global ${R.global}`]);
+  assert.deepEqual(conferirContrato(htmlFicticio({ ronda: rondaFicticia({ semCriterio: true }) })), [`abrir-os: função ${R.criterio}`]);
+  for (const campo of [R.usina, R.respostas, R.dispersos, R.finalizada]) {
+    assert.deepEqual(conferirContrato(htmlFicticio({ ronda: rondaFicticia({ sem: campo }) })),
+      [`abrir-os: ${R.criterio} sem ${R.global}.${campo}`], campo);
+  }
+  // O let dentro de uma função não é o de topo que a casca lê pelo nome.
+  assert.deepEqual(conferirContrato(htmlFicticio({ ronda: `function x(){\n  let ${R.global}=null;\n}\n${rondaFicticia({ semGlobal: true })}` })),
+    [`abrir-os: global ${R.global}`]);
 });
 
 test('abrir-os: o ABRIR_OS do inicio.js tem as partes que o contrato lê', () => {

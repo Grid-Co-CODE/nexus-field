@@ -51,6 +51,15 @@ test('quebra sem issue aberta: cria a issue de quebra, com a saída e a execuç�
   assert.ok(acoes[0].corpo.includes(EXECUCAO));
 });
 
+test('a issue de quebra diz onde conferir: a classificação, a IGNORAR, o voltar, o registro do aparelho, a OS do toque e o Fracttal', () => {
+  // O contrato confere também os nomes do registro do aparelho (PUSH) e os da abertura da OS pelo toque (ABRIR_OS): quem
+  // lê a issue de um "push:" ou de um "abrir-os:" precisa saber em que lista do inicio.js procurar.
+  const [criar] = decidir({ codigo: '1', saida: QUEBRADO, abertas: [], execucao: EXECUCAO });
+  for (const lugar of ['(CLASSES)', 'IGNORAR', '(VOLTAR)', '(PUSH)', '(ABRIR_OS)', 'Fracttal']) {
+    assert.ok(criar.corpo.includes(lugar), `a issue não cita ${lugar}`);
+  }
+});
+
 test('a issue de leitura aberta NÃO esconde a quebra de verdade: a quebra abre a dela e a de leitura fecha', () => {
   const abertas = [issue(5, 'leitura', corpoCom(LEITURA))];
   const acoes = decidir({ codigo: '1', saida: QUEBRADO, abertas, execucao: EXECUCAO });

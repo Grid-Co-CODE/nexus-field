@@ -74,8 +74,10 @@ function corpoNovo(tipo, codigo, saida, execucao) {
       `O teste de contrato diário com o site falhou: o campo.html mudou algo de que a casca depende (código ${codigo}). Saída:`,
       '', bloco(saida), '', `Execução: ${execucao}`, '',
       'O que fazer: avisar a sessão "App de campo"; conferir a classificação das chaves em www/casca/inicio.js (CLASSES), ' +
-      'a lista IGNORAR do testes/contrato.mjs, os nomes do voltar (VOLTAR) e a janela do Fracttal; e só então mudar a ' +
-      'casca ou o contrato, se a mudança no site for de propósito. Esta issue não fecha sozinha.',
+      'a lista IGNORAR do testes/contrato.mjs, os nomes do voltar (VOLTAR), os do registro do aparelho para as ' +
+      'notificações (PUSH), nos itens "push:", os da abertura da OS pelo toque na emergência (ABRIR_OS), nos itens ' +
+      '"abrir-os:", e a janela do Fracttal; e só então mudar a casca ou o contrato, se a mudança no site for de ' +
+      'propósito. Esta issue não fecha sozinha.',
     ],
     leitura: [
       `O contrato diário não conseguiu ler o site (código ${codigo}): nada foi conferido. Saída:`,

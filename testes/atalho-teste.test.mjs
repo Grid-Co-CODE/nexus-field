@@ -1,13 +1,14 @@
-// Prova o atalho de teste dos avisos, do lado do script de início (Ruling N7, 18/10/2026): o dono quis testar as
-// notificações no celular por um botão que só o administrador vê, e o botão é um atalho do ícone (toque longo), para a
-// casca não desenhar nada na página. O script faz duas coisas, com o Bearer da própria página (o nativo nunca vê token
-// da Microsoft):
-//   - uma vez por carga, junto do registro do aparelho e depois do login, pergunta ao GET {MIDDLEWARE_URL}/me se a conta
-//     é 'Admin' e manda ao nativo só {t:'pushAdmin', admin}: true publica os atalhos, false os tira (outro papel, erro,
-//     401 e o Sair). Do /me não vai mais nada (o e-mail e o nome ficam na página);
+// Prova o atalho de teste dos avisos, do lado do script de início (18/10/2026): o dono quis testar as notificações no
+// celular por um botão que só o administrador vê, e o botão é um atalho do ícone (toque longo), para a casca não
+// desenhar nada na página. O script faz duas coisas, com o Bearer da própria página (o nativo nunca vê token da
+// Microsoft), e as duas só com a tela do App na frente (#s-app.on: antes dela, na volta do login, o getTokenMW dá a
+// conta ativa anterior):
+//   - uma vez por carga, depois do login e sem depender do token do Firebase, pergunta ao GET {MIDDLEWARE_URL}/me se a
+//     conta é 'Admin' e manda ao nativo só {t:'pushAdmin', admin}: true publica os atalhos, false os tira (outro papel,
+//     erro, 401, a página sem o que a seção usa e o Sair). Do /me não vai mais nada (o e-mail e o nome ficam na página);
 //   - window.__gcCascaTestarAvisos(canal), que o nativo chama no toque do atalho: o POST {MIDDLEWARE_URL}/push/teste
 //     {canal} e o resultado de volta, {t:'pushTeste', ok, status, aparelhos}, para o toast. Só os dois canais da
-//     emergência passam.
+//     emergência passam, e a contagem tem o mesmo teto que o nativo aceita.
 // O servidor é falso (as rotas são da sessão "App de campo", no ar desde a v286); o e-mail, o nome e os tokens são
 // fictícios.
 import { test } from 'node:test';
@@ -19,7 +20,7 @@ import { dirname, join } from 'node:path';
 import { criarJanela, assentar } from './apoio.mjs';
 
 const require = createRequire(import.meta.url);
-const { instalar } = require('../www/casca/inicio.js');
+const { instalar, APARELHOS_NO_MAXIMO } = require('../www/casca/inicio.js');
 
 const MW = 'https://servidor.exemplo.test/api';
 const ESPERA_MS = 5000;
@@ -44,7 +45,8 @@ const ENVIADO = { aparelhos: 2, resumo: [{ ok: true }, { ok: true }], emergencia
 
 // A janela do App com o que a página define (o getTokenMW e o MIDDLEWARE_URL) e o servidor falso, com uma resposta por
 // rota: `me` (o GET /me), `teste` (o POST /push/teste) e `registro` (o /push/registrar e o /push/esquecer).
-function montar({ bearer = BEARER, papel = 'Admin', me, teste, registro, ...opcoes } = {}) {
+// A tela do App (`#s-app`) vem com o .on, menos com `tela: 'login'`; `entrar()` a liga, como o entrarComIdentidade do site.
+function montar({ bearer = BEARER, papel = 'Admin', me, teste, registro, tela = 'app', ...opcoes } = {}) {
   const j = criarJanela(opcoes);
   const estado = {
     bearer,
@@ -61,6 +63,10 @@ function montar({ bearer = BEARER, papel = 'Admin', me, teste, registro, ...opco
     if (url === MW + '/push/teste') return estado.teste(url, init);
     return estado.registro(url, init);
   };
+  const app = j.win.document.createElement('div');
+  app.id = 's-app';
+  app.className = tela === 'app' ? 'scr on' : 'scr';
+  j.win.document.body.appendChild(app);
   instalar(j.win, j.canal, j.retrato);
   const doTipo = (t) => j.enviados.filter((m) => m.t === t);
   const rota = (r) => pedidos.filter((p) => p.url === MW + r);
@@ -71,6 +77,7 @@ function montar({ bearer = BEARER, papel = 'Admin', me, teste, registro, ...opco
     perguntas: () => rota('/me'),
     testes: () => rota('/push/teste'),
     erros: () => doTipo('erro'),
+    entrar: () => app.classList.add('on'),
   };
 }
 
@@ -101,10 +108,14 @@ function depois() {
 test('o /me do Admin manda admin:true, uma vez por carga, depois do login e com o Bearer da página', async () => {
   const j = montar();
   j.win.dispatchEvent({ type: 'load' });
-  j.avancar(ESPERA_MS);
+  j.avancar(ESPERA_MS - 1);
   await assentar();
-  assert.deepEqual(j.perguntas(), [], 'antes do registro (o token do Firebase) não pergunta');
-
+  assert.deepEqual(j.perguntas(), [], 'espera os 5 s depois do load, como o pedido do token');
+  j.avancar(1);
+  await assentar();
+  // Sem esperar o token do Firebase: o atalho de teste manda aos aparelhos da conta, e um aparelho sem o Firebase
+  // (ou com o token ainda a caminho) não pode deixar o Admin sem o atalho.
+  assert.equal(j.perguntas().length, 1, 'antes do token do Firebase');
   j.responder({ t: 'pushToken', token: TOKEN, versao: '1.1.0' });
   await assentar();
   assert.equal(j.perguntas().length, 1);
@@ -167,6 +178,36 @@ test('sem login não pergunta; o login seguinte (online ou volta ao app) pergunt
   j.win.dispatchEvent({ type: 'online' });
   await assentar();
   assert.equal(j.perguntas().length, 1);
+});
+
+test('na tela de login não pergunta, nem com a conta salva: pergunta quando a tela do App vem para a frente', async () => {
+  // Na tela de login com uma conta em cache, o getTokenMW daria o Bearer de quem estava salvo, não o de quem está diante
+  // do aparelho: os atalhos de Admin ficariam para outra pessoa.
+  const j = montar({ tela: 'login' });
+  await carregar(j, null);
+  j.avancar(20000);
+  await assentar();
+  assert.deepEqual(j.perguntas(), []);
+  assert.deepEqual(j.admins(), []);
+  j.entrar();
+  j.avancar(1000);
+  await assentar();
+  assert.equal(j.perguntas().length, 1);
+  assert.deepEqual(j.admins(), [{ t: 'pushAdmin', admin: true }]);
+});
+
+test('a página sem o getTokenMW, sem o MIDDLEWARE_URL ou com o getTokenMW que lança: os atalhos saem, sem chamar o /me', async () => {
+  // Nada de atalho para quem não se sabe se é Admin: todo erro antes do /me manda false (um atalho velho, publicado numa
+  // carga anterior por outra conta, sai).
+  for (const falta of ['getTokenMW', 'MIDDLEWARE_URL', 'lança']) {
+    const j = montar();
+    if (falta === 'lança') j.win.getTokenMW = async () => { throw new Error('sem conta para ' + EMAIL); };
+    else delete j.win[falta];
+    await carregar(j);
+    assert.deepEqual(j.perguntas(), [], falta);
+    assert.deepEqual(j.admins(), [{ t: 'pushAdmin', admin: false }], falta);
+    assert.equal(JSON.stringify(j.enviados).includes(EMAIL), false, falta);
+  }
 });
 
 test('o /me não depende do registro: com a rota de registro fora do ar (404) ou sem rede, pergunta do mesmo jeito', async () => {
@@ -258,12 +299,29 @@ test('a contagem só vale como inteiro de zero para cima; o resto vai como null'
     await assentar();
     assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: esperado }], String(aparelhos));
   }
-  // O 200 com o corpo que não é JSON: enviado, sem a contagem.
+  // O 200 com o corpo que não é JSON: enviado, sem a contagem (o nativo diz "enviado" sem o número).
   const k = montar({ teste: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new SyntaxError('x')) }) });
   await carregar(k);
   k.win.__gcCascaTestarAvisos('emergencia');
   await assentar();
   assert.deepEqual(k.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: null }]);
+});
+
+test('a contagem tem o mesmo teto no script e no nativo', async () => {
+  // O nativo descarta a contagem acima do teto dele (a conta tem um ou dois aparelhos: mais que isso é resposta torta);
+  // com tetos diferentes, o script mandava um número que o toast não mostraria.
+  const java = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..',
+    'android/app/src/main/java/br/com/gridco/campo/AtalhosDeTeste.java'), 'utf8');
+  const m = /APARELHOS_NO_MAXIMO\s*=\s*([\d_]+)\s*;/.exec(java);
+  assert.ok(m, 'o teto no AtalhosDeTeste.java');
+  assert.equal(APARELHOS_NO_MAXIMO, Number(m[1].replace(/_/g, '')));
+  for (const [aparelhos, esperado] of [[APARELHOS_NO_MAXIMO, APARELHOS_NO_MAXIMO], [APARELHOS_NO_MAXIMO + 1, null]]) {
+    const j = montar({ teste: responde(200, { aparelhos }) });
+    await carregar(j);
+    j.win.__gcCascaTestarAvisos('emergencia');
+    await assentar();
+    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: esperado }], String(aparelhos));
+  }
 });
 
 test('sem login devolve "sem login" e não chama a rota', async () => {
@@ -273,6 +331,36 @@ test('sem login devolve "sem login" e não chama a rota', async () => {
   await assentar();
   assert.deepEqual(j.testes(), []);
   assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: false, status: 'sem login', aparelhos: null }]);
+});
+
+test('na tela de login o teste espera a tela do App dentro do prazo; sem ela, "sem login"', async () => {
+  // O toque no atalho na volta do login (o nativo guarda o pedido e o entrega na carga nova): até a tela do App, o
+  // getTokenMW daria a conta anterior.
+  const j = montar({ tela: 'login' });
+  await carregar(j);
+  assert.equal(j.win.__gcCascaTestarAvisos('emergencia'), true);
+  j.avancar(5000);
+  await assentar();
+  assert.deepEqual(j.testes(), [], 'nada com a tela de login');
+  j.entrar();
+  j.avancar(1000);
+  await assentar();
+  assert.equal(j.testes().length, 1);
+  assert.equal(j.testes()[0].init.headers.Authorization, 'Bearer ' + BEARER);
+  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2 }]);
+
+  // Sem a tela do App em 20 s: "sem login", uma vez, e nada sai depois.
+  const k = montar({ tela: 'login' });
+  await carregar(k);
+  k.win.__gcCascaTestarAvisos('emergencia_silenciosa');
+  k.avancar(PRAZO_DO_TESTE_MS);
+  await assentar();
+  assert.deepEqual(k.resultados(), [{ t: 'pushTeste', ok: false, status: 'sem login', aparelhos: null }]);
+  k.entrar();
+  k.avancar(1000);
+  await assentar();
+  assert.deepEqual(k.testes(), []);
+  assert.equal(k.resultados().length, 1);
 });
 
 test('a página sem o getTokenMW, sem o MIDDLEWARE_URL ou com o getTokenMW que lança: erro, sem chamar a rota', async () => {
@@ -351,9 +439,9 @@ test('o Sair manda admin:false antes do sair da página, com token ou sem', { ti
     j.win.sair = async function () { ordem.push(j.admins().map((m) => m.admin).join(',')); return 'saiu'; };
     await carregar(j, token);
     assert.equal(await j.win.sair(), 'saiu', String(token));
-    // Com token, o /me já disse true nesta carga; o Sair tira os atalhos antes de a página ir ao logout.
-    const esperado = token ? 'true,false' : 'false';
-    assert.deepEqual(ordem, [esperado], String(token));
+    // O /me já disse true nesta carga (com o token do Firebase ou sem); o Sair tira os atalhos antes de a página ir ao
+    // logout.
+    assert.deepEqual(ordem, ['true,false'], String(token));
     assert.deepEqual(j.admins().at(-1), { t: 'pushAdmin', admin: false });
   }
 });

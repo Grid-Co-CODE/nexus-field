@@ -99,29 +99,45 @@
   // O que o REGISTRO DO APARELHO (seção 8) usa do campo.html (v284, lido em 18/10/2026), e só daqui: o teste de
   // contrato com o site exige cada nome no HTML vivo. Se o site trocar um, o aparelho deixa de ser registrado (ou o sair
   // deixa de esquecê-lo), sem quebrar a página.
-  //   funcao.bearer: a função de topo que dá o token da Microsoft da conta ativa (null sem login; não lança);
-  //   funcao.sair:   a `async function` de topo do "Sair", que a casca embrulha para esquecer o aparelho antes;
+  //   funcao.bearer: a função de topo que dá o token da Microsoft da conta ativa (null sem login; não lança; o contrato
+  //                  confere que ela não abre o login, porque a casca a chama sem o técnico pedir);
+  //   funcao.sair:   a `async function` de topo do "Sair", que a casca embrulha para esquecer o aparelho antes (o
+  //                  contrato confere que o logout da página mora só nela e que o menu a chama);
   //   global:        a `const` de topo com o endereço do servidor, que não vira propriedade da janela e é lida pelo nome
-  //                  (ver enderecoDoServidor).
+  //                  (ver enderecoDoServidor);
+  //   id.app e classe.naTela: a tela do App (#s-app), que o site só põe na frente (o .on) no entrarComIdentidade, DEPOIS
+  //                  de fixar a conta escolhida no MSAL. É o "logado" da casca: antes dela (a tela de login, a volta do
+  //                  loginRedirect), o getTokenMW dá a conta ativa ANTERIOR (ver appNaTela).
   var PUSH = {
     funcao: { bearer: 'getTokenMW', sair: 'sair' },
     global: { middleware: 'MIDDLEWARE_URL' },
+    id: { app: 's-app' },
+    classe: { naTela: VOLTAR.classe.abaAtiva },
   };
 
   // O que a ABERTURA DA OS PELO TOQUE na notificação (seção 9) usa do campo.html (v284, lido em 18/10/2026), e só daqui: o
   // teste de contrato com o site exige cada nome no HTML vivo, com o rótulo abrir-os. Se o site trocar um, o toque na
-  // emergência abre o app sem a busca (o técnico procura a OS à mão), sem quebrar a página.
+  // emergência abre o app sem a busca (o técnico procura a OS à mão), ou a OS espera sem abrir, sem quebrar a página.
   //   funcao.buscar: a função de topo que o campo de busca chama a cada digitação (`oninput="setBusca(this.value)"`);
   //                  em script clássico ela é propriedade da janela;
   //   id.busca:      o campo de busca por OS (sem o '#');
   //   funcao.aba e aba: o setTab('tarefas') que leva à aba da busca, quando ele está noutra;
-  //   id.ronda, classe.abaAtiva e classe.rondaEmAndamento: o sinal da Ronda em andamento (o .rd-voltar dentro da
-  //                  #tela-ronda.on), que segura a OS do toque. Quem o lê é a camada de cima da seção 7, a mesma do
-  //                  voltar: por isso estes vêm do VOLTAR, e o nome de cada coisa do site continua num lugar só.
+  //   id.app:        a tela do App, a mesma do registro (PUSH): fora dela (a tela de login) a OS espera;
+  //   id.ronda, classe.abaAtiva e classe.rondaEmAndamento: a Ronda numa etapa (o .rd-voltar dentro da #tela-ronda.on).
+  //                  Quem o lê é a camada de cima da seção 7, a mesma do voltar: por isso estes vêm do VOLTAR, e o nome
+  //                  de cada coisa do site continua num lugar só;
+  //   ronda:         o critério do próprio site para "a ronda começou" (o `comecou` do rdVoltar, v284): o `let RONDA` de
+  //                  topo (lido pelo nome, como o sheetTask) com a usina escolhida, uma resposta ou um disperso, e não
+  //                  finalizada no servidor. O site desenha o .rd-voltar em TODA etapa, até na Chegada antes de começar,
+  //                  então só o .rd-voltar seguraria a OS com a aba apenas aberta.
   var ABRIR_OS = {
     funcao: { buscar: 'setBusca', aba: VOLTAR.funcao.aba },
-    id: { busca: 'busca-os', ronda: VOLTAR.id.ronda },
+    id: { busca: 'busca-os', ronda: VOLTAR.id.ronda, app: PUSH.id.app },
     classe: { abaAtiva: VOLTAR.classe.abaAtiva, rondaEmAndamento: VOLTAR.classe.rondaVolta },
+    ronda: {
+      global: 'RONDA', criterio: 'rdVoltar', usina: 'usina', respostas: 'respostas', dispersos: 'dispersos',
+      finalizada: 'finalizadaNoServidor',
+    },
     aba: VOLTAR.abaInicial,
   };
 
@@ -1711,13 +1727,15 @@
   // câmera) são de propósito sem saída, ou a única saída envia algo.
   var CONSUMIR = {};
 
-  // A camada de cima: null (Tarefas, sem nada aberto) ou { acao, ocupa }. `acao` é como fechá-la: uma função (que roda
-  // no tempo seguinte), CONSUMIR, ou null (o jeito de fechar sumiu). `ocupa` diz se ela segura o técnico, e é o que a
+  // A camada de cima: null (Tarefas, sem nada aberto) ou { acao, ocupa, ronda }. `acao` é como fechá-la: uma função (que
+  // roda no tempo seguinte), CONSUMIR, ou null (o jeito de fechar sumiu). `ocupa` diz se ela segura o técnico, e é o que a
   // abertura da OS pelo toque (seção 9) pergunta, sem fechar nada (regra do dono, 18/10/2026: "Continua no preenchimento
   // de OS ou ronda, a da notificação fica pendente"): toda camada de 1 a 9 ocupa, mesmo a que o voltar não saberia
-  // fechar, e a Ronda em andamento também; outra aba sem nada aberto nela não ocupa (a Zeladoria inclusive). A ordem é a
-  // do z-index do campo.html, de cima para baixo. A lista é uma só para as duas seções: a camada que o site acrescentar
-  // entra aqui e vale para o voltar e para o toque juntos.
+  // fechar, e também o serviço aberto da Zeladoria (o .zl-volta, que o site só desenha dentro de um serviço: é
+  // preenchimento, como a OS) e a Ronda numa etapa (o .rd-voltar), esta marcada com `ronda: true`, porque só segura com a
+  // ronda começada, e quem sabe disso pelo critério do site é a seção 9. Outra aba sem nada aberto nela não ocupa (a lista
+  // dos serviços da Zeladoria inclusive). A ordem é a do z-index do campo.html, de cima para baixo. A lista é uma só para
+  // as duas seções: a camada que o site acrescentar entra aqui e vale para o voltar e para o toque juntos.
   function camadaDeCima(ctx) {
     var win = ctx.win;
     var doc = win.document;
@@ -1803,15 +1821,19 @@
     // 9. O menu do usuário.
     if (aberta(porId(VOLTAR.id.menu))) return camadaAberta(chamar(VOLTAR.funcao.menu));
     // 10. As abas: a Ronda e a Zeladoria pelo voltar delas (o da Ronda pede confirmação com pendência); fora de uma
-    //     tela interna, e nas outras abas, para Tarefas. A Ronda em andamento (uma seção aberta: o .rd-voltar dela)
-    //     segura o técnico como uma camada; a lista das rondas, não.
+    //     tela interna, e nas outras abas, para Tarefas. A Ronda numa etapa (o .rd-voltar dela) e o serviço aberto da
+    //     Zeladoria (o .zl-volta) seguram o técnico como uma camada; a Ronda sem etapa (sem o checklist, ou a de hoje
+    //     já finalizada) e a lista dos serviços, não.
     var ronda = porId(VOLTAR.id.ronda);
     if (ativa(ronda)) {
-      var rondaEmAndamento = dentro(ronda, VOLTAR.classe.rondaVolta);
-      return rondaEmAndamento ? camadaAberta(clicar(rondaEmAndamento)) : outraAba(irParaTarefas);
+      var rondaNumaEtapa = dentro(ronda, VOLTAR.classe.rondaVolta);
+      return rondaNumaEtapa ? { acao: clicar(rondaNumaEtapa), ocupa: true, ronda: true } : outraAba(irParaTarefas);
     }
     var zeladoria = porId(VOLTAR.id.zeladoria);
-    if (ativa(zeladoria)) return outraAba(botaoOu(dentro(zeladoria, VOLTAR.classe.zeladoriaVolta), irParaTarefas));
+    if (ativa(zeladoria)) {
+      var servicoAberto = dentro(zeladoria, VOLTAR.classe.zeladoriaVolta);
+      return servicoAberto ? camadaAberta(clicar(servicoAberto)) : outraAba(irParaTarefas);
+    }
     if (ativa(porId(VOLTAR.id.sincronizacao)) || ativa(porId(VOLTAR.id.conquistas)) ||
         ativa(porId(VOLTAR.id.acompanhamento))) return outraAba(irParaTarefas);
     // 11. Tarefas, sem nada aberto.
@@ -1871,67 +1893,118 @@
 
   // O servidor do App de Campo manda os resumos e as emergências pelo Firebase ao token deste aparelho, e precisa saber
   // de quem ele é. Quem registra é a PRÓPRIA página, com o Bearer dela (o getTokenMW), como em toda chamada ao servidor:
-  // o nativo nunca vê token da Microsoft, e o script não guarda o Bearer (pede na hora a cada chamada). O nativo só dá o
-  // token do Firebase:
+  // o nativo nunca vê token da Microsoft, e o script não guarda o Bearer (pede na hora a cada chamada). A conversa com o
+  // nativo:
   //   script -> nativo: {t:'pushPedirToken'}, 5 s depois do load (a página já definiu o que esta seção usa, e a carga
-  //                     já terminou);
-  //   nativo -> script: {t:'pushToken', token (null: sem Firebase, ou o token ainda não saiu), versao}.
+  //                     já terminou), e de novo quando o token veio null (abaixo);
+  //   nativo -> script: {t:'pushToken', token (null: sem Firebase, ou o token ainda não saiu), versao, avisos}, a
+  //                     resposta, que também chega SOZINHA a qualquer hora (o token renovado com a página viva, a volta
+  //                     ao app com os avisos ligados de novo); `avisos` é false com as notificações do app desligadas ou
+  //                     o canal das emergências bloqueado (ausente, do nativo antigo, vale true);
+  //   script -> nativo: {t:'pushRegistrado'} quando o servidor aceitou o registro (2xx), e {t:'pushSaiu'} no Sair.
   // As rotas (da sessão "App de campo"): POST {MIDDLEWARE_URL}/push/registrar {token, aparelho:'android',
-  // app:'NexusField/<versao>'} e POST {MIDDLEWARE_URL}/push/esquecer {token}, as duas com o Bearer da página.
-  // UMA VEZ POR CARGA, SEM ATALHO (Ruling N3, 18/10/2026): toda carga registra, depois do login, com o Bearer da conta
-  // de agora, e o servidor guarda pelo token (o mesmo registro de novo não muda nada; o de outra conta passa o aparelho
-  // a ela). A primeira versão pulava o registro feito há menos de 7 dias, e o "já registrado" não sabia de QUEM: o
-  // técnico que trocava de conta sem o Sair seguia recebendo no e-mail anterior, e depois do Sair (que tira o aparelho
-  // do servidor) o nativo seguia achando que estava registrado, e o aparelho ficava sem aviso por até 7 dias. O custo é
-  // uma chamada ao servidor do App de Campo por abertura (não ao Fracttal). Sem laço e sem nada na tela:
-  //   - ninguém logado (o Bearer null): tenta de novo no próximo `online` ou na volta ao app (visibilitychange);
+  // app:'NexusField/<versao>'} e POST {MIDDLEWARE_URL}/push/esquecer {token}, as duas com o Bearer da página; o endereço
+  // sem a barra do fim, como a página faz em toda chamada.
+  //
+  // UM REGISTRO POR TOKEN EM CADA CARGA, SEM ATALHO: toda carga registra, depois do login, com o Bearer da conta de agora,
+  // e o servidor guarda pelo token (o mesmo registro de novo não muda nada; o de outra conta passa o aparelho a ela). Caso
+  // que criou a regra: a primeira versão pulava o registro feito há menos de 7 dias, e o "já registrado" não sabia de QUEM:
+  // o técnico que trocava de conta sem o Sair seguia recebendo no e-mail anterior, e depois do Sair o aparelho ficava sem
+  // aviso por até 7 dias. O custo é uma chamada ao servidor do App de Campo por abertura (não ao Fracttal). Um token
+  // DIFERENTE do de agora, que o nativo mande depois, registra de novo, uma vez; o mesmo token, não. E só registra com os
+  // avisos ligados: senão o servidor contaria um aparelho que não mostra nada.
+  //
+  // "LOGADO" É A TELA DO APP NA FRENTE (#s-app.on, ver appNaTela), não "o getTokenMW devolveu algo". Caso: o aparelho
+  // dividido; A não saiu; B toca em Entrar e volta do login. Até o site fixar a conta de B (o setActiveAccount, logo antes
+  // de ligar a tela do App), o MSAL guarda A como ativa, e com 4G fraco isso passa dos 5 s: o registro e o /me saíam com
+  // A (as emergências de A na mão de B, e os atalhos de Admin de A para B). Na tela de login com conta em cache, o mesmo.
+  // Antes da tela do App, o registro, o /me e o teste dos avisos esperam por ela (o MutationObserver na classe do
+  // #s-app; sem ele, uma consulta de 1 s por 3 minutos), além do online e da volta ao app.
+  //
+  // Sem laço e sem nada na tela:
+  //   - o token null: pede de novo no próximo online ou na volta ao app, no máximo uma vez a cada 10 minutos (a primeira
+  //     abertura sem sinal: o SDK do Firebase só obtém o token quando a rede volta);
+  //   - a tela do App na frente e o Bearer null (a entrada sem sinal, a sessão vencida): o próximo online ou a volta ao app;
   //   - 404: a rota ainda não está no ar; não tenta mais nesta carga;
   //   - outro erro, ou sem rede: tenta no próximo `online`, no máximo uma vez a cada 10 minutos (o online que chega
   //     dentro da espera tenta quando ela acaba);
   //   - a carga seguinte pede o token e registra de novo.
-  // O "Sair" (o aparelho dividido entre técnicos): antes do sair da página (que troca a tela e vai ao logout da
-  // Microsoft, e a navegação cortaria a chamada), o servidor esquece o token, com prazo de 3 s; o sair da página roda
-  // sempre, mesmo se o esquecer falhar. Todo aviso vai como {t:'erro', onde:'push'} com um texto nosso: nunca o token,
-  // o Bearer nem o texto do erro (a mensagem da rede ou do MSAL pode citar endereço com parâmetro ou a conta).
   //
-  // O ATALHO DE TESTE DOS AVISOS (Ruling N7, 18/10/2026; decisão do dono: testar as notificações no celular por um botão
-  // que só o administrador vê). O botão é um atalho do ícone (toque longo), que o nativo publica e tira: a casca não
-  // desenha nada na página e o técnico nunca o vê. Daqui saem duas coisas, com o Bearer da página:
-  //   - o papel da conta: junto do registro, com o MESMO Bearer e uma vez por carga, o GET {MIDDLEWARE_URL}/me; ao
-  //     nativo vai só {t:'pushAdmin', admin}, true com o papel 'Admin' e false com qualquer outro, erro, 401 ou resposta
-  //     torta (nunca fica atalho para quem não é Admin). O e-mail, o nome e o resto do /me ficam na página. Sem login,
-  //     espera o login como o registro; com a rota de registro fora do ar, pergunta do mesmo jeito. O Sair manda false
-  //     antes do sair da página (com token ou sem), e o /me que responder depois dele não manda mais nada;
+  // O "SAIR" (o aparelho dividido entre técnicos), embrulhado:
+  //   - primeiro o nativo fica sabendo ({t:'pushSaiu'}, com token ou sem): ele cala as notificações até o próximo
+  //     registro e apaga o token do Firebase. É o que segura o Sair sem rede, com o servidor fora ou com a sessão vencida,
+  //     quando o esquecer não chega ao servidor (o aparelho seguia recebendo os avisos de quem saiu);
+  //   - os atalhos de teste saem ({t:'pushAdmin', admin:false}) e a OS pendente do toque sai (a conta seguinte não recebe
+  //     a emergência da anterior);
+  //   - o servidor esquece o token por um pedido com keepalive (sobrevive à navegação do logout), e o sair da página roda
+  //     assim que o pedido sai, sem esperar a resposta; o teto de 3 s vale para o Bearer que não vem;
+  //   - o segundo toque, com o primeiro em curso, devolve a mesma Promise (o segundo logoutRedirect lançava
+  //     interaction_in_progress);
+  //   - nenhum registro começa depois do Sair nesta carga (o online, o fim da espera ou um token novo mandariam o Bearer de
+  //     quem está saindo ao lado do esquecer). A carga seguinte registra.
+  // Todo aviso vai como {t:'erro', onde:'push'} com um texto nosso: nunca o token, o Bearer nem o texto do erro (a
+  // mensagem da rede ou do MSAL pode citar endereço com parâmetro ou a conta).
+  //
+  // O ATALHO DE TESTE DOS AVISOS (decisão do dono, 18/10/2026: testar as notificações no celular por um botão que só o
+  // administrador vê). O botão é um atalho do ícone (toque longo), que o nativo publica e tira: a casca não desenha nada
+  // na página e o técnico nunca o vê. Daqui saem duas coisas, com o Bearer da página e com a tela do App na frente:
+  //   - o papel da conta: uma vez por carga, 5 s depois do load, sem depender do token do Firebase (o teste manda aos
+  //     aparelhos da conta), o GET {MIDDLEWARE_URL}/me; ao nativo vai só {t:'pushAdmin', admin}, true com o papel
+  //     'Admin' e false com qualquer outro, erro, 401, resposta torta ou a página sem o que esta seção usa (nunca fica
+  //     atalho para quem não é Admin). O e-mail, o nome e o resto do /me ficam na página. O Bearer null espera o login
+  //     como o registro; o /me que responder depois do Sair não manda mais nada;
   //   - window.__gcCascaTestarAvisos(canal), não enumerável, que o nativo roda no toque do atalho: o POST
   //     {MIDDLEWARE_URL}/push/teste {canal}, só com um dos dois canais da emergência (o extra do atalho pode vir de
   //     qualquer app; o nativo já conferiu, e confere-se de novo), e o resultado de volta para o toast: {t:'pushTeste',
-  //     ok, status (o HTTP, 'sem login' ou 'erro'), aparelhos (inteiro de zero para cima, ou null)}. Um resultado por
-  //     chamada, em no máximo 20 s. Quem segura os dois toques seguidos (10 s) é o nativo, que recebe os toques.
+  //     ok, status (o HTTP, 'sem login' ou 'erro'), aparelhos (inteiro de 0 ao teto do nativo, ou null: o 200 sem
+  //     contagem segue ok, e o nativo decide o texto)}. Um resultado por chamada, em no máximo 20 s; na tela de login,
+  //     espera a tela do App dentro desse prazo. Quem segura os dois toques seguidos é o nativo, que recebe os toques.
   var ESPERA_PUSH_MS = 5000;
   var INTERVALO_PUSH_MS = 10 * 60 * 1000;
   var PRAZO_ESQUECER_MS = 3000;
   var PRAZO_TESTE_MS = 20000;
+  // Sem MutationObserver, a espera da tela do App é uma consulta de 1 s, por 3 minutos (a volta do loginRedirect leva
+  // segundos); depois, o online e a volta ao app conferem de novo.
+  var CONSULTA_DO_LOGIN_MS = 1000;
+  var CONSULTAS_DO_LOGIN = 180;
   var ROTA_REGISTRAR = '/push/registrar';
   var ROTA_ESQUECER = '/push/esquecer';
   var ROTA_ME = '/me';
   var ROTA_TESTE = '/push/teste';
   var PAPEL_ADMIN = 'Admin';
   var CANAIS_DE_TESTE = conjunto(['emergencia', 'emergencia_silenciosa']);
+  // A contagem de aparelhos do teste vai até o teto que o nativo aceita (AtalhosDeTeste.APARELHOS_NO_MAXIMO, que o
+  // testes/atalho-teste.test.mjs compara com este): acima, a resposta é torta e vai null.
+  var APARELHOS_NO_MAXIMO = 10000;
   // A marca do sair já embrulhado: uma propriedade da função, não enumerável.
   var MARCA_SAIR = '__gcCascaSair';
 
-  // O endereço do servidor, ou null. A `const` de topo do campo.html não vira propriedade da janela, mas todo script
-  // clássico da página a enxerga pelo nome (o ambiente léxico global é um só, e este script também roda nele), como o
-  // sheetTask do voltar. Lida com typeof dentro de try: antes da declaração dela (a zona morta), até o typeof lança. Na
-  // janela falsa dos testes vem da propriedade.
+  // O endereço do servidor, sem a barra do fim (como a página faz em toda chamada: com a barra, a casca pedia
+  // '…/api//push/registrar', e o 404 parava o registro em silêncio), ou null. A `const` de topo do campo.html não vira
+  // propriedade da janela, mas todo script clássico da página a enxerga pelo nome (o ambiente léxico global é um só, e
+  // este script também roda nele), como o sheetTask do voltar. Lida com typeof dentro de try: antes da declaração dela (a
+  // zona morta), até o typeof lança. Na janela falsa dos testes vem da propriedade.
   function enderecoDoServidor(win) {
-    var naJanela = win[PUSH.global.middleware];
-    if (typeof naJanela === 'string' && naJanela) return naJanela;
-    try {
-      return typeof MIDDLEWARE_URL === 'string' && MIDDLEWARE_URL ? MIDDLEWARE_URL : null;
-    } catch (e) {
-      return null;
+    var bruto = win[PUSH.global.middleware];
+    if (typeof bruto !== 'string' || !bruto) {
+      try {
+        bruto = typeof MIDDLEWARE_URL === 'string' ? MIDDLEWARE_URL : null;
+      } catch (e) {
+        bruto = null;
+      }
     }
+    var limpo = typeof bruto === 'string' ? bruto.replace(/\/+$/, '') : '';
+    return limpo ? limpo : null;
+  }
+
+  // A tela do App na frente (#s-app.on): o "logado" da casca. O site só a liga no entrarComIdentidade, depois de fixar no
+  // MSAL a conta escolhida; a tela de login, a volta do loginRedirect e o Sair a deixam sem o .on. A página sem o #s-app
+  // (o site trocou o id) nunca está "logada" para a casca: nada sai com uma conta que não se sabe de quem é, e o contrato
+  // diário avisa. A seção 9 pergunta o mesmo.
+  function appNaTela(win) {
+    var doc = win.document;
+    var el = doc && typeof doc.getElementById === 'function' ? doc.getElementById(PUSH.id.app) : null;
+    return !!el && !!el.classList && el.classList.contains(PUSH.classe.naTela);
   }
 
   // Do erro, só o nome (TypeError, AbortError), que é uma palavra nossa conhecida; o texto dele nunca.
@@ -1946,11 +2019,11 @@
     return resposta && typeof resposta.status === 'number' ? String(resposta.status) : 'sem status';
   }
 
-  // Os aparelhos que receberam o teste, da resposta do /push/teste: só um inteiro de zero para cima, ou null. Do resto
-  // da resposta (o que saiu para cada aparelho) nada vai ao nativo.
+  // Os aparelhos que receberam o teste, da resposta do /push/teste: só um inteiro de 0 ao teto, ou null. Do resto da
+  // resposta (o que saiu para cada aparelho) nada vai ao nativo.
   function contagemDeAparelhos(dados) {
     var n = dados && typeof dados === 'object' ? dados.aparelhos : null;
-    return typeof n === 'number' && isFinite(n) && n >= 0 && Math.floor(n) === n ? n : null;
+    return typeof n === 'number' && isFinite(n) && n >= 0 && n <= APARELHOS_NO_MAXIMO && Math.floor(n) === n ? n : null;
   }
 
   function instalarPush(ctx) {
@@ -1963,18 +2036,26 @@
     var agendar = win.setTimeout.bind(win);
     var cancelar = win.clearTimeout.bind(win);
 
-    var token = null;          // o do Firebase, quando o nativo respondeu com um
+    var token = null;            // o do Firebase de agora: o último que o nativo mandou
     var versao = '';
-    var emCurso = false;
-    // O que faz tentar de novo: 'login' (sem Bearer: o próximo online ou a volta ao app) ou 'rede' (erro ou sem rede: o
-    // próximo online, depois da espera). null é "nada mais nesta carga": registrado, a rota que ainda não está no ar
-    // (404), ou a página sem o que esta seção usa.
+    var avisosLigados = true;    // o que o nativo disse dos avisos do app, com o token
+    var registrado = null;       // o token que o servidor aceitou nesta carga (2xx)
+    var emCurso = false;         // um registro no ar
+    var rotaFora = false;        // 404, ou a página sem o que esta seção usa: nada mais de registro nesta carga
+    // O que faz tentar de novo: 'token' (o token veio null: pede de novo), 'login' (a tela do App sem Bearer: registra de
+    // novo) ou 'rede' (erro ou sem rede: registra de novo). null é "nada a esperar" (registrado, ou à espera da tela do
+    // App, que tem a vigia dela, ou parado). O online e a volta ao app retomam, respeitando a espera de 10 minutos.
     var aguardando = null;
-    var esfriando = false;     // a última falha tem menos de 10 minutos
-    var tentarDepois = false;  // um online chegou na espera: tenta quando ela acabar
+    var esfriando = false;       // a última tentativa tem menos de 10 minutos
+    var esfriamento = null;      // o timer dela
+    var tentarDepois = false;    // um online chegou na espera: tenta quando ela acabar
     var carregou = false;
-    var papelPerguntado = false; // o /me desta carga já saiu
-    var saiu = false;            // o Sair foi tocado: o /me que responder depois não publica os atalhos de volta
+    var papel = null;            // o /me desta carga: null (ainda não), 'emCurso', 'semBearer' ou 'feito'
+    var saiu = false;            // o Sair foi tocado: nada de registro nem de atalho a partir daqui, nesta carga
+    var sairEmCurso = null;      // a Promise do Sair em curso (o segundo toque recebe a mesma)
+    var semPecaAvisado = false;  // o aviso da página sem o getTokenMW ou o MIDDLEWARE_URL, uma vez por carga
+    var aoEntrar = [];           // o que espera a tela do App
+    var pararVigia = null;       // desliga a vigia da tela do App (o observador ou a consulta)
 
     function avisar(texto) {
       ctx.falhou('push', new Error(texto));
@@ -1984,30 +2065,138 @@
       ctx.enviar({ t: 'pushAdmin', admin: admin === true }, 'push');
     }
 
-    // O papel da conta, uma vez por carga, com o Bearer que o registro acabou de pedir: só o 'Admin' publica os atalhos
-    // de teste. Corre à parte do registro (a falha de um não mexe no outro) e nunca lança.
-    function perguntarPapel(bearer) {
-      if (papelPerguntado) return;
-      papelPerguntado = true;
-      new Promise(function (ok) {
-        ok(win.fetch(enderecoDoServidor(win) + ROTA_ME, {
-          method: 'GET',
-          headers: { Authorization: 'Bearer ' + bearer },
-          gcQuieto: true,
-        }));
-      }).then(function (resposta) {
-        if (!resposta || !resposta.ok) {
-          avisar('o papel da conta respondeu ' + situacao(resposta) + ': os atalhos de teste saem');
-          return false;
+    // A página tem o que esta seção usa? Sem o getTokenMW ou sem o endereço do servidor, um aviso por carga.
+    function paginaCompleta() {
+      if (typeof win[PUSH.funcao.bearer] === 'function' && enderecoDoServidor(win)) return true;
+      if (!semPecaAvisado) {
+        semPecaAvisado = true;
+        avisar('a página não tem o ' + PUSH.funcao.bearer + ' ou o ' + PUSH.global.middleware +
+          ': o aparelho não é registrado e os atalhos de teste saem nesta carga');
+      }
+      return false;
+    }
+
+    // --- A espera da tela do App -----------------------------------------------------------------------------------
+    // `fn` roda agora, se a tela do App está na frente, ou quando ela vier (uma vez cada).
+    function quandoLogado(fn) {
+      if (appNaTela(win)) { fn(); return; }
+      if (aoEntrar.indexOf(fn) < 0) aoEntrar.push(fn);
+      vigiar();
+    }
+    // A tela do App veio? Roda o que esperava por ela e desliga a vigia.
+    function conferirLogin() {
+      if (!aoEntrar.length || !appNaTela(win)) return false;
+      pararDeVigiar();
+      var lista = aoEntrar;
+      aoEntrar = [];
+      for (var i = 0; i < lista.length; i++) {
+        try { lista[i](); } catch (e) { ctx.falhou('push', e); }
+      }
+      return true;
+    }
+    function pararDeVigiar() {
+      if (!pararVigia) return;
+      var parar = pararVigia;
+      pararVigia = null;
+      try { parar(); } catch (e) { /* a vigia já parou */ }
+    }
+    function vigiar() {
+      if (pararVigia) return;
+      var app = doc && typeof doc.getElementById === 'function' ? doc.getElementById(PUSH.id.app) : null;
+      var Observador = win.MutationObserver;
+      if (app && typeof Observador === 'function') {
+        try {
+          var observador = new Observador(function () { conferirLogin(); });
+          observador.observe(app, { attributes: true, attributeFilter: ['class'] });
+          pararVigia = function () { observador.disconnect(); };
+          return;
+        } catch (e) {
+          // O observador que não observa: a consulta, abaixo.
         }
-        return resposta.json().then(function (dados) {
-          return !!dados && typeof dados === 'object' && dados.papel === PAPEL_ADMIN;
+      }
+      // Sem o observador (ou sem o #s-app ainda): a consulta curta, com limite.
+      var consultas = 0;
+      var timer = null;
+      var consultar = function () {
+        timer = null;
+        if (conferirLogin()) return;
+        consultas++;
+        if (consultas < CONSULTAS_DO_LOGIN) timer = agendar(consultar, CONSULTA_DO_LOGIN_MS);
+        else pararVigia = null; // o online e a volta ao app vigiam de novo
+      };
+      timer = agendar(consultar, CONSULTA_DO_LOGIN_MS);
+      pararVigia = function () { if (timer !== null) cancelar(timer); };
+    }
+
+    // --- A espera de 10 minutos entre tentativas ------------------------------------------------------------------
+    // Cada tentativa (o pedido do token de novo, o registro que falhou) recomeça a espera.
+    function esfriar() {
+      if (esfriamento !== null) cancelar(esfriamento);
+      esfriando = true;
+      esfriamento = agendar(function () {
+        esfriamento = null;
+        esfriando = false;
+        if (tentarDepois) { tentarDepois = false; retomar(); }
+      }, INTERVALO_PUSH_MS);
+    }
+    function retomar() {
+      if (saiu) return;
+      if (aguardando === 'token') pedirTokenDeNovo();
+      else if (aguardando === 'login' || aguardando === 'rede') registrar();
+    }
+    // O online (todas as esperas) e a volta ao app (o token e o login; a rede, não: a volta ao app não diz que a rede
+    // voltou).
+    function aoPoderTentar(peloOnline) {
+      if (saiu) return;
+      if (aoEntrar.length && !conferirLogin()) vigiar();
+      if (aguardando === 'login') { registrar(); return; }
+      if (aguardando === 'token' || (aguardando === 'rede' && peloOnline)) {
+        if (esfriando) tentarDepois = true;
+        else retomar();
+      }
+    }
+
+    function pedirTokenDeNovo() {
+      esfriar();
+      ctx.enviar({ t: 'pushPedirToken' }, 'push');
+    }
+
+    // --- O papel da conta (GET /me) --------------------------------------------------------------------------------
+    // Uma vez por carga, com a tela do App na frente; corre à parte do registro (a falha de um não mexe no outro) e nunca
+    // lança.
+    function perguntarPapel() {
+      if (saiu || papel === 'emCurso' || papel === 'feito') return;
+      if (!appNaTela(win)) { quandoLogado(perguntarPapel); return; }
+      if (!paginaCompleta()) { papel = 'feito'; avisarAdmin(false); return; }
+      papel = 'emCurso';
+      pedirBearer().then(function (bearer) {
+        if (!bearer) { papel = 'semBearer'; return undefined; }
+        papel = 'feito';
+        return new Promise(function (ok) {
+          ok(win.fetch(enderecoDoServidor(win) + ROTA_ME, {
+            method: 'GET',
+            headers: { Authorization: 'Bearer ' + bearer },
+            gcQuieto: true,
+          }));
+        }).then(function (resposta) {
+          if (!resposta || !resposta.ok) {
+            avisar('o papel da conta respondeu ' + situacao(resposta) + ': os atalhos de teste saem');
+            return false;
+          }
+          return resposta.json().then(function (dados) {
+            return !!dados && typeof dados === 'object' && dados.papel === PAPEL_ADMIN;
+          });
+        }).then(null, function (e) {
+          avisar('o papel da conta não foi lido (' + nomeDoErro(e) + '): os atalhos de teste saem');
+          return false;
+        }).then(function (admin) {
+          if (!saiu) avisarAdmin(admin);
         });
-      }).then(null, function (e) {
+      }, function (e) {
+        // O getTokenMW que lança: não se sabe se é Admin, e o atalho sai.
+        papel = 'feito';
         avisar('o papel da conta não foi lido (' + nomeDoErro(e) + '): os atalhos de teste saem');
-        return false;
-      }).then(function (admin) {
-        if (!saiu) avisarAdmin(admin);
+        if (!saiu) avisarAdmin(false);
       });
     }
 
@@ -2032,33 +2221,34 @@
     function esperarARede(texto) {
       avisar(texto);
       aguardando = 'rede';
-      esfriando = true;
-      agendar(function () {
-        esfriando = false;
-        if (tentarDepois) { tentarDepois = false; registrar(); }
-      }, INTERVALO_PUSH_MS);
+      esfriar();
     }
 
+    // --- O registro ------------------------------------------------------------------------------------------------
     function registrar() {
-      if (!token || emCurso) return;
+      if (saiu || rotaFora || emCurso || !token || !avisosLigados || registrado === token) return;
+      if (!paginaCompleta()) { rotaFora = true; return; }
       aguardando = null;
-      if (typeof win[PUSH.funcao.bearer] !== 'function' || !enderecoDoServidor(win)) {
-        avisar('a página não tem o ' + PUSH.funcao.bearer + ' ou o ' + PUSH.global.middleware +
-          ': o aparelho não é registrado nesta carga');
-        return;
-      }
+      if (!appNaTela(win)) { quandoLogado(registrar); return; }
       emCurso = true;
+      var esteToken = token;
       pedirBearer().then(function (bearer) {
         if (!bearer) { aguardando = 'login'; return undefined; }
-        // O papel da conta para o atalho de teste, já com o login de pé (uma vez por carga; não espera o registro).
-        perguntarPapel(bearer);
+        // O Sair veio enquanto o Bearer era pedido: o registro não sai.
+        if (saiu) return undefined;
         // O gcQuieto é o do próprio campo.html (v284): a barra de carregamento conta só o que o técnico pediu, e o
         // registro é de fundo.
-        return postar(ROTA_REGISTRAR, bearer, { token: token, aparelho: 'android', app: 'NexusField/' + versao },
+        return postar(ROTA_REGISTRAR, bearer, { token: esteToken, aparelho: 'android', app: 'NexusField/' + versao },
           { gcQuieto: true }).then(function (resposta) {
-          // 2xx: registrado nesta carga, e nada mais até a próxima (o nativo não guarda nada do registro).
-          if (resposta && resposta.ok) return;
+          if (resposta && resposta.ok) {
+            registrado = esteToken;
+            // O nativo solta a marca do Sair (volta a mostrar as notificações). O registro que responde depois do Sair
+            // não a solta: a marca é de quem saiu.
+            if (!saiu) ctx.enviar({ t: 'pushRegistrado' }, 'push');
+            return;
+          }
           if (resposta && resposta.status === 404) {
+            rotaFora = true;
             avisar('a rota de registro do aparelho ainda não está no ar (404): nada mais nesta carga');
           } else {
             esperarARede('o registro do aparelho respondeu ' + situacao(resposta) + '; tenta no próximo online');
@@ -2066,18 +2256,25 @@
         });
       }).then(null, function (e) {
         esperarARede('o registro do aparelho falhou (' + nomeDoErro(e) + '); tenta no próximo online');
-      }).then(function () { emCurso = false; });
+      }).then(function () {
+        emCurso = false;
+        // Um token novo chegou com este registro no ar, e este deu certo: o novo registra agora (se este falhou, a espera
+        // dele já tenta com o token de agora).
+        if (registrado === esteToken && token !== esteToken) registrar();
+      });
     }
 
-    // Pede ao servidor que esqueça o token, com o Bearer de agora (antes do logout). Resolve quando terminou, deu erro
-    // ou passaram 3 s, o que vier primeiro; nunca rejeita. Ninguém logado: nada a pedir (o servidor não aceitaria).
+    // --- O Sair ----------------------------------------------------------------------------------------------------
+    // Pede ao servidor que esqueça o token, com o Bearer de agora (antes do logout), por um pedido com keepalive, que
+    // sobrevive à navegação. Resolve quando o pedido saiu, deu erro ou passaram 3 s sem o Bearer, o que vier primeiro;
+    // nunca rejeita. Ninguém logado: nada a pedir (o servidor não aceitaria), e o pushSaiu já cuidou do aparelho.
     function esquecer(esteToken) {
       return new Promise(function (pronto) {
         var acabou = false;
         var prazo = agendar(function () {
           prazo = null;
           if (acabou) return;
-          avisar('o esquecer do aparelho passou de 3 s: o sair segue');
+          avisar('o esquecer do aparelho passou de 3 s sem o Bearer: o sair segue');
           terminar();
         }, PRAZO_ESQUECER_MS);
         function terminar() {
@@ -2087,9 +2284,15 @@
           pronto();
         }
         pedirBearer().then(function (bearer) {
-          if (!bearer || !enderecoDoServidor(win)) return undefined;
-          return postar(ROTA_ESQUECER, bearer, { token: esteToken }, {}).then(function (resposta) {
-            if (!resposta || !resposta.ok) avisar('o esquecer do aparelho respondeu ' + situacao(resposta) + ': o sair segue');
+          if (!bearer || !enderecoDoServidor(win)) {
+            avisar('o esquecer do aparelho ficou sem login ou sem o endereço: o sair segue');
+            return undefined;
+          }
+          var pedido = postar(ROTA_ESQUECER, bearer, { token: esteToken }, { keepalive: true });
+          // O pedido saiu: o sair da página pode navegar já.
+          terminar();
+          return Promise.resolve(pedido).then(function (resposta) {
+            if (!resposta || !resposta.ok) avisar('o esquecer do aparelho respondeu ' + situacao(resposta));
           });
         }).then(null, function (e) {
           avisar('o esquecer do aparelho falhou (' + nomeDoErro(e) + '): o sair segue');
@@ -2097,20 +2300,34 @@
       });
     }
 
-    // O sair da página é definido depois deste script (que roda antes dela): embrulhado no load. Primeiro os atalhos de
-    // teste saem (quem entra depois no aparelho dividido pode não ser Admin), com token ou sem. Sem token a esquecer, é
-    // o da página na hora. Com token, o da página vem depois do esquecer, com o mesmo this e os mesmos argumentos, e
-    // devolve o que ele devolver (o erro dele sobe como subiria).
+    // O sair da página é definido depois deste script (que roda antes dela): embrulhado no load. O da página roda com o
+    // mesmo this e os mesmos argumentos, e o embrulho devolve o que ele devolver (o erro dele sobe como subiria).
     function embrulharSair() {
       var original = win[PUSH.funcao.sair];
       if (typeof original !== 'function' || original[MARCA_SAIR]) return;
       var embrulho = function () {
+        if (sairEmCurso) return sairEmCurso;
         saiu = true;
+        aoEntrar = [];
+        pararDeVigiar();
+        if (esfriamento !== null) { cancelar(esfriamento); esfriamento = null; }
+        ctx.enviar({ t: 'pushSaiu' }, 'push');
         avisarAdmin(false);
-        if (!token) return original.apply(this, arguments);
+        if (typeof ctx.esquecerOsPendente === 'function') {
+          try { ctx.esquecerOsPendente(); } catch (e) { ctx.falhou('push', e); }
+        }
         var este = this;
         var argumentos = arguments;
-        return esquecer(token).then(function () { return original.apply(este, argumentos); });
+        var resultado = token
+          ? esquecer(token).then(function () { return original.apply(este, argumentos); })
+          : original.apply(este, argumentos);
+        if (resultado && typeof resultado.then === 'function') {
+          var emCursoAgora = resultado;
+          sairEmCurso = emCursoAgora;
+          var soltar = function () { if (sairEmCurso === emCursoAgora) sairEmCurso = null; };
+          emCursoAgora.then(soltar, soltar);
+        }
+        return resultado;
       };
       Object.defineProperty(embrulho, MARCA_SAIR, { value: true });
       win[PUSH.funcao.sair] = embrulho;
@@ -2118,12 +2335,19 @@
 
     ctx.ouvirNativo(function (m) {
       if (!m || typeof m !== 'object' || m.t !== 'pushToken') return;
-      // Sem token (o Firebase não configurado, ou o token ainda não saiu): nada a registrar nem a esquecer.
-      if (typeof m.token !== 'string' || !m.token) return;
-      // Uma vez por carga: o token é pedido uma vez, e só a primeira resposta com token vale.
-      if (token !== null) return;
+      if (typeof m.versao === 'string') versao = m.versao;
+      // Ausente (o nativo antigo) vale ligado; o resto, só o true.
+      avisosLigados = m.avisos === undefined || m.avisos === true;
+      if (typeof m.token !== 'string' || !m.token) {
+        // Sem token (o Firebase não configurado, ou o token ainda não saiu): pede de novo depois, se ainda não há um.
+        if (token === null && !saiu) {
+          aguardando = 'token';
+          if (!esfriando) esfriar();
+        }
+        return;
+      }
       token = m.token;
-      versao = typeof m.versao === 'string' ? m.versao : '';
+      if (aguardando === 'token') aguardando = null;
       registrar();
     });
 
@@ -2131,20 +2355,23 @@
       if (carregou) return;
       carregou = true;
       try { embrulharSair(); } catch (e) { avisar('o sair da página não foi embrulhado (' + nomeDoErro(e) + ')'); }
-      agendar(function () { ctx.enviar({ t: 'pushPedirToken' }, 'push'); }, ESPERA_PUSH_MS);
+      agendar(function () {
+        if (saiu) return;
+        ctx.enviar({ t: 'pushPedirToken' }, 'push');
+        perguntarPapel();
+      }, ESPERA_PUSH_MS);
     });
 
     win.addEventListener('online', function () {
-      if (aguardando === 'login') registrar();
-      else if (aguardando === 'rede') {
-        if (esfriando) tentarDepois = true;
-        else registrar();
-      }
+      aoPoderTentar(true);
+      if (papel === 'semBearer') perguntarPapel();
     });
 
     if (doc && typeof doc.addEventListener === 'function') {
       doc.addEventListener('visibilitychange', function () {
-        if (doc.visibilityState === 'visible' && aguardando === 'login') registrar();
+        if (doc.visibilityState !== 'visible') return;
+        aoPoderTentar(false);
+        if (papel === 'semBearer') perguntarPapel();
       });
     }
 
@@ -2156,27 +2383,42 @@
         if (typeof canal !== 'string' || !CANAIS_DE_TESTE.has(canal)) return false;
         var respondeu = false;
         var prazo = null;
+        var esperandoLogin = false;
         var responder = function (ok, status, aparelhos) {
           if (respondeu) return;
           respondeu = true;
           if (prazo !== null) { cancelar(prazo); prazo = null; }
           ctx.enviar({ t: 'pushTeste', ok: ok, status: status, aparelhos: aparelhos }, 'push');
         };
-        prazo = agendar(function () { prazo = null; responder(false, 'erro', null); }, PRAZO_TESTE_MS);
+        prazo = agendar(function () {
+          prazo = null;
+          responder(false, esperandoLogin ? 'sem login' : 'erro', null);
+        }, PRAZO_TESTE_MS);
         if (typeof win[PUSH.funcao.bearer] !== 'function' || !enderecoDoServidor(win)) {
           responder(false, 'erro', null);
           return true;
         }
-        pedirBearer().then(function (bearer) {
-          if (!bearer) { responder(false, 'sem login', null); return undefined; }
-          return postar(ROTA_TESTE, bearer, { canal: canal }, { gcQuieto: true }).then(function (resposta) {
-            var status = resposta && typeof resposta.status === 'number' ? resposta.status : 'erro';
-            if (!resposta || !resposta.ok) { responder(false, status, null); return undefined; }
-            // O 200 com o corpo que não se lê ainda foi enviado: vai sem a contagem.
-            return new Promise(function (ok) { ok(resposta.json()); }).then(contagemDeAparelhos, function () { return null; })
-              .then(function (aparelhos) { responder(true, status, aparelhos); });
-          });
-        }).then(null, function () { responder(false, 'erro', null); });
+        var testar = function () {
+          esperandoLogin = false;
+          if (respondeu) return;
+          pedirBearer().then(function (bearer) {
+            if (!bearer) { responder(false, 'sem login', null); return undefined; }
+            return postar(ROTA_TESTE, bearer, { canal: canal }, { gcQuieto: true }).then(function (resposta) {
+              var status = resposta && typeof resposta.status === 'number' ? resposta.status : 'erro';
+              if (!resposta || !resposta.ok) { responder(false, status, null); return undefined; }
+              // O 200 com o corpo que não se lê ainda foi enviado: vai sem a contagem.
+              return new Promise(function (ok) { ok(resposta.json()); }).then(contagemDeAparelhos, function () { return null; })
+                .then(function (aparelhos) { responder(true, status, aparelhos); });
+            });
+          }).then(null, function () { responder(false, 'erro', null); });
+        };
+        if (appNaTela(win)) {
+          testar();
+        } else {
+          // A tela de login (a volta do loginRedirect): o teste espera a tela do App, dentro do prazo.
+          esperandoLogin = true;
+          quandoLogado(testar);
+        }
         return true;
       } catch (e) {
         ctx.falhou('push', e);
@@ -2193,37 +2435,49 @@
   // 9. Abrir a OS pelo toque na notificação (spec 2026-10-18, seção 4.2, "Ao tocar")
   // ---------------------------------------------------------------------------------------------------------------
 
-  // O toque numa emergência com OS abre o app com o número no Intent (o extra gc_os da MainActivity), e o nativo, com a
-  // página do App carregada e 1,5 s de folga para ela montar a tela, roda window.__gcCascaAbrirOS('<os>'). A página não
-  // abre OS pelo endereço nem expõe função para isso; o que ela tem é a busca por OS: o campo #busca-os, que a cada
-  // digitação chama setBusca(valor), procura em todas as semanas que o App já baixou e, se o número não está na fila,
-  // pergunta ao Fracttal ao vivo (a OS que é do técnico e está aberta entra como avulsa). É o que o técnico faria à mão,
-  // com os nomes do ABRIR_OS (seção 1), que o contrato diário com o site confere.
+  // O toque numa emergência com OS abre o app com o número no Intent, e o nativo, com a página do App carregada e 1,5 s
+  // de folga para ela montar a tela, roda window.__gcCascaAbrirOS('<os>'), e repete a cada carga da /api/app até ouvir
+  // {t:'osAberta', os} (o renderer que morre e o app fechado não perdem a emergência). A página não abre OS pelo endereço
+  // nem expõe função para isso; o que ela tem é a busca por OS: o campo #busca-os, que a cada digitação chama
+  // setBusca(valor), procura em todas as semanas que o App já baixou e, se o número não está na fila, pergunta ao
+  // Fracttal ao vivo (a OS que é do técnico e está aberta entra como avulsa). É o que o técnico faria à mão, com os nomes
+  // do ABRIR_OS (seção 1), que o contrato diário com o site confere.
   //
   // O TOQUE NUNCA INTERROMPE O TÉCNICO (regra do dono, 18/10/2026: "Continua no preenchimento de OS ou ronda, a da
   // notificação fica pendente"). Caso que a criou: na revisão, o toque com o app já aberto numa OS punha a busca na aba
-  // Tarefas, por baixo dela, e o técnico não via nada; fechar o que ele preenche para mostrar a outra OS seria pior. Quem
-  // diz se ele está ocupado é a camada de cima da seção 7 (a mesma pilha do voltar, perguntada sem fechar nada): uma
-  // camada aberta, ou a Ronda em andamento. Então:
+  // Tarefas, por baixo dela, e o técnico não via nada; fechar o que ele preenche para mostrar a outra OS seria pior. Ele
+  // está ocupado (ver ocupado):
+  //   - fora da tela do App (a de login): toda partida a frio cai nela (online não há entrada automática), e o Entrar vai
+  //     ao loginRedirect, que recarrega a página; a busca posta ali, por trás do login, se perdia, e era o caminho mais
+  //     comum de quem recebe a notificação com o app fechado;
+  //   - com uma camada aberta (a camada de cima da seção 7, a mesma pilha do voltar, perguntada sem fechar nada; o
+  //     serviço aberto da Zeladoria inclusive);
+  //   - com a Ronda numa etapa E a ronda começada pelo critério do próprio site (ver rondaComecada): o site desenha o
+  //     voltar da Ronda em toda etapa, até na Chegada antes de começar, e a aba só aberta segurava a OS.
+  // Então:
   //   - livre: vai à aba Tarefas pelo setTab da página (só se estiver noutra aba), preenche o #busca-os ANTES do setBusca
   //     (a ordem do phTrazer do site, v284: o setBusca recebe o valor por argumento e não escreve no campo; sem isso a
-  //     lista ficaria filtrada com a caixa de busca vazia) e busca. Devolve 'aberta';
+  //     lista ficaria filtrada com a caixa de busca vazia), busca e avisa o nativo ({t:'osAberta', os}). Devolve 'aberta'.
+  //     A mesma OS entregue de novo na mesma carga (o nativo repete, o técnico toca duas vezes) não reabre: devolve
+  //     'aberta' e repete só o aviso;
   //   - ocupado: nada é fechado e nenhuma aba é trocada. A OS fica PENDENTE no sessionStorage (SESSAO_OS_PENDENTE, com o
   //     dia), e uma conferência a cada 2 s, que só existe enquanto houver pendência, a abre como acima assim que ele
   //     ficar livre. Devolve 'pendente'. A pendência vale só no dia em que chegou (a emergência de ontem não é o que ele
-  //     precisa ver ao voltar ao app hoje) e atravessa as recargas da mesma partida (o login silencioso, o "Tentar de
-  //     novo"): a carga nova acha a pendência e retoma a conferência, porque o nativo entrega o pedido uma vez só. A OS
-  //     nova substitui a pendente: a última emergência vence. Sem tela nova: a notificação já foi o aviso;
+  //     precisa ver ao voltar ao app hoje) e atravessa as recargas da mesma partida (a volta do loginRedirect, o "Tentar
+  //     de novo"): a carga nova acha a pendência e retoma a conferência. A OS nova substitui a pendente: a última
+  //     emergência vence. Sem onde guardar (o sessionStorage cheio ou negado), a pendência fica numa variável da página,
+  //     até a recarga, e a gravação que falha apaga a velha antes, para a última vencer assim mesmo. Sem tela nova: a
+  //     notificação já foi o aviso. O Sair da seção 8 a apaga (ctx.esquecerOsPendente): a OS do técnico que saiu não abre
+  //     para o que entra;
   //   - false quando não pôde: o número que não é de OS, a página sem o campo ou sem o setBusca (uma versão do site que
-  //     trocou os nomes, ou uma página que não é a do App), ou a pendência que não coube no sessionStorage. Isso não é
-  //     erro da casca, e nada vai ao nativo; o app só abre sem a busca. Só o setBusca (ou o setTab) que lança vai ao
-  //     nativo, como `abrirOS`, e sem devolver a exceção a quem chamou (o evaluateJavascript do nativo não a trataria); a
-  //     pendente que lança na conferência sai da pendência, para o erro não se repetir a cada 2 s.
+  //     trocou os nomes, ou a página ainda montando). Isso não é erro da casca, e nada vai ao nativo (ele entrega de novo
+  //     na carga seguinte). Só o setBusca (ou o setTab) que lança vai ao nativo, como `abrirOS`, e sem devolver a exceção
+  //     a quem chamou (o evaluateJavascript do nativo não a trataria); a pendente que lança na conferência sai da
+  //     pendência, para o erro não se repetir a cada 2 s.
   //
   // O número é conferido AQUI de novo, mesmo o nativo (Notificacoes.osValida) já o tendo validado: o extra do Intent pode
-  // vir de qualquer app (a MainActivity é exportada), e esta função monta uma busca na tela do técnico. De 1 a 12 dígitos
-  // ASCII, escritos como [0-9] para não depender de como o motor trata o \d, e só texto. A pendência lida do
-  // sessionStorage passa pela mesma conferência.
+  // vir de fora, e esta função monta uma busca na tela do técnico. De 1 a 12 dígitos ASCII, escritos como [0-9] para não
+  // depender de como o motor trata o \d, e só texto. A pendência lida do sessionStorage passa pela mesma conferência.
   var OS_DO_TOQUE = /^[0-9]{1,12}$/;
   var SESSAO_OS_PENDENTE = 'gc_casca_os_pendente';
   var CONFERENCIA_MS = 2000;
@@ -2236,40 +2490,84 @@
     return d.getFullYear() + '-' + dois(d.getMonth() + 1) + '-' + dois(d.getDate());
   }
 
+  // O rascunho da ronda do site: { lido, valor }. O `let` de topo do campo.html não vira propriedade da janela, mas todo
+  // script clássico da página o enxerga pelo nome, como o sheetTask do voltar. Lido com typeof dentro de try: antes da
+  // declaração dele (a zona morta), até o typeof lança. Na janela falsa dos testes vem da propriedade. `lido` false quer
+  // dizer que a casca não tem como saber (o site trocou o nome).
+  function rondaDoSite(win) {
+    if (Object.prototype.hasOwnProperty.call(win, ABRIR_OS.ronda.global)) {
+      return { lido: true, valor: win[ABRIR_OS.ronda.global] };
+    }
+    try {
+      return typeof RONDA !== 'undefined' ? { lido: true, valor: RONDA } : { lido: false, valor: null };
+    } catch (e) {
+      return { lido: false, valor: null };
+    }
+  }
+
+  // A ronda começou, pelo critério do voltar da Ronda no site (o `comecou` do rdVoltar, v284): a usina escolhida, uma
+  // resposta ou um disperso, e não finalizada no servidor. O rascunho nulo é a ronda que nem abriu nesta carga. Sem como
+  // ler o rascunho, vale a regra de antes (a Ronda numa etapa segura), pelo lado de não interromper.
+  function rondaComecada(win) {
+    var lida = rondaDoSite(win);
+    if (!lida.lido) return true;
+    var r = lida.valor;
+    if (!r || typeof r !== 'object') return false;
+    if (r[ABRIR_OS.ronda.finalizada]) return false;
+    function temItens(o) { return !!o && typeof o === 'object' && Object.keys(o).length > 0; }
+    return !!r[ABRIR_OS.ronda.usina] || temItens(r[ABRIR_OS.ronda.respostas]) || temItens(r[ABRIR_OS.ronda.dispersos]);
+  }
+
   function instalarAbrirOS(ctx) {
     var win = ctx.win;
     // Guardados agora, atados à janela, como no voltar.
     var agendar = win.setTimeout.bind(win);
     var cancelar = win.clearTimeout.bind(win);
-    var conferencia = null; // o timer da conferência; só existe enquanto houver pendência
+    var conferencia = null;  // o timer da conferência; só existe enquanto houver pendência
+    var naPagina = null;     // a pendência que o sessionStorage não guardou: { os, dia }
+    var abertas = new Set(); // as OS abertas nesta carga
 
-    // A OS pendente de hoje, ou null. O que não for uma pendência de hoje (de outro dia, torta, com OS que não é número)
-    // sai do sessionStorage aqui.
-    function lerPendente() {
-      if (!ctx.ls) return null;
-      var texto = lerSessao(ctx.ls, SESSAO_OS_PENDENTE);
-      if (texto === null) return null;
-      var p = null;
-      try { p = JSON.parse(texto); } catch (e) { p = null; }
-      if (p && typeof p.os === 'string' && OS_DO_TOQUE.test(p.os) && p.dia === diaDeHoje(win)) return p.os;
-      apagarSessao(ctx.ls, SESSAO_OS_PENDENTE);
-      return null;
+    function deHoje(p) {
+      return !!p && typeof p === 'object' && typeof p.os === 'string' && OS_DO_TOQUE.test(p.os) && p.dia === diaDeHoje(win);
     }
-    // Guarda a OS como a pendente, no lugar da que houver, e diz se ela ficou guardada.
+    // A OS pendente de hoje, ou null. O que não for uma pendência de hoje (de outro dia, torta, com OS que não é número)
+    // sai aqui, do sessionStorage ou da variável.
+    function lerPendente() {
+      if (ctx.ls) {
+        var texto = lerSessao(ctx.ls, SESSAO_OS_PENDENTE);
+        if (texto !== null) {
+          var p = null;
+          try { p = JSON.parse(texto); } catch (e) { p = null; }
+          if (deHoje(p)) return p.os;
+          apagarSessao(ctx.ls, SESSAO_OS_PENDENTE);
+        }
+      }
+      if (naPagina !== null && !deHoje(naPagina)) naPagina = null;
+      return naPagina !== null ? naPagina.os : null;
+    }
+    // Guarda a OS como a pendente, no lugar da que houver. A velha sai antes: se a gravação nova falhar, ela não fica no
+    // sessionStorage para vir depois da nova.
     function guardarPendente(os) {
-      if (!ctx.ls) return false;
-      var texto = JSON.stringify({ os: os, dia: diaDeHoje(win) });
-      gravarSessao(ctx.ls, SESSAO_OS_PENDENTE, texto);
-      return lerSessao(ctx.ls, SESSAO_OS_PENDENTE) === texto;
+      var p = { os: os, dia: diaDeHoje(win) };
+      if (ctx.ls) {
+        var texto = JSON.stringify(p);
+        apagarSessao(ctx.ls, SESSAO_OS_PENDENTE);
+        gravarSessao(ctx.ls, SESSAO_OS_PENDENTE, texto);
+        if (lerSessao(ctx.ls, SESSAO_OS_PENDENTE) === texto) { naPagina = null; return; }
+      }
+      naPagina = p;
     }
     // Sem pendência, sem conferência.
     function esquecerPendente() {
       if (ctx.ls) apagarSessao(ctx.ls, SESSAO_OS_PENDENTE);
+      naPagina = null;
       if (conferencia !== null) {
         cancelar(conferencia);
         conferencia = null;
       }
     }
+    // O Sair (seção 8) apaga a pendência.
+    ctx.esquecerOsPendente = esquecerPendente;
     function conferirDepois() {
       if (conferencia === null) conferencia = agendar(conferir, CONFERENCIA_MS);
     }
@@ -2281,12 +2579,20 @@
       var buscar = win[ABRIR_OS.funcao.buscar];
       return campo && typeof buscar === 'function' ? { campo: campo, buscar: buscar } : null;
     }
-    // Com ele livre: a aba Tarefas (quando a camada de cima é outra aba), o número no campo e a busca.
+    // Ele está ocupado com a camada de cima `cima` (ver o começo da seção).
+    function ocupado(cima) {
+      if (!appNaTela(win)) return true;
+      if (!cima || !cima.ocupa) return false;
+      return cima.ronda ? rondaComecada(win) : true;
+    }
+    // Com ele livre: a aba Tarefas (quando a camada de cima é outra aba), o número no campo, a busca e o aviso ao nativo.
     function abrirAgora(os, pecas, cima) {
       var irParaAba = win[ABRIR_OS.funcao.aba];
       if (cima && typeof irParaAba === 'function') irParaAba.call(win, ABRIR_OS.aba);
       pecas.campo.value = os;
       pecas.buscar.call(win, os);
+      abertas.add(os);
+      ctx.enviar({ t: 'osAberta', os: os }, 'abrirOS');
     }
 
     function conferir() {
@@ -2297,7 +2603,7 @@
         var pecas = pecasDaBusca();
         var cima = camadaDeCima(ctx);
         // A página ainda montando (sem o campo ou o setBusca) ou ele ainda ocupado: mais 2 s.
-        if (!pecas || (cima && cima.ocupa)) {
+        if (!pecas || ocupado(cima)) {
           conferirDepois();
           return;
         }
@@ -2312,11 +2618,16 @@
     function abrir(os) {
       try {
         if (typeof os !== 'string' || !OS_DO_TOQUE.test(os)) return false;
+        // Já aberta nesta carga: não reabre (puxaria a busca de novo por baixo do que ele abriu depois).
+        if (abertas.has(os)) {
+          ctx.enviar({ t: 'osAberta', os: os }, 'abrirOS');
+          return 'aberta';
+        }
         var pecas = pecasDaBusca();
         if (!pecas) return false;
         var cima = camadaDeCima(ctx);
-        if (cima && cima.ocupa) {
-          if (!guardarPendente(os)) return false;
+        if (ocupado(cima)) {
+          guardarPendente(os);
           conferirDepois();
           return 'pendente';
         }
@@ -2403,6 +2714,7 @@
       VOLTAR: VOLTAR,
       PUSH: PUSH,
       ABRIR_OS: ABRIR_OS,
+      APARELHOS_NO_MAXIMO: APARELHOS_NO_MAXIMO,
     };
   } else if (typeof window !== 'undefined') {
     instalar(window, window.gcCasca, window.__GC_RETRATO__ || {});
