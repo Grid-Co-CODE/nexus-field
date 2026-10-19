@@ -242,10 +242,13 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   clássico (no Node dos testes vira CommonJS) e nunca pode quebrar a página: todo erro vira `{t:'erro', onde}`, e o
   `onde` é de uma lista fechada (`Mensageiro.ONDES_DA_PAGINA`, que o `testes/canal.test.mjs` compara com o script). Faz,
   na ordem das seções: (1) a classificação das chaves (`CLASSES`: fila, trabalho, cache; o resto não vai ao nativo) e os
-  nomes do voltar (`VOLTAR`), as duas listas que o contrato com o site lê; (2) o canal ao nativo; (3) o espelho de
-  escrita do localStorage, que embrulha só `setItem` e `removeItem` (a fila vai na hora; trabalho e cache em lote de
-  400 ms); (4) a sentinela, as versões da fila e a restauração do localStorage; (5) o espelho e a restauração do
-  IndexedDB das fotos (`gc_campo_fotos`, store `fotos`); (6) o `window.open` do login e do Fracttal; (7) o voltar.
+  nomes do que a casca lê do site (`VOLTAR`, `PUSH`, `ABRIR_OS`), as listas que o contrato com o site lê; (2) o canal ao
+  nativo (o `ouvirNativo` aceita vários ouvintes num `onmessage` só: a restauração das fotos e o registro do aparelho); (3)
+  o espelho de escrita do localStorage, que embrulha só `setItem` e `removeItem` (a fila vai na hora; trabalho e cache em
+  lote de 400 ms); (4) a sentinela, as versões da fila e a restauração do localStorage; (5) o espelho e a restauração do
+  IndexedDB das fotos (`gc_campo_fotos`, store `fotos`); (6) o `window.open` do login e do Fracttal; (7) o voltar; (8) o
+  registro do aparelho para as notificações, com o papel de Admin do atalho de teste; (9) a abertura da OS pelo toque na
+  emergência (as seções 8 e 9 estão no bullet "As notificações do Nexus Field" e nos dois seguintes).
   - **As marcas no localStorage**, gravadas pelo `setItem` original (fora do espelho; o `classificar` as deixa de fora):
     `gc_casca_sentinela` (presente = o armazenamento não foi perdido) e `gc_casca_perda_pendente` (a perda começou e
     ainda não terminou). **O banco `gc_casca`** no IndexedDB: "a última restauração do IndexedDB terminou".
@@ -333,6 +336,81 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   app onde estava, sem recarregar. Uma pergunta por vez (o segundo toque enquanto a página pensa não fecha duas
   camadas), com 1,5 s de prazo: o renderer travado não segura o voltar, e a resposta que chega depois do prazo não decide
   nada.
+- **As notificações do Nexus Field (1.1.0): o lado da casca, o contrato com o servidor e a ordem** (desenho
+  `docs/superpowers/specs/2026-10-18-notificacoes-design.md`; plano `docs/superpowers/plans/2026-10-18-notificacoes.md`;
+  a prévia é a seção Notificações de `docs/previas/telas.html` e o roteiro, a seção "As notificações" do
+  `docs/prova-no-aparelho.md`). O técnico recebe o resumo das 7h, o das 13h e a emergência, mesmo com o app fechado. Quem
+  MONTA e MANDA tudo é o servidor do App de Campo (outra sessão, a "App de campo"), pelo Firebase Cloud Messaging, que é
+  grátis; a casca só mostra o que chega. Nada do servidor mora neste repositório.
+  - **O contrato com o servidor** (tudo o que a casca assume; mudar um lado pede mudar o outro):
+    - A mensagem do FCM é só de dados: `{tipo: 'resumo'|'emergencia', canal: 'resumo'|'emergencia'|'emergencia_silenciosa',
+      titulo, texto, os?}`. O `Notificacoes.montar` a confere: tipo fora do contrato não aparece; o canal que não é do tipo
+      é trocado (Ruling N4: a emergência de canal errado vai ao silencioso e o resumo, ao do resumo, e o log diz o motivo
+      sem conteúdo, porque descartar a emergência perderia o aviso); título vazio vira "Nexus Field"; texto cortado em 240
+      caracteres; `os` só com 1 a 12 dígitos ASCII. **O título e o texto são do servidor**: a casca não acrescenta nada, e
+      nada de nome de usina ou de pessoa pode ir pelo Firebase (a mensagem passa pelo Google). O log da casca diz só o canal
+      e o motivo: nunca título, texto, OS nem token.
+    - Os canais (os ids são o contrato e moram no `Notificacoes`; os nomes, no `strings.xml`): `resumo` ("Resumo do dia",
+      importância padrão, som de notificação), `emergencia` ("Emergências", alta: aparece por cima, som de ALARME padrão do
+      aparelho como toque de notificação e vibração de três pulsos, Ruling N5) e `emergencia_silenciosa` ("Emergências fora
+      do expediente", baixa, sem som nem vibração). Quem escolhe o canal é o servidor: dia útil e expediente, das 7h às 17h,
+      o alto; fora disso, o silencioso. O som e a vibração de um canal que já existe NÃO mudam (o `criar` seguinte só o
+      renomeia): mudá-los exige id de canal novo, com o contrato do servidor junto.
+    - As rotas, todas com o Bearer da página e no ar desde a v286 do App de Campo: `POST {MIDDLEWARE_URL}/push/registrar
+      {token, aparelho:'android', app:'NexusField/<versionName>'}`, `POST /push/esquecer {token}`, `GET /me` (o papel
+      `Admin`) e `POST /push/teste {canal}` (só Admin). O contrato diário exige da página o `getTokenMW`, a `async function
+      sair` e a declaração do `MIDDLEWARE_URL` (`PUSH`); o resto da conversa é do servidor.
+    - Os ids das notificações: o resumo tem id fixo (o das 13h toma o lugar do das 7h, e toca de novo) e a emergência, id
+      pela OS (a mesma OS substitui a anterior, sem tocar outra vez: `setOnlyAlertOnce` só nela). O `PendingIntent` do toque
+      tem por código o id da notificação: com o mesmo código o Android acharia "igual" o que só muda nos extras, e a
+      segunda emergência na barra abriria a OS da primeira.
+  - **O lado da casca:**
+    - `MensagensDoFirebase` (serviço NÃO exportado, no manifesto com o filtro `MESSAGING_EVENT`: exportado, qualquer app do
+      aparelho mandaria uma "emergência") cria os canais, monta e mostra. O `CanaisDeNotificacao.criar` roda também no
+      `load()` do plugin, porque a primeira mensagem pode chegar antes de o técnico abrir o app atualizado; no Android 7,
+      sem canais, a prioridade da própria notificação faz o papel. O `onNewToken` só grava a chave `token` do
+      SharedPreferences `push` (hoje ninguém a lê: o registro pega o token na hora, pelo `FirebaseMessaging.getToken()`).
+      Esse método está obsoleto no firebase-messaging 25.1 e segue chamado, porque o meta-data
+      `firebase_messaging_installation_id_enabled` não está ligado (conferido no bytecode da 25.1.3).
+    - A permissão (Android 13+): `MainActivity.devePedirNotificacao`. Instalação nova: o "Antes de começar" e o pedido, a
+      notificação por último. Atualização da 1.0.0, com a câmera e a localização já dadas: o diálogo "Avisos do Nexus
+      Field" (não cancelável) e o pedido só da notificação. A marca `jaPediuNotificacao` (no arquivo `push`) só grava
+      quando o técnico RESPONDE: negada, não se pede de novo (ligar é nos ajustes do Android), e o app morto com a tela do
+      sistema aberta pergunta na abertura seguinte. Ninguém pode dar `clear()` no arquivo `push`.
+    - O registro é da PÁGINA (seção 8 do `inicio.js`), uma vez por carga e depois do login, com o Bearer da conta de agora
+      (Ruling N3): o nativo só entrega o token do Firebase (`{t:'pushPedirToken'}` e `{t:'pushToken'}`; sem o
+      `google-services.json` o `getInstance` lança e vai `token: null`), nunca vê token da Microsoft e não guarda nada do
+      registro. O `sair()` da página é embrulhado: antes dele, o servidor esquece o token (prazo de 3 s), e o original roda
+      sempre. Erro vira `{t:'erro', onde:'push'}` com um texto nosso (nunca o token, o Bearer nem o e-mail); 404, a rota
+      fora do ar, para nesta carga; sem rede, tenta no próximo `online`, no máximo uma vez a cada 10 minutos. Caso que
+      criou a regra: a primeira versão pulava o registro feito há menos de 7 dias, e o "já registrado" não sabia de QUEM
+      (trocar de conta sem o Sair mandava os avisos ao e-mail anterior, e depois do Sair o aparelho ficava sem aviso por
+      até 7 dias). O custo é uma chamada ao servidor do App de Campo por abertura, e nenhuma ao Fracttal.
+    - O ícone pequeno é o `ic_notificacao.xml`: o G da Grid em vetor branco de 24 dp, sem fundo (o Android só usa o alfa e
+      pinta com a cor da barra; o PNG do ícone do app viraria um quadrado). O traçado saiu do `docs/marca/grid-g-branco.png`
+      (99,3% da área igual) e o desenho está explicado no próprio arquivo. O manifesto também o dá como ícone padrão do
+      Firebase, e o canal do resumo como o padrão (uma mensagem com `notification` mostrada pelo próprio Firebase não cai no
+      "Miscellaneous").
+    - O toque na emergência e o atalho de teste dos avisos, abaixo: "Abrir a OS pelo toque na emergência" (Ruling N6: a OS
+      fica PENDENTE se o técnico está no meio de uma OS, de uma ronda ou de outra camada) e "O atalho de teste dos avisos"
+      (Ruling N7: só Admin, no toque longo do ícone).
+  - **O Firebase no build:** `firebase-bom:34.19.0` fixo e só o `firebase-messaging` (sem Analytics), para o APK de hoje e o
+    de daqui a um mês saírem das mesmas bibliotecas. O `android/app/google-services.json` (do `applicationId`
+    `br.com.gridco.nexusfield`) NÃO é segredo (só identifica o projeto; a chave de serviço mora só nas App Settings do
+    servidor) e entra no repositório. Sem ele o plugin do `google-services` não é aplicado: o build de depuração e o de PR
+    passam, o app roda, mas não recebe aviso e não mostra o atalho de teste. A Release FALHA sem ele (o passo "O Firebase do
+    app está no repositório", logo depois de "O commit da tag está na main", antes de a chave sair do secret; o arquivo
+    vazio também falha): um APK que nunca recebe aviso indo a ~50 aparelhos, sem erro em lugar nenhum. O arquivo que existe
+    e está torto aplica o plugin e derruba o build.
+  - **A ordem de dependência** (spec, seção 5), e por que a tag `v1.1.0` NÃO é da casca sozinha: 1) o dono cria o projeto
+    do Firebase (grátis, com a conta Google da Grid), põe o `google-services.json` no repositório, e a chave de serviço
+    vai às App Settings do servidor; 2) a casca 1.1.0 (este código), que chega ao aparelho de prova pelo aviso de
+    atualização do próprio app (o que também prova a atualização); 3) o servidor, na sessão "App de campo" (as rotas, os
+    dois timers e o envio na conferência do Fracttal; as rotas estão no ar desde a v286); 4) a prova pelo
+    `docs/prova-no-aparelho.md` e, depois, o piloto. **A tag `v1.1.0` só sai depois de: os textos aprovados pelo dono na
+    prévia, o `google-services.json` do dono no repositório e as rotas do servidor no ar.** Os textos novos (os canais, os
+    atalhos, os avisos rápidos, o "Avisos do Nexus Field" e o novo "Antes de começar") estão PENDENTES de aprovação; quando
+    ele aprovar, os cabeçalhos do `strings.xml` passam a dizer "aprovados", com a data.
 - **Abrir a OS pelo toque na emergência** (notificações, 18/10/2026; `MainActivity.osDoToque`, `CascaPlugin.AberturaDaOS`
   e a seção 9 do `inicio.js`; testes `CascaPluginTest`, `MainActivityTest` e `testes/abrir-os.test.mjs`). O Intent do
   toque traz o extra `gc_os` (o número da OS, só na emergência com OS válida; ver `Notificacoes.mostrar`):
@@ -457,9 +535,10 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   `aapt2 dump xmltree` do de depuração mostra o `value` compilado como booleano.
 - **A prévia das telas novas** (`docs/previas/telas.html`, fora do APK; título "Telas novas do Nexus Field"): uma página
   só, autocontida, com o ícone e o nome (no topo), a abertura, os diálogos do `strings.xml`, os toasts, o `www/erro.html`
-  num iframe, a camada do Fracttal, os nomes dos canais de notificação (seção Notificações, o quadro `#t-canais` dos
-  ajustes do Android) e os atalhos de teste do ícone (o quadro `#t-atalhos`), cada tela numa moldura de 360 px, para o dono da casca aprovar texto e visual antes
-  de ir ao campo. **O ícone, o nome e os textos estão PENDENTES de aprovação do dono da casca**
+  num iframe, a camada do Fracttal e, na seção Notificações, as quatro notificações de exemplo na barra do Android (os
+  quadros `#t-notif-*`: o resumo das 7h e o das 13h, a emergência que aparece por cima e a que chega em silêncio), os
+  nomes dos canais (o quadro `#t-canais` dos ajustes do Android) e os atalhos de teste do ícone (o quadro `#t-atalhos`),
+  cada tela numa moldura de 360 px, para o dono da casca aprovar texto e visual antes de ir ao campo. **O ícone, o nome e os textos estão PENDENTES de aprovação do dono da casca**
   (a página é publicada como Artifact privado do claude.ai e ele aprova por lá); quando ele aprovar, esta frase e os
   cabeçalhos do `strings.xml` passam a dizer "aprovados", com a data. O texto vive no arquivo-fonte, não na prévia:
   pedido de mudança se faz no `strings.xml`, no `erro.html` ou no `inicio.js` e a prévia acompanha.
@@ -476,7 +555,10 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     conjunto, os `Toast.makeText(..., R.string.x, ...)` do Java (o teste os lê do código), se uma string da casca ficar
     sem quadro, se os nomes no quadro dos canais não forem os `notificacao_canal_*` que o `CanaisDeNotificacao` dá a cada
     canal, se os rótulos do quadro dos atalhos não forem os `atalho_teste_*` que o `AtalhosDeTeste` dá a cada atalho
-    (o longo no menu, o curto na legenda), se o `strings.xml` ganhar uma string de prefixo sem quadro na prévia (só `package_name` e
+    (o longo no menu, o curto na legenda), se uma notificação de exemplo não estiver no canal que a legenda diz, com a
+    importância que o `CanaisDeNotificacao` dá (por cima da tela só a alta) e uma OS que o `Notificacoes` aceitaria, se o
+    G da barra não for o `pathData` do `ic_notificacao.xml` (byte a byte) em branco, se o roteiro da prova das notificações
+    citar um texto que o aplicativo não tem ou deixar de cobrir um atalho, canal ou toast, se o `strings.xml` ganhar uma string de prefixo sem quadro na prévia (só `package_name` e
     `custom_url_scheme` ficam fora, porque o técnico não os lê; caso de 18/10/2026: os nomes dos canais trocaram o
     `casca_` por outro prefixo e nenhum teste exigiu o quadro), se as novidades não forem uma linha `- item` cada, se o `srcdoc` do erro não for o `erro.html` inteiro (copie o arquivo
     escapando `&` como `&amp;` e `"` como `&quot;`, nessa ordem) ou se a camada do Fracttal não for igual à que o
@@ -493,6 +575,14 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     `:root:not([data-theme="light"])` e por `:root[data-theme="dark"]`, com os mesmos valores; token sem uso sai. As
     cores por extenso que restam estão dentro das cópias fiéis do aplicativo (o estilo da camada e os iframes). O teste
     confere tudo isso, e que nenhuma regra da folha alcança o iframe da camada (só o `#erro-html` é dimensionado por ela).
+  - **As notificações de exemplo** têm o título e o texto do SERVIDOR (não estão no `strings.xml`): são os exemplos do
+    servidor no ar (v286, lidos em 18/10/2026: "Bom dia!", "Boa tarde!", "Emergência"), com a OS fictícia 12345, e a
+    legenda de cada quadro e a introdução da seção dizem de onde vêm. Se o servidor mudar o texto, a prévia e a tabela
+    `NOTIFICACOES` do `testes/previas.test.mjs` mudam juntas; a casca não muda. O G da barra é o `pathData` do
+    `ic_notificacao.xml` copiado UMA vez num `<path id="g-notificacao">` (as cópias são `<use>`; a cor sai da folha: o
+    `--barra-icone`, branco, na barra de cima, e um tom do tema do aparelho no cartão, como o Android pinta o ícone
+    pequeno). A barra de cima é sempre escura, para o G branco aparecer; os cartões seguem o tema do aparelho (o botão
+    Claro/Escuro da página). O que o aparelho decide (a gaveta, o cartão, o "agora") é aproximação.
   - O desenho dos diálogos (AppCompat DayNight: fundo branco ou `#424242`, canto de 2 dp, botão verde-azulado) é
     aproximação: o que se aprova é texto, botão e quando cada aviso aparece.
 - **A Release e o CI** (`.github/workflows/montar.yml` e `contrato.yml`; ainda sem repositório no GitHub: a primeira
@@ -527,12 +617,16 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
        passo frente a frente com o `URL_VERSAO` e o roda com repositórios parecidos (outra caixa, sufixo, prefixo, vazio);
     1. **o commit da tag está na `main`** (`fetch-depth: 0` e `git merge-base --is-ancestor`): a tag posta por engano num
        ramo de worktree publicaria código que nunca passou pela `main`;
-    2. **a versão da tag** pelo `node ferramentas/versao-json.mjs tipo-da-versao`: o semver mora só no `PADRAO_VERSAO` de
+    2. **o `android/app/google-services.json` está no repositório** (não vazio; o passo "O Firebase do app está no
+       repositório", logo depois do checkout e da conferência da `main`): o arquivo é o projeto do Firebase das
+       notificações, e sem ele o APK sai sem Firebase, sem erro nenhum: iria aos ~50 aparelhos sem nunca receber aviso. O
+       job `montar` (o PR) passa sem o arquivo de propósito. Ver "As notificações do Nexus Field";
+    3. **a versão da tag** pelo `node ferramentas/versao-json.mjs tipo-da-versao`: o semver mora só no `PADRAO_VERSAO` de
        lá (o mesmo do `versionName`), sem regex no bash; tem de existir `novidades/<versão>.md` (as linhas `- ` viram as
        novidades do aviso e o arquivo inteiro é o texto da Release). Sai `final` ou `pre-lancamento` (no
        `TIPO_DA_VERSAO`): `1.1.0-rc.1` vira pré-lançamento, que a `releases/latest/` do app não enxerga; o hífen do
        metadado de build (`1.0.0+ci-7`) não conta (o `case *-*` antigo soltava essa versão final como pré-lançamento);
-    3. **o versionCode cresce**: o `versao.json` da `releases/latest/download/` é lido e o `conferir-crescimento` exige o
+    4. **o versionCode cresce**: o `versao.json` da `releases/latest/download/` é lido e o `conferir-crescimento` exige o
        `GITHUB_RUN_NUMBER` maior; o 404 só vale sem nenhuma Release publicada. O número é o `GITHUB_RUN_NUMBER` **do
        workflow `montar`: não renomeie, não divida nem apague o arquivo**, senão a contagem recomeça em 1 e o app deixaria
        de oferecer a atualização, em silêncio.
@@ -559,14 +653,17 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     `testes/versao-json.test.mjs` lê o `.java` e compara o prefixo, o padrão do link e o SHA; o SHA tem 64 hex minúsculos,
     o `versionName` é o semver, o `apk` sai de `v<versão>/nexus-field.apk`). O SHA-256 vem do próprio APK; o workflow ainda
     confere com o `sha256sum`. Sem nenhuma linha `- ` nas novidades o arquivo sai com a lista vazia (o app mostra só
-    "Versão X."). Os subcomandos `tipo-da-versao` e `conferir-crescimento` são os dos passos 2 e 3 acima.
+    "Versão X."). Os subcomandos `tipo-da-versao` e `conferir-crescimento` são os dos passos 3 e 4 acima.
   - **O contrato com o site (`testes/contrato.mjs`):** um GET do `/api/app`, só leitura. Importa do `www/casca/inicio.js`
-    a `CLASSES`, o `classificar` e o `VOLTAR` (as listas existem num lugar só). Falha, dizendo o NOME (nunca um trecho do
-    HTML), se:
+    a `CLASSES`, o `classificar`, o `VOLTAR`, o `PUSH` e o `ABRIR_OS` (as listas existem num lugar só). Falha, dizendo o
+    NOME (nunca um trecho do HTML), se:
     - **sumir** do site uma chave exata (entre aspas) ou um prefixo da `CLASSES`, o banco `gc_campo_fotos` com a store
       `fotos` por perto, a `conectarFracttal` com o `window.open('','_blank')`, o `loginRedirect`, o `'/api/app'`, o
       `msal-browser` na 2.38.1 (no mesmo endereço), ou um id, classe, função de topo, o `let sheetTask` ou o
-      `setTab('tarefas')` do `VOLTAR` (nome trocado no site só faz o voltar daquela camada minimizar o app);
+      `setTab('tarefas')` do `VOLTAR` (nome trocado no site só faz o voltar daquela camada minimizar o app); ou o que as
+      notificações usam: a função `getTokenMW`, a `async function sair` e a declaração do `MIDDLEWARE_URL` (o `PUSH`: sem
+      elas o aparelho não se registra, sem erro na tela) e a `setBusca`, o `setTab`, o `#busca-os` e o resto do `ABRIR_OS`
+      (sem eles o toque na emergência não abre a OS); o rótulo de cada um sai na mensagem (`push:`, `abrir-os:`);
     - **aparecer** no site uma chave `gc_` (entre aspas, em qualquer uso: `setItem`, o `lsS`/`lsG` do site, constante,
       lista; ou começo de template com `${`) que o `classificar` não classifique e que não esteja na `IGNORAR` do próprio
       contrato (cada entrada com o motivo: o que a spec manda nunca espelhar, preferências, contadores, cópias do que o

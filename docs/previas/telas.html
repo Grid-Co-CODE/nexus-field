@@ -3,8 +3,9 @@
 <style>
   /* Prévia para aprovar o ícone, o nome, os textos e o visual das telas novas do Nexus Field (a casca Android do App
      de Campo) antes de irem ao campo. Fora do APK: nada daqui é empacotado. Os textos são cópia do strings.xml, do
-     erro.html, do inicio.js e do campo.html, o ícone é o PNG do APK, e o testes/previas.test.mjs falha se um deles
-     mudar e esta página ficar para trás. Autocontida: sem CDN, sem fonte nem imagem de fora, sem script; o ícone vai
+     erro.html, do inicio.js e do campo.html (e, nas notificações, os exemplos do servidor do App de Campo, que é quem
+     os escreve), o ícone é o PNG do APK e o G das notificações é o vetor do APK, e o testes/previas.test.mjs falha se
+     um deles mudar e esta página ficar para trás. Autocontida: sem CDN, sem fonte nem imagem de fora, sem script; o ícone vai
      embutido uma vez como data: URI e as cópias dele são <use>.
 
      É uma página de Artifact (página privada do claude.ai): o publicador a embrulha, por isso o arquivo não tem doctype,
@@ -46,6 +47,17 @@
        que se aprova ali são os nomes dos canais. */
     --ajustes-fundo:#ffffff;
     --ajustes-texto:#1f1f1f;
+    /* As notificações na barra do Android: a barra de cima (escura, com o ícone pequeno em branco, que é a cor do vetor
+       do APK) e a gaveta das notificações, com o aparelho no tema claro. Aproximação: o que se aprova são os textos, o
+       canal e o G; o desenho exato muda com a versão do Android e com o fabricante. */
+    --barra-fundo:#000000;
+    --barra-texto:#ffffff;
+    --barra-icone:#ffffff;
+    --gaveta-fundo:#dde1e8;
+    --gaveta-cartao:#f7f8fa;
+    --gaveta-texto:#1f1f1f;
+    --gaveta-suave:#4a4f5a;
+    --gaveta-icone:#3b5f7d;
 
     /* Ícone e nome: o fundo do ícone (o ic_launcher_background do APK, o navy do Nexus) e dois papéis de parede, um
        claro e um escuro, com a cor que o launcher dá ao rótulo em cada um. Não mudam com o tema da página. */
@@ -90,6 +102,11 @@
     --dlg-botao:#80cbc4;
     --ajustes-fundo:#121212;
     --ajustes-texto:#e3e3e3;
+    --gaveta-fundo:#0e0f12;
+    --gaveta-cartao:#2a2d33;
+    --gaveta-texto:#e3e3e3;
+    --gaveta-suave:#b7bcc7;
+    --gaveta-icone:#a8c7fa;
   }
 
   * { box-sizing:border-box; }
@@ -224,6 +241,27 @@
   .atalho-icone { width:28px; height:28px; }
   .inicio-app { display:flex; flex-direction:column; align-items:center; gap:6px; }
   .inicio-rotulo { color:var(--rotulo-escuro); font:500 13px/1.2 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  /* As notificações do Nexus Field na barra do Android: a barra de cima, escura, com o G em branco (o ícone pequeno), e
+     o cartão da notificação na gaveta (ou por cima do aplicativo, a de importância alta). O G é o vetor do APK, uma vez
+     só no <defs>; as cópias são <use>, e a cor vem da folha, como no Android, que pinta o ícone pequeno com a cor da
+     barra. */
+  .celular.gaveta { height:280px; background:var(--gaveta-fundo); color:var(--gaveta-texto); font-family:Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .celular.gaveta.por-cima { background:var(--app-fundo); }
+  .barra-status {
+    position:absolute; top:0; right:0; left:0; z-index:1; display:flex; align-items:center; gap:10px; height:28px; padding:0 16px;
+    background:var(--barra-fundo); color:var(--barra-texto); font:500 12px/1 Roboto, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .barra-status .notificacao-g { flex:none; width:18px; height:18px; fill:var(--barra-icone); }
+  .gaveta-lista { position:absolute; top:44px; right:12px; left:12px; }
+  .notificacao { display:flex; flex-direction:column; gap:4px; padding:12px 16px 14px; border-radius:20px; background:var(--gaveta-cartao); box-shadow:0 1px 3px var(--sombra); }
+  .celular.por-cima .notificacao { box-shadow:0 8px 24px var(--sombra); }
+  .notificacao-topo { display:flex; align-items:center; gap:6px; margin-bottom:2px; color:var(--gaveta-suave); font-size:12px; line-height:1.2; }
+  .notificacao-icone { display:inline-flex; flex:none; }
+  .notificacao-icone .notificacao-g { width:16px; height:16px; fill:var(--gaveta-icone); }
+  .notificacao-app { font-weight:500; }
+  .notificacao-hora::before { content:"\00b7\00a0"; }
+  .notificacao-titulo { font-size:15px; font-weight:500; line-height:1.3; color:var(--gaveta-texto); }
+  .notificacao-texto { font-size:14px; line-height:1.4; color:var(--gaveta-suave); }
   /* Só o iframe do erro.html é dimensionado por esta folha. O da camada do Fracttal fica só com o estilo inline que o
      inicio.js declara: uma regra aqui, como a de um "iframe" qualquer, mudaria o que o aparelho mostra. */
   #erro-html { display:block; position:absolute; top:0; left:0; width:100%; height:100%; border:0; background:var(--icone-fundo); }
@@ -232,7 +270,7 @@
 <main>
   <header>
     <h1>Prévia das telas novas do Nexus Field</h1>
-    <p class="intro suave">O ícone, o nome e os avisos que o Nexus Field (a casca Android do App de Campo) acrescenta, para aprovar os textos e o visual antes de irem ao campo. Cada moldura tem 360 px, a largura de um celular comum. Os textos são os do aplicativo (strings.xml, erro.html e inicio.js) e, no aviso do Fracttal, os que a página do App de Campo escreve (campo.html); o ícone é o mesmo arquivo do aplicativo. Um teste confere que esta página e o aplicativo dizem o mesmo. Se algo mudar, muda no aplicativo e a página acompanha.</p>
+    <p class="intro suave">O ícone, o nome e os avisos que o Nexus Field (a casca Android do App de Campo) acrescenta, para aprovar os textos e o visual antes de irem ao campo. Cada moldura tem 360 px, a largura de um celular comum. Os textos são os do aplicativo (strings.xml, erro.html e inicio.js) e, no aviso do Fracttal, os que a página do App de Campo escreve (campo.html); nas notificações, o texto de cada uma é do servidor do App de Campo, e a página mostra exemplos dele. O ícone é o mesmo arquivo do aplicativo. Um teste confere que esta página e o aplicativo dizem o mesmo. Se algo mudar, muda no aplicativo e a página acompanha.</p>
     <p class="intro suave">O desenho dos diálogos é uma aproximação do Android: o que se aprova são os textos, os botões e quando cada aviso aparece. O aspecto exato varia um pouco com a versão do Android.</p>
   </header>
 
@@ -253,6 +291,7 @@
       <li><input type="checkbox" id="ok-sha"><label for="ok-sha">O aviso rápido (toast) de quando a atualização não deu certo (o download não terminou ou o arquivo não confere): o texto.</label><a class="ver" href="#t-sha">Ver</a></li>
       <li><input type="checkbox" id="ok-erro"><label for="ok-erro"><b class="cita">Sem internet</b>: o título, os dois textos e o botão <b class="cita">Tentar de novo</b>.</label><a class="ver" href="#t-erro">Ver</a></li>
       <li><input type="checkbox" id="ok-fracttal"><label for="ok-fracttal">O aviso do Fracttal: o botão <b class="cita">Fechar</b> e o visual da camada. O texto da explicação vem da página do App de Campo.</label><a class="ver" href="#t-fracttal">Ver</a></li>
+      <li><input type="checkbox" id="ok-notificacoes"><label for="ok-notificacoes">Novo: as notificações na barra do Android, com o G da Grid em branco como ícone pequeno e o nome <b class="cita">Nexus Field</b>: o resumo das 7h, o das 13h, a emergência que toca e a que chega em silêncio. O texto de cada uma é escrito pelo servidor do App de Campo (os exemplos são os dele). E o toque na emergência: abre a OS, e se o técnico estiver no meio de uma OS ou de uma ronda ela fica pendente até ele fechar o que está fazendo.</label><a class="ver" href="#t-notif-manha">Ver</a></li>
       <li><input type="checkbox" id="ok-canais"><label for="ok-canais">Novo: os nomes dos canais das notificações, nos ajustes do Android: <b class="cita">Emergências</b>, <b class="cita">Emergências fora do expediente</b> e <b class="cita">Resumo do dia</b>.</label><a class="ver" href="#t-canais">Ver</a></li>
       <li><input type="checkbox" id="ok-atalhos"><label for="ok-atalhos">Novo, só para administrador: os atalhos do toque longo no ícone, <b class="cita">Testar avisos</b> e <b class="cita">Testar fora do expediente</b> (com os rótulos curtos), e os quatro avisos rápidos (toast) do resultado do teste.</label><a class="ver" href="#t-atalhos">Ver</a></li>
       <li><input type="checkbox" id="ok-visual"><label for="ok-visual">O visual: os diálogos seguem o tema claro ou escuro do aparelho, e os botões usam a cor de destaque padrão do Android (verde-azulado), porque a casca não define uma cor própria.</label></li>
@@ -513,8 +552,66 @@
 
   <section class="grupo" aria-labelledby="g-notificacoes">
     <h2 id="g-notificacoes">Notificações</h2>
-    <p class="suave">Os canais em que o Nexus Field separa as notificações, com os nomes que o técnico vê nos ajustes do Android, e o teste dos avisos que só o administrador faz, pelo toque longo no ícone.</p>
+    <p class="suave">Como as notificações do Nexus Field aparecem na barra do Android, os canais em que elas se separam, com os nomes que o técnico vê nos ajustes do Android, e o teste dos avisos que só o administrador faz, pelo toque longo no ícone. O título e o texto de cada notificação são escritos pelo servidor do App de Campo: o Nexus Field só os mostra, sem acrescentar nada. Os exemplos abaixo são os do servidor no ar (v286, lido em 18/10/2026), com a OS fictícia 12345; quando o servidor mudar um texto, ele muda lá, e não no Nexus Field. O ícone pequeno é o G da Grid em branco: o Android o pinta com a cor da barra do tema do aparelho, e a prévia o mostra em branco na barra escura. No Android 13 ou mais novo, sem a permissão de notificação nenhuma delas aparece: o pedido e o diálogo <a href="#t-avisos">Avisos do Nexus Field</a>, para quem já tinha o aplicativo, estão em Permissões e WebView.</p>
+    <svg class="defs-do-icone" aria-hidden="true" focusable="false"><defs><path id="g-notificacao" d="M1.04,12.00L4.14,12.00L4.17,12.00A7.83,7.83 0 0,0 10.25,19.63A7.83,7.83 0 0,0 19.05,15.41L14.43,15.40L14.24,15.38L13.99,15.30L13.72,15.13L13.50,14.87L11.97,12.00L4.21,12.00L4.17,12.00A7.83,7.83 0 0,1 4.94,8.62L1.58,8.61L1.54,8.60A11.00,11.00 0 0,1 12.00,1.00A11.00,11.00 0 0,1 22.46,8.60L19.10,8.61L19.06,8.62A7.83,7.83 0 0,0 12.02,4.17A7.83,7.83 0 0,0 4.95,8.59L9.61,8.60L9.86,8.64L10.05,8.72L10.30,8.89L10.52,9.15L12.03,12.00L22.96,12.00L23.00,12.00A11.00,11.00 0 0,1 12.00,23.00A11.00,11.00 0 0,1 1.00,12.00Z"/></defs></svg>
     <div class="galeria">
+
+      <figure class="item" id="t-notif-manha">
+        <div class="celular gaveta" data-canal="resumo" role="group" aria-label="Barra do Android com o resumo da manhã do Nexus Field na gaveta de notificações">
+          <div class="barra-status" aria-hidden="true"><span class="barra-hora">07:00</span><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></div>
+          <div class="gaveta-lista">
+            <div class="notificacao" role="group" aria-label="Notificação do Nexus Field">
+              <div class="notificacao-topo"><span class="notificacao-icone" aria-hidden="true"><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></span><span class="notificacao-app">Nexus Field</span><span class="notificacao-hora">07:00</span></div>
+              <div class="notificacao-titulo">Bom dia!</div>
+              <div class="notificacao-texto">Hoje: 4 tarefas, 1 corretiva e 3 preventivas.</div>
+            </div>
+          </div>
+        </div>
+        <figcaption><strong>Resumo da manhã, novo.</strong> Chega às 7h, só num dia em que o técnico tem tarefa. Canal: <span class="notificacao-canal">Resumo do dia</span> (toca o som padrão de notificação, sem aparecer por cima da tela); o G em branco fica na barra de cima. O texto é do servidor: este é o exemplo do servidor no ar. Tocar abre o Nexus Field onde ele estava, sem mudar de tela.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-notif-tarde">
+        <div class="celular gaveta" data-canal="resumo" role="group" aria-label="Barra do Android com o resumo da tarde do Nexus Field na gaveta de notificações">
+          <div class="barra-status" aria-hidden="true"><span class="barra-hora">13:00</span><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></div>
+          <div class="gaveta-lista">
+            <div class="notificacao" role="group" aria-label="Notificação do Nexus Field">
+              <div class="notificacao-topo"><span class="notificacao-icone" aria-hidden="true"><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></span><span class="notificacao-app">Nexus Field</span><span class="notificacao-hora">13:00</span></div>
+              <div class="notificacao-titulo">Boa tarde!</div>
+              <div class="notificacao-texto">Faltam 2 tarefas de hoje: 1 corretiva e 1 preventiva.</div>
+            </div>
+          </div>
+        </div>
+        <figcaption><strong>Resumo da tarde, novo.</strong> Chega às 13h e conta só o que ainda está aberto no dia. Tem o mesmo canal (<span class="notificacao-canal">Resumo do dia</span>) e o mesmo lugar na barra que o da manhã: toma o lugar dele se ele ainda estiver lá, em vez de empilhar, e toca de novo. O texto é do servidor (exemplo do servidor no ar). Dia sem tarefa não recebe nenhum dos dois resumos.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-notif-emergencia">
+        <div class="celular gaveta por-cima" data-canal="emergencia" role="group" aria-label="Tela do aparelho com a emergência do Nexus Field aparecendo por cima do aplicativo">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="barra-status" aria-hidden="true"><span class="barra-hora">10:42</span><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></div>
+          <div class="gaveta-lista">
+            <div class="notificacao" role="group" aria-label="Notificação do Nexus Field">
+              <div class="notificacao-topo"><span class="notificacao-icone" aria-hidden="true"><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></span><span class="notificacao-app">Nexus Field</span><span class="notificacao-hora">agora</span></div>
+              <div class="notificacao-titulo">Emergência</div>
+              <div class="notificacao-texto">Corretiva emergencial: OS 12345</div>
+            </div>
+          </div>
+        </div>
+        <figcaption><strong>Emergência no expediente, novo.</strong> Chega em até 10 minutos depois de a OS emergencial (religamento ou corretiva emergencial) ser aberta no Fracttal para o técnico. Canal: <span class="notificacao-canal">Emergências</span> (aparece por cima da tela, toca o alarme padrão do aparelho e vibra três vezes). A mesma OS chegando de novo substitui a primeira, sem tocar outra vez. O texto é do servidor (exemplo do servidor no ar, com a OS 12345, que é fictícia). Tocar abre o Nexus Field na aba Tarefas com o número da OS na busca. Se o técnico estiver no meio de uma OS, de uma ronda ou com qualquer outra tela aberta por cima, o Nexus Field não o interrompe: a OS fica pendente e abre sozinha quando ele fechar o que está fazendo (vale até o fim do dia, e se perde se o Nexus Field for fechado antes). Nenhuma tela nova aparece.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-notif-silenciosa">
+        <div class="celular gaveta" data-canal="emergencia_silenciosa" role="group" aria-label="Barra do Android com a emergência fora do expediente do Nexus Field na gaveta de notificações">
+          <div class="barra-status" aria-hidden="true"><span class="barra-hora">19:15</span><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></div>
+          <div class="gaveta-lista">
+            <div class="notificacao" role="group" aria-label="Notificação do Nexus Field">
+              <div class="notificacao-topo"><span class="notificacao-icone" aria-hidden="true"><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></span><span class="notificacao-app">Nexus Field</span><span class="notificacao-hora">agora</span></div>
+              <div class="notificacao-titulo">Emergência</div>
+              <div class="notificacao-texto">Religamento: OS 12345</div>
+            </div>
+          </div>
+        </div>
+        <figcaption><strong>Emergência fora do expediente, novo.</strong> A emergência que surge fora do dia útil e do expediente não se perde: chega num canal silencioso. Quem decide é o servidor (dia útil, das 7h às 17h; feriado conta como dia útil). Canal: <span class="notificacao-canal">Emergências fora do expediente</span> (sem som, sem vibração e sem aparecer por cima da tela; o G fica na barra de cima). O texto é do servidor (exemplo do servidor no ar, com a OS 12345, que é fictícia), aqui um religamento. O toque faz o mesmo da emergência de cima: abre a OS, ou a deixa pendente se o técnico estiver no meio de uma OS ou de uma ronda.</figcaption>
+      </figure>
 
       <figure class="item" id="t-canais">
         <div class="celular ajustes" role="group" aria-label="Tela de ajustes do Android com os canais de notificação do Nexus Field">

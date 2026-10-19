@@ -62,6 +62,12 @@ test('novidades: fim de linha do Windows, e sem nenhuma linha vira lista vazia (
   assert.deepEqual(montarVersaoJson({ ...base, novidadesMd: 'só texto\n' }).novidades, []);
 });
 
+test('a 1.1.0 leva as duas novidades das notificações, uma linha "- " cada, como o aviso de atualização as mostra', () => {
+  const md = readFileSync(join(raiz, 'novidades', '1.1.0.md'), 'utf8');
+  const v = montarVersaoJson({ ...base, versionName: '1.1.0', novidadesMd: md });
+  assert.deepEqual(v.novidades, ['Avisos às 7h e às 13h com as tarefas do dia', 'Aviso na hora quando surgir uma emergência']);
+});
+
 test('novidadesMd tem de ser texto', () => {
   assert.throws(() => montarVersaoJson({ ...base, novidadesMd: undefined }), /novidadesMd/);
   assert.throws(() => montarVersaoJson({ ...base, novidadesMd: ['- x'] }), /novidadesMd/);

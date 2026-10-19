@@ -8,7 +8,12 @@
 //   4. o ícone é o PNG que vai ao APK (o primeiro plano de xxxhdpi, byte a byte, embutido como data: URI) sobre a cor do
 //      fundo do ícone, e o rótulo embaixo dele é o do strings.xml;
 //   5. os nomes dos canais de notificação são os do strings.xml que o CanaisDeNotificacao dá a cada canal;
-//   6. toda string do strings.xml tem lugar na prévia: um prefixo novo não passa sem quadro (e sem aprovação).
+//   6. toda string do strings.xml tem lugar na prévia: um prefixo novo não passa sem quadro (e sem aprovação);
+//   7. as notificações de exemplo (o resumo das 7h e o das 13h, a emergência que toca e a que chega em silêncio) estão no
+//      canal e na importância que o CanaisDeNotificacao dá, com o ícone pequeno que o APK leva (o vetor, byte a byte) em
+//      branco na barra; o texto delas é do servidor do App de Campo (a casca só mostra), e a prévia o diz;
+//   8. o roteiro da prova (docs/prova-no-aparelho.md) só cita textos que o aplicativo tem e cobre cada atalho, canal e
+//      toast das notificações.
 // Quando o dono da casca pedir outro texto, o arquivo-fonte muda (strings.xml, erro.html ou inicio.js) e a prévia
 // acompanha; este teste falha enquanto uma das duas estiver para trás.
 //
@@ -137,6 +142,30 @@ function rotulosDosAtalhosDoJava() {
   const fonte = lerArquivo(PASTA_JAVA + 'AtalhosDeTeste.java');
   const de = (metodo) => [...fonte.matchAll(new RegExp(`\\.${metodo}\\([^;]*?R\\.string\\.(\\w+)`, 'g'))].map((m) => m[1]);
   return { curtos: de('setShortLabel'), longos: de('setLongLabel') };
+}
+
+// Os canais como o CanaisDeNotificacao os cria: o id (o valor da constante CANAL_* do Notificacoes), a importância
+// (IMPORTANCE_HIGH, DEFAULT, LOW) e o nome (a string do strings.xml). É o que decide como cada notificação de exemplo
+// aparece: só a de importância alta aparece por cima da tela.
+function canaisDetalhadosDoJava() {
+  const ids = Object.fromEntries([...lerArquivo(PASTA_JAVA + 'Notificacoes.java')
+    .matchAll(/static final String (CANAL_\w+) = "(\w+)";/g)].map((m) => [m[1], m[2]]));
+  const fonte = lerArquivo(PASTA_JAVA + 'CanaisDeNotificacao.java');
+  const canais = [];
+  for (const m of fonte.matchAll(/new NotificationChannelCompat\.Builder\(\s*Notificacoes\.(CANAL_\w+),\s*NotificationManagerCompat\.IMPORTANCE_(\w+)\)([\s\S]*?)\.build\(\)/g)) {
+    const nome = m[3].match(/\.setName\([^;]*?R\.string\.(\w+)/);
+    assert.ok(ids[m[1]] && nome, `o teste não leu o canal ${m[1]} do CanaisDeNotificacao`);
+    canais.push({ id: ids[m[1]], importancia: m[2], nome: nome[1] });
+  }
+  return canais;
+}
+
+// O padrão do número da OS que a casca aceita no toque (Notificacoes.OS): a OS de exemplo tem de ser uma que abriria.
+function padraoDaOSDoJava() {
+  const achado = lerArquivo(PASTA_JAVA + 'Notificacoes.java').match(/Pattern\.compile\("((?:[^"\\]|\\.)*)"\)/);
+  assert.ok(achado, 'o teste achou o padrão da OS no Notificacoes');
+  // O literal do Java tem a barra dobrada ("\\d{1,12}"); a expressão é a de uma barra só.
+  return new RegExp('^' + achado[1].replace(/\\\\/g, '\\') + '$');
 }
 
 // Lê a folha de estilo da página sem depender do CSSOM do jsdom (que descarta o que não entende): regra a regra, com o
@@ -572,4 +601,160 @@ test('o quadro da tela Sem internet tem o fundo do Nexus Field (o do ícone), n�
   const raizCss = regraDe(f, ':root').decl;
   assert.notEqual(raizCss['--app-fundo'].toLowerCase(), raizCss['--icone-fundo'].toLowerCase());
   assert.match(ERRO_HTML, /--fundo:\s*#090d18/i, 'e o srcdoc (a cópia do erro.html) está no navy');
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// As notificações de exemplo (spec 2026-10-18) e o roteiro da prova
+// ---------------------------------------------------------------------------------------------------------------
+
+// O texto das notificações é do SERVIDOR do App de Campo: a mensagem do Firebase traz {titulo, texto} e a casca só os
+// mostra (Notificacoes.montar), sem acrescentar nada. Por isso estes textos não estão no strings.xml: são os exemplos
+// do servidor no ar (v286, lido em 18/10/2026), com a OS fictícia 12345, e a prévia diz de onde vêm. A hora é a do
+// cartão: 07:00 e 13:00 são os horários dos resumos; a emergência chega "agora".
+const NOTIFICACOES = [
+  { id: 't-notif-manha', canal: 'resumo', titulo: 'Bom dia!', texto: 'Hoje: 4 tarefas, 1 corretiva e 3 preventivas.', hora: '07:00' },
+  { id: 't-notif-tarde', canal: 'resumo', titulo: 'Boa tarde!', texto: 'Faltam 2 tarefas de hoje: 1 corretiva e 1 preventiva.', hora: '13:00' },
+  { id: 't-notif-emergencia', canal: 'emergencia', titulo: 'Emergência', texto: 'Corretiva emergencial: OS 12345', hora: 'agora' },
+  { id: 't-notif-silenciosa', canal: 'emergencia_silenciosa', titulo: 'Emergência', texto: 'Religamento: OS 12345', hora: 'agora' },
+];
+
+const secaoDeNotificacoes = (d) => [...d.querySelectorAll('section.grupo')]
+  .find((s) => compactar(s.querySelector('h2')?.textContent ?? '') === 'Notificações');
+
+test('as notificações de exemplo: uma por quadro, no canal e na importância que o CanaisDeNotificacao dá, com o texto do servidor', () => {
+  const d = doc();
+  const secao = secaoDeNotificacoes(d);
+  assert.ok(secao, 'a seção Notificações');
+  const canais = canaisDetalhadosDoJava();
+  assert.equal(canais.length, 3, 'o teste leu os três canais do CanaisDeNotificacao');
+  const osQueAbre = padraoDaOSDoJava();
+
+  // A seção diz de quem é o texto e de qual servidor ele foi copiado.
+  const introducao = compactar(secao.querySelector('h2 + p').textContent);
+  assert.match(introducao, /servidor/);
+  assert.match(introducao, /\bv\d{3}\b/, 'a introdução diz de qual versão do servidor são os textos');
+
+  assert.equal(secao.querySelectorAll('.celular.gaveta').length, NOTIFICACOES.length, 'um quadro por exemplo, e só eles');
+  for (const ex of NOTIFICACOES) {
+    const figura = d.getElementById(ex.id);
+    assert.ok(figura && secao.contains(figura), `figure#${ex.id} na seção Notificações`);
+    const quadro = figura.querySelector('.celular.gaveta');
+    assert.ok(quadro, `${ex.id}: o quadro da barra do Android`);
+    const canal = canais.find((c) => c.id === ex.canal);
+    assert.ok(canal, `o CanaisDeNotificacao cria o canal ${ex.canal}`);
+    assert.equal(quadro.getAttribute('data-canal'), ex.canal);
+
+    // O cartão: o nome do aplicativo que o Android escreve (o rótulo do app), e o título e o texto do servidor.
+    const cartao = quadro.querySelector('.notificacao');
+    assert.ok(cartao, `${ex.id}: o cartão da notificação`);
+    const de = (seletor) => compactar(cartao.querySelector(seletor)?.textContent ?? '');
+    assert.equal(de('.notificacao-app'), stringDoApp('app_name'));
+    assert.equal(de('.notificacao-titulo'), ex.titulo);
+    assert.equal(de('.notificacao-texto'), ex.texto);
+    assert.equal(de('.notificacao-hora'), ex.hora);
+
+    // A legenda diz o canal, com o nome do strings.xml, e de quem é o texto.
+    const legenda = figura.querySelector('figcaption');
+    assert.equal(compactar(legenda.querySelector('.notificacao-canal')?.textContent ?? ''), textoDe(canal.nome),
+      `${ex.id}: o canal da legenda é o ${canal.nome} do strings.xml`);
+    assert.match(compactar(legenda.textContent), /servidor/, `${ex.id}: a legenda diz que o texto é do servidor`);
+
+    // Só a notificação de importância alta aparece por cima da tela (heads-up): é o que o canal faz no aparelho.
+    assert.equal(quadro.classList.contains('por-cima'), canal.importancia === 'HIGH',
+      `${ex.id}: o canal ${ex.canal} tem importância ${canal.importancia}; por cima da tela só a alta`);
+
+    // A emergência traz uma OS que o toque abriria (Notificacoes.osValida); o resumo não traz OS.
+    const os = ex.texto.match(/\bOS (\S+)$/);
+    if (ex.canal === 'resumo') assert.equal(os, null, `${ex.id}: o resumo não leva OS`);
+    else assert.ok(os && osQueAbre.test(os[1]), `${ex.id}: a OS do exemplo é uma que o toque abriria`);
+
+    // O ícone pequeno: o G, na barra de cima e no cartão.
+    assert.ok(quadro.querySelector('.barra-status svg.notificacao-g use[href="#g-notificacao"]'), `${ex.id}: o G na barra de status`);
+    assert.ok(cartao.querySelector('.notificacao-icone svg.notificacao-g use[href="#g-notificacao"]'), `${ex.id}: o G no cartão`);
+  }
+});
+
+test('o toque na emergência, na legenda: abre a OS e, com o técnico ocupado, a OS fica pendente (sem tela nova)', () => {
+  const d = doc();
+  for (const id of ['t-notif-emergencia', 't-notif-silenciosa']) {
+    const legenda = compactar(d.querySelector(`#${id} figcaption`).textContent);
+    assert.match(legenda, /OS 12345/);
+    assert.match(legenda, /pendente/, `${id}: a OS que espera o técnico fechar o que está fazendo`);
+    assert.match(legenda, /ronda/, `${id}: a ronda em andamento também segura a OS`);
+  }
+  // O resumo só abre o Nexus Field: não leva a OS nenhuma.
+  for (const id of ['t-notif-manha', 't-notif-tarde']) {
+    assert.ok(!/pendente/.test(d.querySelector(`#${id} figcaption`).textContent), `${id}: o resumo não tem OS pendente`);
+  }
+});
+
+test('o ícone pequeno da notificação na prévia é o vetor que vai ao APK (o desenho, byte a byte), em branco', () => {
+  const vetor = lerArquivo('../android/app/src/main/res/drawable/ic_notificacao.xml');
+  const desenho = vetor.match(/android:pathData="([^"]+)"/)[1];
+  const cor = vetor.match(/android:fillColor="#([0-9A-Fa-f]{8})"/)[1].toUpperCase();
+  assert.equal(cor, 'FFFFFFFF', 'o vetor do APK é branco opaco: o Android só usa o alfa e pinta com a cor da barra');
+  const quadro = vetor.match(/android:viewportWidth="(\d+)"\s+android:viewportHeight="(\d+)"/);
+  assert.ok(quadro, 'o teste leu o quadro do vetor');
+
+  const d = doc();
+  const caminhos = d.querySelectorAll('path#g-notificacao');
+  assert.equal(caminhos.length, 1, 'o desenho do G entra uma vez só na página; as cópias são <use>');
+  assert.equal(caminhos[0].getAttribute('d'), desenho, 'o d= tem de ser o android:pathData do ic_notificacao.xml (refaça a cópia)');
+  assert.equal(caminhos[0].getAttribute('fill'), null, 'a cor vem do token, pela folha, e não do desenho');
+  for (const svg of d.querySelectorAll('svg.notificacao-g')) {
+    assert.equal(svg.getAttribute('viewBox'), `0 0 ${quadro[1]} ${quadro[2]}`, 'o quadro do vetor');
+  }
+
+  // Na barra de cima o ícone é o branco do vetor, pelo token.
+  const f = folha();
+  assert.equal(regraDe(f, '.barra-status .notificacao-g').decl.fill, 'var(--barra-icone)');
+  assert.equal(regraDe(f, ':root').decl['--barra-icone'].toLowerCase(), '#ffffff');
+});
+
+test('a lista "O que aprovar" tem o item das notificações, e todo link "Ver" leva a um quadro que existe', () => {
+  const d = doc();
+  const item = d.getElementById('ok-notificacoes')?.closest('li');
+  assert.ok(item, 'o item ok-notificacoes da lista');
+  assert.equal(item.querySelector('a.ver').getAttribute('href'), '#t-notif-manha');
+  const texto = compactar(item.querySelector('label').textContent);
+  assert.match(texto, /servidor/, 'o item diz que o texto das notificações é do servidor');
+  assert.match(texto, /pendente/, 'e que a OS da emergência espera o técnico ficar livre');
+  for (const a of d.querySelectorAll('#o-que-aprovar a.ver')) {
+    const alvo = a.getAttribute('href').replace(/^#/, '');
+    assert.ok(d.getElementById(alvo), `o link Ver da lista leva a #${alvo}, que não existe na página`);
+  }
+});
+
+test('o roteiro da prova das notificações só cita textos do aplicativo e cobre cada atalho, canal e toast', () => {
+  const roteiro = lerArquivo('../docs/prova-no-aparelho.md');
+  const secao = roteiro.split(/^## /m).find((parte) => parte.startsWith('As notificações'));
+  assert.ok(secao, 'a seção "## As notificações" do roteiro');
+  assert.ok((secao.match(/^- \[ \] /gm) || []).length >= 20, 'a seção é uma lista de caixas de seleção');
+
+  // Tudo o que o roteiro põe em negrito é um texto que o técnico lê: do aplicativo (strings.xml) ou o título que o
+  // servidor manda. Texto que o aplicativo não tem faz o roteiro mandar o responsável procurar o que não existe.
+  const doApp = [...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos()];
+  const doServidor = NOTIFICACOES.map((n) => n.titulo);
+  const citados = [...secao.matchAll(/\*\*([^*]+)\*\*/g)].map((m) => compactar(m[1]));
+  assert.ok(citados.length >= 12, 'o roteiro cita os textos que se veem');
+  for (const t of citados) {
+    const existe = t === stringDoApp('app_name') || doServidor.includes(t) || doApp.some((s) => regexDe(s.texto).test(t));
+    assert.ok(existe, `o roteiro cita um texto que o aplicativo não tem: "${t}"`);
+  }
+
+  // E cita cada um dos que a prova precisa ver.
+  const obrigatorios = [
+    ...rotulosDosAtalhosDoJava().longos, ...canaisDoJava(),
+    'casca_teste_enviado', 'casca_teste_so_admin', 'casca_teste_entrar', 'casca_teste_falhou',
+    'casca_avisos_titulo', 'casca_permissoes_titulo',
+  ];
+  for (const nome of obrigatorios) {
+    assert.ok(citados.some((t) => regexDe(textoDe(nome)).test(t)), `o roteiro não cita o texto ${nome}`);
+  }
+  for (const t of doServidor) assert.ok(citados.includes(t), `o roteiro não cita o título "${t}" do servidor`);
+
+  // Os casos que a prova no aparelho existe para ver (Ruling N6 e N7): o técnico ocupado, o sem Admin, o app fechado.
+  for (const palavra of [/pendente/, /ronda/, /sem Admin/, /fechado/, /12345/]) {
+    assert.match(secao, palavra, `o roteiro das notificações não fala de ${palavra}`);
+  }
 });
