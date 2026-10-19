@@ -35,6 +35,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -172,18 +175,18 @@ public class CascaPlugin extends Plugin {
             (ms, tarefa) -> ui.postDelayed(tarefa, ms),
             OS_DO_TOQUE_DO_PROCESSO);
         // O teste dos avisos do atalho do ícone (só para administrador): a mesma espera da OS do toque. O resultado vem
-        // depois, pelo canal (o pushTeste), e vira o toast; a página que nem aceitou o pedido (sem o script, false), o
-        // pedido que venceu antes de a página ficar pronta e o aceito que ficou sem resposta dão o toast de falha aqui,
-        // para o toque nunca ficar sem resposta.
+        // depois, pelo canal (o pushTeste, com o número do pedido), e vira o toast; a página que nem aceitou o pedido (sem
+        // o script, false), o pedido que venceu antes de a página ficar pronta e o aceito que ficou sem resposta dão o
+        // toast de falha aqui, para o toque nunca ficar sem resposta.
         testeDosAvisos = new TesteDosAvisos(
             js -> {
                 if (encerrado) return;
                 bridge.getWebView().evaluateJavascript(js, resposta -> {
-                    boolean aceito = TesteDosAvisos.aceito(resposta);
-                    Log.i(TAG, "o teste dos avisos na página: " + (aceito ? "pedido" : "não pedido"));
+                    int pedido = TesteDosAvisos.pedidoAceito(resposta);
+                    Log.i(TAG, "o teste dos avisos na página: " + (pedido > 0 ? "pedido" : "não pedido"));
                     if (encerrado) return;
-                    if (aceito) {
-                        testeDosAvisos.paginaAceitou();
+                    if (pedido > 0) {
+                        testeDosAvisos.paginaAceitou(pedido);
                     } else {
                         AtalhosDeTeste.avisar(getContext(), AtalhosDeTeste.Resultado.FALHOU, 0);
                     }
@@ -724,6 +727,10 @@ public class CascaPlugin extends Plugin {
      *       o caso é o Entrar da tela de login, que leva a página ao loginRedirect antes da resposta) também dá o toast de
      *       falha.</li>
      * </ul>
+     * Cada pedido tem um toast só, e a espera é de cada pedido: o número do pedido vai no script e volta na aceitação e
+     * no resultado ({@link #pedidoAceito}, {@link #respondeu}). Caso que criou a regra: com uma espera só para todos, o
+     * resultado de um teste tirava a espera do seguinte (que ficava sem o toast de falha se a página fosse embora), e o
+     * resultado que chegava depois do toast de falha dava um segundo toast, o de enviado.
      */
     static final class TesteDosAvisos extends EntregaNaPagina {
 
@@ -731,12 +738,14 @@ public class CascaPlugin extends Plugin {
         static final long VALIDADE_MS = 60_000L;
         /** Quanto esperar a resposta da página que aceitou o pedido (o prazo dela é de 20 s). */
         static final long PRAZO_DA_RESPOSTA_MS = 30_000L;
+        // Os pedidos que já tiveram o toast, guardados até este tanto (um por toque aceito, com 10 s entre eles).
+        private static final int ENCERRADOS_NO_MAXIMO = 32;
 
         private final UmTestePorVez regra;
         private final Runnable semResposta;
-        private int pedidos = 0;   // conta os pedidos aceitos: a validade de um velho não tira um novo
-        private int esperas = 0;   // conta as esperas de resposta: o prazo de uma velha não vale para uma nova
-        private boolean esperando = false;
+        private int pedidos = 0;   // conta os pedidos aceitos (o número de cada um): a validade de um velho não tira um novo
+        private final Set<Integer> esperando = new HashSet<>();          // aceitos pela página, à espera do resultado
+        private final Set<Integer> encerrados = new LinkedHashSet<>();   // os que já tiveram o toast
 
         TesteDosAvisos(Pagina pagina, Agenda agenda, UmTestePorVez regra, Runnable semResposta) {
             super(pagina, agenda);
@@ -744,18 +753,28 @@ public class CascaPlugin extends Plugin {
             this.semResposta = semResposta;
         }
 
-        /** O script que a página roda. O canal tem de ser um dos dois: o texto vai direto ao evaluateJavascript. */
-        static String script(String canal) {
+        /**
+         * O script que a página roda, com o número do pedido. O canal tem de ser um dos dois e o número, positivo: o texto
+         * vai direto ao evaluateJavascript.
+         */
+        static String script(String canal, int pedido) {
             if (!AtalhosDeTeste.canalValido(canal)) throw new IllegalArgumentException("canal de teste inválido");
-            return "window.__gcCascaTestarAvisos&&window.__gcCascaTestarAvisos('" + canal + "')";
+            if (pedido < 1) throw new IllegalArgumentException("pedido de teste inválido");
+            return "window.__gcCascaTestarAvisos&&window.__gcCascaTestarAvisos('" + canal + "'," + pedido + ")";
         }
 
         /**
-         * Se a página aceitou o pedido: o {@code __gcCascaTestarAvisos} devolve true quando a chamada saiu (o resultado
-         * vem depois, pelo canal). O resto (o false, a página sem o script, que dá null) é o teste que não saiu.
+         * O número do pedido que a página aceitou: o {@code __gcCascaTestarAvisos} devolve o número que recebeu quando a
+         * chamada saiu (o resultado vem depois, pelo canal, com o mesmo número). 0 é o teste que não saiu: o false, a
+         * página sem o script (que dá null), o true do script velho, qualquer outra coisa.
          */
-        static boolean aceito(String resposta) {
-            return "true".equals(resposta);
+        static int pedidoAceito(String resposta) {
+            if (resposta == null || !resposta.matches("[1-9][0-9]{0,9}")) return 0;
+            try {
+                return Integer.parseInt(resposta);
+            } catch (NumberFormatException e) {
+                return 0;
+            }
         }
 
         /** Pede o teste: aceito (guardado ou agendado), recusado pelos 10 s ou com o canal fora dos dois. */
@@ -763,27 +782,47 @@ public class CascaPlugin extends Plugin {
             if (!AtalhosDeTeste.canalValido(canal)) return Pedido.INVALIDO;
             if (!regra.libera()) return Pedido.JA_PEDIDO;
             final int este = ++pedidos;
-            entregarQuandoPronta(script(canal));
+            entregarQuandoPronta(script(canal, este));
             agenda.depois(VALIDADE_MS, () -> {
-                if (pedidos == este && descartar()) semResposta.run();
+                if (pedidos == este && descartar()) {
+                    encerrar(este);
+                    semResposta.run();
+                }
             });
             return Pedido.ACEITO;
         }
 
-        /** A página aceitou o pedido: o resultado tem de vir pelo canal dentro do prazo. */
-        void paginaAceitou() {
-            final int esta = ++esperas;
-            esperando = true;
+        /**
+         * A página aceitou o pedido {@code pedido}: o resultado dele tem de vir pelo canal dentro do prazo. O que já teve o
+         * toast (o resultado chegou antes da aceitação) não espera nada.
+         */
+        void paginaAceitou(int pedido) {
+            if (pedido < 1 || pedido > pedidos || encerrados.contains(pedido) || !esperando.add(pedido)) return;
             agenda.depois(PRAZO_DA_RESPOSTA_MS, () -> {
-                if (esperas != esta || !esperando) return;
-                esperando = false;
+                if (!esperando.remove(pedido)) return;
+                encerrar(pedido);
                 semResposta.run();
             });
         }
 
-        /** O resultado chegou (o pushTeste): o toast é o dele. */
-        void respondeu() {
-            esperando = false;
+        /**
+         * O resultado do pedido {@code pedido} chegou (o pushTeste). Devolve se ele ganha o toast: não, se o pedido já
+         * teve o dele (o de falha, porque o prazo venceu antes; ou o mesmo resultado repetido) ou se o número não é de um
+         * pedido desta tela. Só a espera deste pedido sai.
+         */
+        boolean respondeu(int pedido) {
+            if (pedido < 1 || pedido > pedidos || encerrados.contains(pedido)) return false;
+            esperando.remove(pedido);
+            encerrar(pedido);
+            return true;
+        }
+
+        private void encerrar(int pedido) {
+            encerrados.add(pedido);
+            if (encerrados.size() > ENCERRADOS_NO_MAXIMO) {
+                Integer maisVelho = encerrados.iterator().next();
+                encerrados.remove(maisVelho);
+            }
         }
     }
 
@@ -919,14 +958,17 @@ public class CascaPlugin extends Plugin {
             if (admin) AtalhosDeTeste.publicar(app); else AtalhosDeTeste.tirar(app);
         }
 
-        // O toast precisa da thread de UI. Ao log vai só o resultado e a contagem. O resultado que chegou tira a espera da
-        // resposta (o toast de falha do pedido aceito sem resposta).
+        // O toast precisa da thread de UI. Ao log vai só o resultado e a contagem. O resultado que chegou tira a espera do
+        // pedido dele (o toast de falha do pedido aceito sem resposta), e o pedido que já teve o toast não ganha outro.
         @Override
-        public void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos) {
+        public void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos, int pedido) {
             Log.i(TAG, "o teste dos avisos: " + resultado
                 + (resultado == AtalhosDeTeste.Resultado.ENVIADO ? " (" + aparelhos + " aparelho(s))" : ""));
             naUi(() -> {
-                if (testeDosAvisos != null) testeDosAvisos.respondeu();
+                if (testeDosAvisos != null && !testeDosAvisos.respondeu(pedido)) {
+                    Log.i(TAG, "o resultado de um teste que já teve o aviso, ou de outro pedido: sem toast");
+                    return;
+                }
                 AtalhosDeTeste.avisar(getContext(), resultado, aparelhos);
             });
         }

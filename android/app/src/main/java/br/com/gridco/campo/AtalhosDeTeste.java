@@ -167,6 +167,12 @@ final class AtalhosDeTeste {
         return n != null && n >= 0 && n <= APARELHOS_NO_MAXIMO ? n : null;
     }
 
+    /** O número do pedido do teste que a página devolveu no resultado, só como inteiro positivo; null no resto. */
+    static Integer pedido(Object pedido) {
+        Integer n = inteiro(pedido);
+        return n != null && n >= 1 ? n : null;
+    }
+
     // O número inteiro do JSON (o org.json dá Integer, Long ou Double conforme o texto), ou null. O booleano não é número.
     private static Integer inteiro(Object valor) {
         if (!(valor instanceof Number)) return null;

@@ -819,6 +819,19 @@ public class MensageiroTest {
     }
 
     @Test
+    public void oResultadoDoTesteLevaONumeroDoPedidoAoPlugin() {
+        // O número do pedido que a página devolve igual liga o resultado ao toque: é com ele que o plugin decide se o toast
+        // sai (o pedido que já teve o seu não ganha outro). Só o inteiro positivo vale; o resto vai como 0 (sem pedido).
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":true,\"status\":200,\"aparelhos\":2,\"pedido\":7}"));
+        assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":500,\"aparelhos\":null,\"pedido\":8}"));
+        for (String torto : new String[] {"0", "-1", "1.5", "\"7\"", "null", "true"}) {
+            assertTrue(torto, m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":500,\"aparelhos\":null,\"pedido\":" + torto + "}"));
+        }
+        assertEquals(Arrays.asList("ENVIADO:2#7", "FALHOU:0#8", "FALHOU:0", "FALHOU:0", "FALHOU:0", "FALHOU:0", "FALHOU:0",
+            "FALHOU:0"), acoes.testes);
+    }
+
+    @Test
     public void oTesteRecusadoPorNaoSerAdminTiraOsAtalhos() {
         // O 403 é o servidor dizendo que a conta não é Admin (o papel mudou, ou um atalho que ficou de antes): o toast
         // diz "só administrador" e os atalhos saem na hora, sem esperar a próxima carga.
@@ -972,7 +985,9 @@ public class MensageiroTest {
         @Override public void pushRegistrado() { push.add("registrado"); }
         @Override public void osAberta(String os) { push.add("aberta:" + os); }
         @Override public void pushAdmin(boolean admin) { admins.add(admin); }
-        @Override public void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos) { testes.add(resultado + ":" + aparelhos); }
+        @Override public void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos, int pedido) {
+            testes.add(resultado + ":" + aparelhos + (pedido > 0 ? "#" + pedido : ""));
+        }
         @Override public void precisoRetrato(JSONObject retrato) { retratos.add(retrato); }
         @Override public void restaurado(JSONObject retratoLeve) { leves.add(retratoLeve); }
         @Override public void idbPedir() { idbPedidos++; }

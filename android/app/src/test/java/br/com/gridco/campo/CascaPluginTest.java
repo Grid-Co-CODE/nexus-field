@@ -390,8 +390,8 @@ public class CascaPluginTest {
     private final CascaPlugin.TesteDosAvisos teste =
         new CascaPlugin.TesteDosAvisos(pagina, agenda, regraDoProcesso, () -> semResposta++);
 
-    private static String testa(String canal) {
-        return "window.__gcCascaTestarAvisos&&window.__gcCascaTestarAvisos('" + canal + "')";
+    private static String testa(String canal, int pedido) {
+        return "window.__gcCascaTestarAvisos&&window.__gcCascaTestarAvisos('" + canal + "'," + pedido + ")";
     }
 
     private static final CascaPlugin.Pedido ACEITO = CascaPlugin.Pedido.ACEITO;
@@ -412,7 +412,7 @@ public class CascaPluginTest {
         // O canal torto não gasta a vez dos 10 s: o toque válido logo depois passa.
         assertEquals(ACEITO, teste.pedir("emergencia"));
         agenda.rodar();
-        assertEquals(Collections.singletonList(testa("emergencia")), pagina.scripts);
+        assertEquals("o primeiro pedido aceito é o 1", Collections.singletonList(testa("emergencia", 1)), pagina.scripts);
     }
 
     @Test
@@ -424,7 +424,7 @@ public class CascaPluginTest {
         assertTrue("a folga de 1,5 s: o App ainda monta a tela", pagina.scripts.isEmpty());
         assertTrue(agenda.atrasos.contains(1_500L));
         agenda.rodar();
-        assertEquals(Collections.singletonList(testa("emergencia_silenciosa")), pagina.scripts);
+        assertEquals(Collections.singletonList(testa("emergencia_silenciosa", 1)), pagina.scripts);
         // Entregue, não volta na recarga.
         teste.comecouACarregar();
         teste.carregou();
@@ -442,12 +442,12 @@ public class CascaPluginTest {
             teste.pedir("emergencia"));
         assertEquals("nem com o outro canal", JA_PEDIDO, teste.pedir("emergencia_silenciosa"));
         agenda.rodar();
-        assertEquals(Collections.singletonList(testa("emergencia")), pagina.scripts);
-        // Passados os 10 s do primeiro toque aceito, o próximo vale.
+        assertEquals(Collections.singletonList(testa("emergencia", 1)), pagina.scripts);
+        // Passados os 10 s do primeiro toque aceito, o próximo vale, com o número seguinte (o recusado não gasta número).
         relogio += 1L;
         assertEquals(ACEITO, teste.pedir("emergencia_silenciosa"));
         agenda.rodar();
-        assertEquals(Arrays.asList(testa("emergencia"), testa("emergencia_silenciosa")), pagina.scripts);
+        assertEquals(Arrays.asList(testa("emergencia", 1), testa("emergencia_silenciosa", 2)), pagina.scripts);
     }
 
     @Test
@@ -457,7 +457,7 @@ public class CascaPluginTest {
         assertEquals(JA_PEDIDO, teste.pedir("emergencia_silenciosa"));
         teste.carregou();
         agenda.rodar();
-        assertEquals(Collections.singletonList(testa("emergencia")), pagina.scripts);
+        assertEquals(Collections.singletonList(testa("emergencia", 1)), pagina.scripts);
     }
 
     @Test
@@ -514,7 +514,7 @@ public class CascaPluginTest {
         assertEquals("a validade do primeiro não tira o segundo", 0, semResposta);
         teste.carregou();
         agenda.andar(2_000);
-        assertEquals(Arrays.asList(testa("emergencia"), testa("emergencia_silenciosa")), pagina.scripts);
+        assertEquals(Arrays.asList(testa("emergencia", 1), testa("emergencia_silenciosa", 2)), pagina.scripts);
     }
 
     @Test
@@ -525,7 +525,7 @@ public class CascaPluginTest {
         agenda.rodar();
         assertEquals(ACEITO, teste.pedir("emergencia"));
         agenda.rodarUma(); // a entrega
-        teste.paginaAceitou();
+        teste.paginaAceitou(1);
         assertTrue(agenda.atrasos.contains(CascaPlugin.TesteDosAvisos.PRAZO_DA_RESPOSTA_MS));
         assertTrue(CascaPlugin.TesteDosAvisos.PRAZO_DA_RESPOSTA_MS > 20_000L);
         agenda.rodar();
@@ -538,9 +538,62 @@ public class CascaPluginTest {
         agenda.rodar();
         assertEquals(ACEITO, teste.pedir("emergencia"));
         agenda.rodarUma(); // a entrega
-        teste.paginaAceitou();
-        teste.respondeu(); // o pushTeste chegou: o toast é o dele
+        teste.paginaAceitou(1);
+        assertTrue("o pushTeste do pedido chegou: o toast é o dele", teste.respondeu(1));
         agenda.rodar();
+        assertEquals(0, semResposta);
+    }
+
+    @Test
+    public void aRespostaDeUmTesteNaoTiraAEsperaDoSeguinte() {
+        // O primeiro teste aceito, o segundo 10 s depois, e a resposta do primeiro chega com o segundo à espera: a página
+        // do segundo vai embora (o Entrar da tela de login) sem responder, e ele ainda tem de dar o toast de falha. Com uma
+        // espera só para todos, a resposta do primeiro a tirava, e o segundo toque ficava sem resposta nenhuma.
+        teste.carregou();
+        agenda.andar(1_500); // a folga: a página está pronta
+        assertEquals(ACEITO, teste.pedir("emergencia"));
+        agenda.andar(0); // a entrega na hora
+        teste.paginaAceitou(1);
+        agenda.andar(10_000);
+        relogio += 10_000L;
+        assertEquals(ACEITO, teste.pedir("emergencia_silenciosa"));
+        agenda.andar(0);
+        teste.paginaAceitou(2);
+        assertTrue("o resultado do primeiro ganha o toast dele", teste.respondeu(1));
+        agenda.andar(CascaPlugin.TesteDosAvisos.PRAZO_DA_RESPOSTA_MS);
+        assertEquals("o segundo, sem resposta, dá o toast de falha", 1, semResposta);
+        assertFalse("e o resultado dele que chegar agora não dá outro", teste.respondeu(2));
+    }
+
+    @Test
+    public void aRespostaQueChegaDepoisDoToastDeFalhaNaoDaOutroToast() {
+        // A página aceitou, a resposta não veio em 30 s (a página no fundo, com os timers dela atrasados) e o toast de falha
+        // saiu; a resposta atrasada (um "enviado") não dá um segundo toast, que contradiria o primeiro.
+        teste.carregou();
+        agenda.andar(1_500);
+        assertEquals(ACEITO, teste.pedir("emergencia"));
+        agenda.andar(0);
+        teste.paginaAceitou(1);
+        agenda.andar(CascaPlugin.TesteDosAvisos.PRAZO_DA_RESPOSTA_MS);
+        assertEquals(1, semResposta);
+        assertFalse(teste.respondeu(1));
+        // A resposta repetida também não, e nem a de um pedido que não existe.
+        assertFalse(teste.respondeu(1));
+        assertFalse(teste.respondeu(0));
+        assertFalse(teste.respondeu(2));
+    }
+
+    @Test
+    public void oResultadoQueChegaAntesDaAceitacaoDaOToastENaoEspera() {
+        // O pushTeste pode chegar à thread de UI antes do retorno do evaluateJavascript (a página que responde na hora, sem
+        // o Bearer): o toast é o dele, e a aceitação que vem depois não abre espera nenhuma (nem o toast de falha).
+        teste.carregou();
+        agenda.andar(1_500);
+        assertEquals(ACEITO, teste.pedir("emergencia"));
+        agenda.andar(0);
+        assertTrue(teste.respondeu(1));
+        teste.paginaAceitou(1);
+        agenda.andar(CascaPlugin.TesteDosAvisos.PRAZO_DA_RESPOSTA_MS);
         assertEquals(0, semResposta);
     }
 
@@ -553,31 +606,47 @@ public class CascaPluginTest {
         os.carregou();
         teste.carregou();
         agenda.rodar();
-        assertEquals(Arrays.asList(roda("4521"), testa("emergencia")), pagina.scripts);
+        assertEquals(Arrays.asList(roda("4521"), testa("emergencia", 1)), pagina.scripts);
         assertEquals("a validade do teste não deu toast: ele foi entregue", 0, semResposta);
     }
 
     @Test
     public void oScriptDoTesteSoLevaUmDosDoisCanais() {
-        assertEquals(testa("emergencia"), CascaPlugin.TesteDosAvisos.script("emergencia"));
-        assertEquals(testa("emergencia_silenciosa"), CascaPlugin.TesteDosAvisos.script("emergencia_silenciosa"));
+        assertEquals(testa("emergencia", 1), CascaPlugin.TesteDosAvisos.script("emergencia", 1));
+        assertEquals(testa("emergencia_silenciosa", 42), CascaPlugin.TesteDosAvisos.script("emergencia_silenciosa", 42));
         for (String ruim : new String[] {null, "", "resumo", "emergencia'); x('"}) {
             try {
-                CascaPlugin.TesteDosAvisos.script(ruim);
+                CascaPlugin.TesteDosAvisos.script(ruim, 1);
                 fail("o script aceitou " + ruim);
             } catch (IllegalArgumentException esperado) {
                 assertFalse(String.valueOf(esperado.getMessage()).contains("x('"));
             }
         }
+        // O número do pedido é positivo (é o contador do plugin).
+        for (int ruim : new int[] {0, -1}) {
+            try {
+                CascaPlugin.TesteDosAvisos.script("emergencia", ruim);
+                fail("o script aceitou o pedido " + ruim);
+            } catch (IllegalArgumentException esperado) {
+                // recusado
+            }
+        }
     }
 
     @Test
-    public void soOTrueDaPaginaEPedidoAceito() {
-        // O __gcCascaTestarAvisos devolve true quando a chamada saiu (o resultado vem depois, pelo canal). O resto (a
-        // página sem o script, o false, qualquer outra coisa) é o teste que não saiu: o toast de falha.
-        assertTrue(CascaPlugin.TesteDosAvisos.aceito("true"));
-        for (String outra : new String[] {"false", "null", "", null, "\"true\"", "1"}) {
-            assertFalse(String.valueOf(outra), CascaPlugin.TesteDosAvisos.aceito(outra));
+    public void soONumeroDoPedidoQueAPaginaDevolveEPedidoAceito() {
+        // O __gcCascaTestarAvisos devolve o número do pedido quando a chamada saiu (o resultado vem depois, pelo canal, com
+        // o mesmo número). O resto (a página sem o script, o false, o true do script velho, qualquer outra coisa) é o teste
+        // que não saiu: o toast de falha.
+        assertEquals(1, CascaPlugin.TesteDosAvisos.pedidoAceito("1"));
+        assertEquals(42, CascaPlugin.TesteDosAvisos.pedidoAceito("42"));
+        assertEquals(Integer.MAX_VALUE, CascaPlugin.TesteDosAvisos.pedidoAceito(String.valueOf(Integer.MAX_VALUE)));
+        // Acima do maior int, e com 11 dígitos (montados aqui, para não parecer um número de telefone no arquivo).
+        String acimaDoInt = String.valueOf(Integer.MAX_VALUE + 1L);
+        String onzeDigitos = "1" + String.valueOf(Integer.MAX_VALUE).substring(0, 9) + "0";
+        for (String outra : new String[] {"false", "null", "", null, "true", "\"1\"", "0", "-1", "1.5", "01", " 1",
+                acimaDoInt, onzeDigitos}) {
+            assertEquals(String.valueOf(outra), 0, CascaPlugin.TesteDosAvisos.pedidoAceito(outra));
         }
     }
 

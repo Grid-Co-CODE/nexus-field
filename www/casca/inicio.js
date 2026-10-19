@@ -1969,12 +1969,15 @@
   //     'Admin' e false com qualquer outro, erro, 401, resposta torta ou a página sem o que esta seção usa (nunca fica
   //     atalho para quem não é Admin). O e-mail, o nome e o resto do /me ficam na página. O Bearer null espera o login
   //     como o registro; o /me que responder depois do Sair não manda mais nada;
-  //   - window.__gcCascaTestarAvisos(canal), não enumerável, que o nativo roda no toque do atalho: o POST
+  //   - window.__gcCascaTestarAvisos(canal, pedido), não enumerável, que o nativo roda no toque do atalho: o POST
   //     {MIDDLEWARE_URL}/push/teste {canal}, só com um dos dois canais da emergência (o extra do atalho pode vir de
   //     qualquer app; o nativo já conferiu, e confere-se de novo), e o resultado de volta para o toast: {t:'pushTeste',
   //     ok, status (o HTTP, 'sem login' ou 'erro'), aparelhos (inteiro de 0 ao teto do nativo, ou null: o 200 sem
-  //     contagem segue ok, e o nativo decide o texto)}. Um resultado por chamada, em no máximo 20 s; na tela de login,
-  //     espera a tela do App dentro desse prazo. Quem segura os dois toques seguidos é o nativo, que recebe os toques.
+  //     contagem segue ok, e o nativo decide o texto), pedido}. O `pedido` é o número que o nativo deu ao toque, e volta
+  //     igual na aceitação (o que a função devolve) e no resultado: é por ele que o nativo liga a resposta ao toque (a de
+  //     um teste não tira a espera do seguinte, e a que chega depois do aviso de falha não dá outro aviso). Um resultado
+  //     por pedido aceito, em no máximo 20 s; o recusado (o false) não tem resultado. Na tela de login, espera a tela do
+  //     App dentro desse prazo. Quem segura os dois toques seguidos é o nativo, que recebe os toques.
   var ESPERA_PUSH_MS = 5000;
   var INTERVALO_PUSH_MS = 10 * 60 * 1000;
   var PRAZO_ESQUECER_MS = 3000;
@@ -1992,6 +1995,8 @@
   // A contagem de aparelhos do teste vai até o teto que o nativo aceita (AtalhosDeTeste.APARELHOS_NO_MAXIMO, que o
   // testes/atalho-teste.test.mjs compara com este): acima, a resposta é torta e vai null.
   var APARELHOS_NO_MAXIMO = 10000;
+  // O número do pedido do teste, de 1 ao maior int do Java (o contador do nativo).
+  var PEDIDO_NO_MAXIMO = 2147483647;
   // A marca do sair já embrulhado: uma propriedade da função, não enumerável.
   var MARCA_SAIR = '__gcCascaSair';
 
@@ -2406,20 +2411,24 @@
       });
     }
 
-    // O teste dos avisos que o atalho do ícone pede (o nativo roda isto quando a página está pronta). Devolve true se o
-    // pedido foi aceito (o resultado vai depois, pelo canal, uma vez só) e false se o canal não é um dos dois. Não
-    // depende do token do Firebase: o servidor manda aos aparelhos da conta, este ou os outros.
-    function testarAvisos(canal) {
+    // O teste dos avisos que o atalho do ícone pede (o nativo roda isto quando a página está pronta), com o número do
+    // pedido que o nativo deu ao toque. Devolve esse número se o pedido foi aceito (o resultado vai depois, pelo canal,
+    // uma vez só e com o mesmo número) e false se o canal não é um dos dois ou o número não é de pedido; o recusado não
+    // tem resultado nenhum (o nativo já deu o aviso de falha pelo false). Não depende do token do Firebase: o servidor
+    // manda aos aparelhos da conta, este ou os outros.
+    function testarAvisos(canal, pedido) {
+      var respondeu = false;
+      var prazo = null;
       try {
         if (typeof canal !== 'string' || !CANAIS_DE_TESTE.has(canal)) return false;
-        var respondeu = false;
-        var prazo = null;
+        if (typeof pedido !== 'number' || !isFinite(pedido) || pedido < 1 || pedido > PEDIDO_NO_MAXIMO ||
+            Math.floor(pedido) !== pedido) return false;
         var esperandoLogin = false;
         var responder = function (ok, status, aparelhos) {
           if (respondeu) return;
           respondeu = true;
           if (prazo !== null) { cancelar(prazo); prazo = null; }
-          ctx.enviar({ t: 'pushTeste', ok: ok, status: status, aparelhos: aparelhos }, 'push');
+          ctx.enviar({ t: 'pushTeste', ok: ok, status: status, aparelhos: aparelhos, pedido: pedido }, 'push');
         };
         prazo = agendar(function () {
           prazo = null;
@@ -2427,7 +2436,7 @@
         }, PRAZO_TESTE_MS);
         if (typeof win[PUSH.funcao.bearer] !== 'function' || !enderecoDoServidor(win)) {
           responder(false, 'erro', null);
-          return true;
+          return pedido;
         }
         var testar = function () {
           esperandoLogin = false;
@@ -2450,8 +2459,11 @@
           esperandoLogin = true;
           quandoLogado(testar);
         }
-        return true;
+        return pedido;
       } catch (e) {
+        // Recusado: nada vai depois (nem o prazo, nem uma resposta atrasada), porque o nativo dá o aviso de falha agora.
+        respondeu = true;
+        if (prazo !== null) cancelar(prazo);
         ctx.falhou('push', e);
         return false;
       }

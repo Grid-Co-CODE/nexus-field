@@ -36,7 +36,7 @@ import org.json.JSONObject;
  *   ls {k, v} · lsDel {k} · idbPut {k, tipo, v} · idbDel {k} · idbPedaco {k, id, i, n, mime, b64} · sentinela
  *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila}
  *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken · pushSaiu · pushRegistrado
- *   pushAdmin {admin} · pushTeste {ok, status, aparelhos} · osAberta {os}
+ *   pushAdmin {admin} · pushTeste {ok, status, aparelhos, pedido} · osAberta {os}
  * </pre>
  *
  * E a resposta do idbPedir, pela ponte da mesma mensagem: idbItem, idbPedaco e idbFim ({@link #enviarIdb}), ou
@@ -143,8 +143,11 @@ public final class Mensageiro {
          */
         void pushAdmin(boolean admin);
 
-        /** O resultado do teste dos avisos que o atalho pediu: mostre o toast dele ({@link AtalhosDeTeste#avisar}). */
-        void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos);
+        /**
+         * O resultado do teste dos avisos que o atalho pediu, com o número do pedido (0 se a página não o mandou): mostre o
+         * toast dele ({@link AtalhosDeTeste#avisar}), se o pedido ainda não teve o seu (CascaPlugin.TesteDosAvisos).
+         */
+        void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos, int pedido);
 
         /** Um aviso para o log. Nunca traz nome de chave, valor, URL com parâmetros nem e-mail. */
         void erro(String onde, String msg);
@@ -496,12 +499,15 @@ public final class Mensageiro {
                     return true;
                 }
                 case "pushTeste": {
-                    // O toque no atalho sempre tem um toast: a resposta torta também (o de falha).
+                    // O resultado vai ao toast do pedido dele (o número que a página devolve igual): a resposta torta vira o
+                    // toast de falha, e a de um pedido que já teve o toast, ou sem o número, não dá outro.
                     AtalhosDeTeste.Resultado resultado =
                         AtalhosDeTeste.resultado(m.opt("ok"), m.opt("status"), m.opt("aparelhos"));
                     Integer aparelhos = AtalhosDeTeste.contagem(m.opt("aparelhos"));
+                    Integer pedido = AtalhosDeTeste.pedido(m.opt("pedido"));
                     acoes.pushTeste(resultado,
-                        resultado == AtalhosDeTeste.Resultado.ENVIADO && aparelhos != null ? aparelhos : 0);
+                        resultado == AtalhosDeTeste.Resultado.ENVIADO && aparelhos != null ? aparelhos : 0,
+                        pedido == null ? 0 : pedido);
                     // O 403 é o servidor dizendo que a conta não é Admin (o papel mudou, ou o atalho ficou de antes): os
                     // atalhos saem já, sem esperar a próxima carga.
                     if (resultado == AtalhosDeTeste.Resultado.SO_ADMIN) acoes.pushAdmin(false);

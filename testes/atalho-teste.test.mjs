@@ -6,9 +6,11 @@
 //   - uma vez por carga, depois do login e sem depender do token do Firebase, pergunta ao GET {MIDDLEWARE_URL}/me se a
 //     conta é 'Admin' e manda ao nativo só {t:'pushAdmin', admin}: true publica os atalhos, false os tira (outro papel,
 //     erro, 401, a página sem o que a seção usa e o Sair). Do /me não vai mais nada (o e-mail e o nome ficam na página);
-//   - window.__gcCascaTestarAvisos(canal), que o nativo chama no toque do atalho: o POST {MIDDLEWARE_URL}/push/teste
-//     {canal} e o resultado de volta, {t:'pushTeste', ok, status, aparelhos}, para o toast. Só os dois canais da
-//     emergência passam, e a contagem tem o mesmo teto que o nativo aceita.
+//   - window.__gcCascaTestarAvisos(canal, pedido), que o nativo chama no toque do atalho: o POST
+//     {MIDDLEWARE_URL}/push/teste {canal} e o resultado de volta, {t:'pushTeste', ok, status, aparelhos, pedido}, para o
+//     toast. O pedido é o número que o nativo deu ao toque, devolvido igual na aceitação e no resultado (é por ele que o
+//     nativo liga a resposta ao toque); o recusado não tem resultado. Só os dois canais da emergência passam, e a
+//     contagem tem o mesmo teto que o nativo aceita.
 // O servidor é falso (as rotas são da sessão "App de campo", no ar desde a v286); o e-mail, o nome e os tokens são
 // fictícios.
 import { test } from 'node:test';
@@ -246,7 +248,7 @@ test('o teste chama a rota com o Bearer e o canal do atalho e devolve o resultad
   for (const canal of ['emergencia', 'emergencia_silenciosa']) {
     const j = montar();
     await carregar(j);
-    assert.equal(j.win.__gcCascaTestarAvisos(canal), true, 'pedido aceito');
+    assert.equal(j.win.__gcCascaTestarAvisos(canal, 1), 1, 'pedido aceito: devolve o número');
     await assentar();
     assert.equal(j.testes().length, 1);
     const { init, corpo } = j.testes()[0];
@@ -254,7 +256,7 @@ test('o teste chama a rota com o Bearer e o canal do atalho e devolve o resultad
     assert.equal(init.headers.Authorization, 'Bearer ' + BEARER);
     assert.equal(init.headers['Content-Type'], 'application/json');
     assert.deepEqual(corpo, { canal });
-    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2 }]);
+    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2, pedido: 1 }]);
     assert.deepEqual(j.erros(), []);
   }
 });
@@ -267,9 +269,9 @@ test('a função não é enumerável, existe desde o começo da carga e não dep
   assert.equal(Object.keys(j.win).includes('__gcCascaTestarAvisos'), false);
   // Sem token (o Firebase não configurado): o teste manda aos OUTROS aparelhos da conta do mesmo jeito.
   await carregar(j, null);
-  assert.equal(j.win.__gcCascaTestarAvisos('emergencia'), true);
+  assert.equal(j.win.__gcCascaTestarAvisos('emergencia', 1), 1);
   await assentar();
-  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2 }]);
+  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2, pedido: 1 }]);
 });
 
 test('403, 401, 500 e sem rede: o resultado volta com o status e sem a contagem', async () => {
@@ -284,9 +286,9 @@ test('403, 401, 500 e sem rede: o resultado volta com o status e sem a contagem'
   for (const [teste, status] of casos) {
     const j = montar({ teste });
     await carregar(j);
-    assert.equal(j.win.__gcCascaTestarAvisos('emergencia'), true);
+    assert.equal(j.win.__gcCascaTestarAvisos('emergencia', 1), 1);
     await assentar();
-    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: false, status, aparelhos: null }], String(status));
+    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: false, status, aparelhos: null, pedido: 1 }], String(status));
   }
 });
 
@@ -295,16 +297,16 @@ test('a contagem só vale como inteiro de zero para cima; o resto vai como null'
   for (const [aparelhos, esperado] of casos) {
     const j = montar({ teste: responde(200, { aparelhos }) });
     await carregar(j);
-    j.win.__gcCascaTestarAvisos('emergencia_silenciosa');
+    j.win.__gcCascaTestarAvisos('emergencia_silenciosa', 1);
     await assentar();
-    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: esperado }], String(aparelhos));
+    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: esperado, pedido: 1 }], String(aparelhos));
   }
   // O 200 com o corpo que não é JSON: enviado, sem a contagem (o nativo diz "enviado" sem o número).
   const k = montar({ teste: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new SyntaxError('x')) }) });
   await carregar(k);
-  k.win.__gcCascaTestarAvisos('emergencia');
+  k.win.__gcCascaTestarAvisos('emergencia', 1);
   await assentar();
-  assert.deepEqual(k.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: null }]);
+  assert.deepEqual(k.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: null, pedido: 1 }]);
 });
 
 test('a contagem tem o mesmo teto no script e no nativo', async () => {
@@ -318,19 +320,19 @@ test('a contagem tem o mesmo teto no script e no nativo', async () => {
   for (const [aparelhos, esperado] of [[APARELHOS_NO_MAXIMO, APARELHOS_NO_MAXIMO], [APARELHOS_NO_MAXIMO + 1, null]]) {
     const j = montar({ teste: responde(200, { aparelhos }) });
     await carregar(j);
-    j.win.__gcCascaTestarAvisos('emergencia');
+    j.win.__gcCascaTestarAvisos('emergencia', 1);
     await assentar();
-    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: esperado }], String(aparelhos));
+    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: esperado, pedido: 1 }], String(aparelhos));
   }
 });
 
 test('sem login devolve "sem login" e não chama a rota', async () => {
   const j = montar({ bearer: null });
   await carregar(j);
-  assert.equal(j.win.__gcCascaTestarAvisos('emergencia'), true);
+  assert.equal(j.win.__gcCascaTestarAvisos('emergencia', 1), 1);
   await assentar();
   assert.deepEqual(j.testes(), []);
-  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: false, status: 'sem login', aparelhos: null }]);
+  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: false, status: 'sem login', aparelhos: null, pedido: 1 }]);
 });
 
 test('na tela de login o teste espera a tela do App dentro do prazo; sem ela, "sem login"', async () => {
@@ -338,7 +340,7 @@ test('na tela de login o teste espera a tela do App dentro do prazo; sem ela, "s
   // getTokenMW daria a conta anterior.
   const j = montar({ tela: 'login' });
   await carregar(j);
-  assert.equal(j.win.__gcCascaTestarAvisos('emergencia'), true);
+  assert.equal(j.win.__gcCascaTestarAvisos('emergencia', 1), 1);
   j.avancar(5000);
   await assentar();
   assert.deepEqual(j.testes(), [], 'nada com a tela de login');
@@ -347,15 +349,15 @@ test('na tela de login o teste espera a tela do App dentro do prazo; sem ela, "s
   await assentar();
   assert.equal(j.testes().length, 1);
   assert.equal(j.testes()[0].init.headers.Authorization, 'Bearer ' + BEARER);
-  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2 }]);
+  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2, pedido: 1 }]);
 
   // Sem a tela do App em 20 s: "sem login", uma vez, e nada sai depois.
   const k = montar({ tela: 'login' });
   await carregar(k);
-  k.win.__gcCascaTestarAvisos('emergencia_silenciosa');
+  k.win.__gcCascaTestarAvisos('emergencia_silenciosa', 1);
   k.avancar(PRAZO_DO_TESTE_MS);
   await assentar();
-  assert.deepEqual(k.resultados(), [{ t: 'pushTeste', ok: false, status: 'sem login', aparelhos: null }]);
+  assert.deepEqual(k.resultados(), [{ t: 'pushTeste', ok: false, status: 'sem login', aparelhos: null, pedido: 1 }]);
   k.entrar();
   k.avancar(1000);
   await assentar();
@@ -368,12 +370,51 @@ test('a página sem o getTokenMW, sem o MIDDLEWARE_URL ou com o getTokenMW que l
     const j = montar();
     if (falta === 'lança') j.win.getTokenMW = async () => { throw new Error('sem conta para ' + EMAIL); };
     else delete j.win[falta];
-    assert.equal(j.win.__gcCascaTestarAvisos('emergencia'), true, falta);
+    assert.equal(j.win.__gcCascaTestarAvisos('emergencia', 1), 1, falta);
     await assentar();
     assert.deepEqual(j.testes(), [], falta);
-    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: false, status: 'erro', aparelhos: null }], falta);
+    assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: false, status: 'erro', aparelhos: null, pedido: 1 }], falta);
     assert.equal(JSON.stringify(j.enviados).includes(EMAIL), false, falta);
   }
+});
+
+test('o número do pedido volta igual na aceitação e no resultado; o que não é número de pedido é recusado', async () => {
+  // O nativo liga a resposta ao toque por este número: a de um teste não tira a espera do seguinte, e a que chega depois
+  // do aviso de falha não dá outro aviso.
+  const j = montar();
+  await carregar(j);
+  assert.equal(j.win.__gcCascaTestarAvisos('emergencia', 7), 7);
+  await assentar();
+  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2, pedido: 7 }]);
+  assert.equal(j.win.__gcCascaTestarAvisos('emergencia_silenciosa', 8), 8);
+  await assentar();
+  assert.deepEqual(j.resultados().map((r) => r.pedido), [7, 8], 'cada resultado com o número do seu pedido');
+  assert.equal(j.win.__gcCascaTestarAvisos('emergencia', 2147483647), 2147483647, 'o maior int do Java');
+
+  // Sem o número, ou com o que não é número de pedido: recusado, sem chamar a rota e sem resultado nenhum (o nativo dá o
+  // aviso de falha pelo false).
+  const k = montar();
+  await carregar(k);
+  const antes = k.enviados.length;
+  for (const pedido of [undefined, null, 0, -1, 1.5, '1', NaN, Infinity, 2147483648, true, [1]]) {
+    assert.equal(k.win.__gcCascaTestarAvisos('emergencia', pedido), false, String(pedido));
+  }
+  k.avancar(PRAZO_DO_TESTE_MS * 2);
+  await assentar();
+  assert.deepEqual(k.testes(), []);
+  assert.equal(k.enviados.length, antes, 'nada ao nativo');
+});
+
+test('o pedido que quebra na aceitação devolve false e não manda resultado depois (nem o do prazo)', async () => {
+  // O nativo dá o aviso de falha pelo false: um resultado depois seria um segundo aviso para o mesmo toque.
+  const j = montar();
+  await carregar(j);
+  j.win.document.getElementById = () => { throw new Error('quebrou com ' + EMAIL); };
+  assert.equal(j.win.__gcCascaTestarAvisos('emergencia', 3), false);
+  j.avancar(PRAZO_DO_TESTE_MS * 2);
+  await assentar();
+  assert.deepEqual(j.resultados(), []);
+  assert.deepEqual(j.erros().map((e) => e.onde), ['push']);
 });
 
 test('canal que não é um dos dois da emergência: recusado, sem chamar a rota e sem nada ao nativo', async () => {
@@ -382,7 +423,7 @@ test('canal que não é um dos dois da emergência: recusado, sem chamar a rota 
   const antes = j.enviados.length;
   for (const canal of ['', 'resumo', 'EMERGENCIA', 'emergencia ', "emergencia'); x('", 'emergencia_silenciosa\n', null,
     undefined, 1, {}, ['emergencia']]) {
-    assert.equal(j.win.__gcCascaTestarAvisos(canal), false, String(canal));
+    assert.equal(j.win.__gcCascaTestarAvisos(canal, 1), false, String(canal));
   }
   await assentar();
   assert.deepEqual(j.testes(), []);
@@ -393,14 +434,14 @@ test('o servidor que não responde: em 20 s o resultado é erro, e a resposta at
   const atrasado = depois();
   const j = montar({ teste: () => atrasado.promessa });
   await carregar(j);
-  j.win.__gcCascaTestarAvisos('emergencia');
+  j.win.__gcCascaTestarAvisos('emergencia', 1);
   await assentar();
   j.avancar(PRAZO_DO_TESTE_MS - 1);
   await assentar();
   assert.deepEqual(j.resultados(), [], 'ainda no prazo');
   j.avancar(1);
   await assentar();
-  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: false, status: 'erro', aparelhos: null }]);
+  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: false, status: 'erro', aparelhos: null, pedido: 1 }]);
   atrasado.resolver({ ok: true, status: 200, json: () => Promise.resolve(ENVIADO) });
   await assentar();
   assert.equal(j.resultados().length, 1, 'um resultado por toque');
@@ -409,21 +450,21 @@ test('o servidor que não responde: em 20 s o resultado é erro, e a resposta at
 test('a resposta no prazo cancela o prazo: nada chega depois dos 20 s', async () => {
   const j = montar();
   await carregar(j);
-  j.win.__gcCascaTestarAvisos('emergencia');
+  j.win.__gcCascaTestarAvisos('emergencia', 1);
   await assentar();
   j.avancar(PRAZO_DO_TESTE_MS * 2);
   await assentar();
-  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2 }]);
+  assert.deepEqual(j.resultados(), [{ t: 'pushTeste', ok: true, status: 200, aparelhos: 2, pedido: 1 }]);
 });
 
 test('nada de e-mail, nome nem token no resultado ao nativo', async () => {
   // A resposta do teste que trouxesse dado da conta (o servidor não traz; a guarda é daqui): só os quatro campos.
   const j = montar({ teste: responde(200, { aparelhos: 1, email: EMAIL, nome: NOME, resumo: [{ token: TOKEN }] }) });
   await carregar(j);
-  j.win.__gcCascaTestarAvisos('emergencia');
+  j.win.__gcCascaTestarAvisos('emergencia', 1);
   await assentar();
   const [r] = j.resultados();
-  assert.deepEqual(Object.keys(r).sort(), ['aparelhos', 'ok', 'status', 't']);
+  assert.deepEqual(Object.keys(r).sort(), ['aparelhos', 'ok', 'pedido', 'status', 't']);
   const tudo = JSON.stringify(j.enviados);
   for (const proibido of [EMAIL, NOME, TOKEN, 'APA91b', BEARER]) assert.equal(tudo.includes(proibido), false, proibido);
 });
@@ -485,7 +526,9 @@ test('a ligação do nativo: o extra do atalho lido como o da OS, e o pedido ent
   assert.match(plugin, /public void onPageStarted\(WebView webView\) \{[^}]*testeDosAvisos\.comecouACarregar\(\);/);
   // O pushAdmin publica ou tira; o resultado do teste vira toast na thread de UI, e tira a espera da resposta.
   assert.match(plugin, /public void pushAdmin\(boolean admin\) \{[^}]*AtalhosDeTeste\.publicar\([^}]*AtalhosDeTeste\.tirar\(/);
-  assert.match(plugin, /public void pushTeste\([^)]*\) \{[\s\S]*?naUi\(\(\) -> \{\s*if \(testeDosAvisos != null\) testeDosAvisos\.respondeu\(\);\s*AtalhosDeTeste\.avisar\(/);
+  assert.match(plugin, /public void pushTeste\([^)]*int pedido\) \{[\s\S]*?naUi\(\(\) -> \{\s*if \(testeDosAvisos != null && !testeDosAvisos\.respondeu\(pedido\)\) \{[\s\S]*?return;\s*\}\s*AtalhosDeTeste\.avisar\(/);
+  // A aceitação da página é o número do pedido, e a espera é desse pedido.
+  assert.match(plugin, /int pedido = TesteDosAvisos\.pedidoAceito\(resposta\);[\s\S]*?testeDosAvisos\.paginaAceitou\(pedido\);/);
   // O toque recusado pelos 10 s ganha o toast dele (não o de falha: o primeiro teste já foi pedido).
   assert.match(plugin, /if \(pedido == Pedido\.JA_PEDIDO\) AtalhosDeTeste\.avisar\([^;]*Resultado\.JA_PEDIDO/);
   // Os atalhos são dinâmicos, pelo ShortcutManagerCompat, com os ids fixos. Publicar é um a um pelo push (o
