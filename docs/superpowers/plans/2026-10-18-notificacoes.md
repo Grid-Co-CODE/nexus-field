@@ -255,6 +255,50 @@ Mais:
 
 ---
 
+### Task 6: Atalho de teste dos avisos, só para administrador (Ruling N7)
+
+Decisão do dono: testar as notificações no celular por um botão no Nexus Field que só aparece para quem é Admin. O botão
+é um atalho do ícone (toque longo no ícone), para a casca não desenhar nada na página e o técnico nunca o ver.
+
+**O servidor (sessão "App de campo", já no ar na v286; não mexa):**
+- `GET {MIDDLEWARE_URL}/me` com o Bearer da página → `{email, nome, papel, clusters, ...}`; `papel==='Admin'` é o
+  administrador (a página usa a mesma rota em `resolverViaMe`). Nada do que vem do /me vai ao nativo além de `admin`
+  true/false: nem e-mail nem nome (regra: nada de dado pessoal no nativo, no log ou no espelho).
+- `POST {MIDDLEWARE_URL}/push/teste {canal?: 'emergencia'|'emergencia_silenciosa'}` com o Bearer, só Admin (403 para
+  os outros). Manda um resumo e uma emergência de mentira (OS 12345) para os aparelhos de quem chamou; nada no Fracttal.
+  Resposta 200 `{aparelhos, resumo:[...], emergencia:[...]}`.
+
+**Files:**
+- Modify: `www/casca/inicio.js` (junto do registro da Task 3, uma vez por carga e depois do login: o /me; manda ao
+  nativo `{t:'pushAdmin', admin:bool}`; e `window.__gcCascaTestarAvisos(canal)`, não enumerável, que chama a rota de
+  teste e devolve o resultado ao nativo com `{t:'pushTeste', ok, status, aparelhos}`), `Mensageiro.java` (os dois tipos
+  novos), `MainActivity.java` (lê o extra `gc_teste` do atalho no `onCreate`/`onNewIntent`, como o `gc_os`),
+  `CascaPlugin.java` (entrega o pedido de teste à página como a abertura da OS: guarda até a `/api/app` carregar),
+  `strings.xml` (textos PENDENTES de aprovação: os dois rótulos curtos e longos dos atalhos e os toasts), `CLAUDE.md`
+  (a regra e o porquê, curto).
+- Create: `AtalhosDeTeste.java` (publica e tira os atalhos dinâmicos com `ShortcutManagerCompat`; ids fixos
+  `teste_avisos` e `teste_fora_expediente`; ícone do G branco já existente ou o do app), `testes/atalho-teste.test.mjs`.
+- Test: `CascaPluginTest.java` / `MensageiroTest.java` / um teste novo dos atalhos (Robolectric).
+
+**Regras:**
+- No Sair (o mesmo gancho do `/push/esquecer`), a casca tira os atalhos.
+- Erro de rede, 401 ou papel que não é Admin: tira os atalhos (nunca deixa para quem não é Admin).
+- O toast diz o resultado sem dado pessoal: "Aviso de teste enviado para N aparelho(s)", "Só administrador pode
+  testar", "Entre no Nexus Field para testar", "Não consegui enviar o teste agora".
+- O canal só pode ser um dos dois; qualquer outro valor do extra é recusado no nativo e no script.
+- Uma chamada de teste por toque; dois toques seguidos em menos de 10 s mandam só uma.
+
+- [ ] **Step 1: Testes que falham**
+  - `atalho-teste.test.mjs`: o /me Admin manda `admin:true`, outro papel ou erro manda `admin:false`; o teste chama a
+    rota com o Bearer e o canal certo e devolve o resultado; canal inválido não chama; sem token devolve "sem login";
+    o Sair manda `admin:false`; nada de e-mail ou nome na mensagem ao nativo.
+  - Java: o Admin publica os dois atalhos, o não-Admin os tira; o extra inválido é recusado; o pedido antes da carga é
+    guardado e entregue depois; o toast certo para cada resposta.
+- [ ] **Step 2: Ver falhar; Step 3: implementar; Step 4: verde** (`npm test` e `./gradlew testDebugUnitTest assembleDebug lint`)
+- [ ] **Step 5: Commit** `feat: atalho de teste dos avisos no ícone, só para administrador`
+
+---
+
 ### Task 5: Prévia, roteiro e versão 1.1.0
 
 **Files:**
