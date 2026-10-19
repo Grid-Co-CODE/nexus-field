@@ -719,41 +719,69 @@ public class MensageiroTest {
     private static final String TOKEN = "tokenFcmFicticio:APA91b_abc123";
 
     @Test
-    public void pushPedirTokenChegaAoPluginEOPushRegistradoSaiuDoCanal() {
+    public void pushPedirTokenChegaAoPlugin() {
         assertTrue(m.tratar("{\"t\":\"pushPedirToken\"}"));
         assertEquals(1, acoes.pushPedidos);
-        // Ruling N3: o nativo não guarda o registro (a página registra a cada carga), e o aviso de "registrado" saiu do
-        // protocolo. Ele é um tipo desconhecido, recusado sem citar o que veio.
-        assertFalse(m.tratar("{\"t\":\"pushRegistrado\",\"token\":\"" + TOKEN + "\"}"));
-        assertEquals(Arrays.asList("canal: tipo de mensagem desconhecido"), acoes.erros);
+        assertTrue(acoes.erros.isEmpty());
         semDadosDoTecnico();
         semOToken();
     }
 
     @Test
-    public void aRespostaDoPushLevaSoOTokenEAVersaoEEAMesmaACadaCarga() throws JSONException {
-        // Ruling N3: sem o atalho dos 7 dias (ele não sabia de QUEM era o registro, e depois do Sair o aparelho ficava
-        // sem aviso até ele vencer), a resposta não diz nada sobre registro e não depende do que veio antes: a página
-        // registra a cada carga, com a conta de agora.
-        for (int carga = 0; carga < 2; carga++) {
-            JSONObject r = objeto(Mensageiro.respostaDoPush(TOKEN, "1.1.0"));
+    public void oSairEORegistroDaPaginaChegamAoPlugin() {
+        // O Sair cala as notificações até o registro seguinte; o registro 2xx as solta. Só o tipo: o que vier junto (um
+        // token, a conta) não é lido nem vai ao log.
+        assertTrue(m.tratar("{\"t\":\"pushSaiu\"}"));
+        assertTrue(m.tratar("{\"t\":\"pushRegistrado\",\"token\":\"" + TOKEN + "\",\"email\":\"" + EMAIL + "\"}"));
+        assertTrue(m.tratar("{\"t\":\"pushSaiu\",\"email\":\"" + EMAIL + "\"}"));
+        assertEquals(Arrays.asList("saiu", "registrado", "saiu"), acoes.push);
+        assertTrue(acoes.erros.isEmpty());
+        semDadosDoTecnico();
+        semOToken();
+    }
+
+    @Test
+    public void aOsAbertaChegaAoPluginSoComONumeroValido() {
+        assertTrue(m.tratar("{\"t\":\"osAberta\",\"os\":\"4521\"}"));
+        assertTrue(m.tratar("{\"t\":\"osAberta\",\"os\":\"999999999\"}"));
+        assertEquals(Arrays.asList("aberta:4521", "aberta:999999999"), acoes.push);
+        // O número vai a um cancelamento na barra: só de 1 a 12 dígitos ASCII. O resto é recusado sem citar o que veio.
+        for (String torto : new String[] {"{\"t\":\"osAberta\"}", "{\"t\":\"osAberta\",\"os\":4521}",
+                "{\"t\":\"osAberta\",\"os\":\"12a\"}", "{\"t\":\"osAberta\",\"os\":\"1234567890123\"}",
+                "{\"t\":\"osAberta\",\"os\":\"" + EMAIL + "\"}", "{\"t\":\"osAberta\",\"os\":null}"}) {
+            assertFalse(torto, m.tratar(torto));
+        }
+        assertEquals("nenhuma torta chegou ao plugin", 2, acoes.push.size());
+        assertEquals(6, acoes.erros.size());
+        for (String erro : acoes.erros) assertTrue(erro, erro.startsWith("osAberta:"));
+        for (ShadowLog.LogItem item : ShadowLog.getLogs()) assertFalse(item.msg, item.msg.contains("4521"));
+        semDadosDoTecnico();
+    }
+
+    @Test
+    public void aRespostaDoPushLevaOTokenAVersaoEOsAvisos() throws JSONException {
+        // A resposta não diz nada sobre registro e não depende do que veio antes: a página registra uma vez por token em
+        // cada carga, com a conta de agora, e só com os avisos ligados.
+        for (boolean avisos : new boolean[] {true, false}) {
+            JSONObject r = objeto(Mensageiro.respostaDoPush(TOKEN, "1.1.0", avisos));
             assertEquals("pushToken", r.getString("t"));
             assertEquals(TOKEN, r.getString("token"));
             assertEquals("1.1.0", r.getString("versao"));
-            assertEquals("só o tipo, o token e a versão", 3, r.length());
+            assertEquals(avisos, r.getBoolean("avisos"));
+            assertEquals("só o tipo, o token, a versão e os avisos", 4, r.length());
         }
         // Sem token (o Firebase não configurado, ou o token ainda não saiu): o token vai como null do JSON.
         for (String semToken : new String[] {null, ""}) {
-            JSONObject r = objeto(Mensageiro.respostaDoPush(semToken, "0.0.0-dev"));
+            JSONObject r = objeto(Mensageiro.respostaDoPush(semToken, "0.0.0-dev", true));
             assertTrue("o token vai como null do JSON", r.has("token") && r.isNull("token"));
             assertEquals("0.0.0-dev", r.getString("versao"));
-            assertEquals(3, r.length());
+            assertEquals(4, r.length());
         }
         // Sem a versão, texto vazio: a página monta "NexusField/" e não "NexusField/null".
-        assertEquals("", objeto(Mensageiro.respostaDoPush(TOKEN, null)).getString("versao"));
+        assertEquals("", objeto(Mensageiro.respostaDoPush(TOKEN, null, true)).getString("versao"));
     }
 
-    // --- o atalho de teste dos avisos (só para administrador, Ruling N7) -------------------------------------------
+    // --- o atalho de teste dos avisos (só para administrador) ------------------------------------------------------
 
     @Test
     public void pushAdminPublicaOuTiraOsAtalhos() {
@@ -781,10 +809,12 @@ public class MensageiroTest {
         assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":401,\"aparelhos\":null}"));
         assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":\"erro\",\"aparelhos\":null}"));
         assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":false,\"status\":500,\"aparelhos\":null}"));
+        // O 200 sem a contagem que se leia (o corpo torto, o número acima do teto que o script também corta) foi enviado:
+        // o toast diz que saiu, sem número, e não convida a repetir (um teste a mais manda outro par de avisos a todos).
         assertTrue(m.tratar("{\"t\":\"pushTeste\",\"ok\":true,\"status\":200,\"aparelhos\":null}"));
         assertTrue(m.tratar("{\"t\":\"pushTeste\"}"));
-        assertEquals(Arrays.asList("ENVIADO:2", "SEM_LOGIN:0", "SEM_LOGIN:0", "FALHOU:0", "FALHOU:0", "FALHOU:0",
-            "FALHOU:0"), acoes.testes);
+        assertEquals(Arrays.asList("ENVIADO:2", "SEM_LOGIN:0", "SEM_LOGIN:0", "FALHOU:0", "FALHOU:0",
+            "ENVIADO_SEM_CONTAGEM:0", "FALHOU:0"), acoes.testes);
         assertTrue("nenhum desses mexe nos atalhos", acoes.admins.isEmpty());
     }
 
@@ -936,7 +966,11 @@ public class MensageiroTest {
         int pushPedidos;
         final List<Boolean> admins = new ArrayList<>();
         final List<String> testes = new ArrayList<>();
+        final List<String> push = new ArrayList<>();
 
+        @Override public void pushSaiu() { push.add("saiu"); }
+        @Override public void pushRegistrado() { push.add("registrado"); }
+        @Override public void osAberta(String os) { push.add("aberta:" + os); }
         @Override public void pushAdmin(boolean admin) { admins.add(admin); }
         @Override public void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos) { testes.add(resultado + ":" + aparelhos); }
         @Override public void precisoRetrato(JSONObject retrato) { retratos.add(retrato); }

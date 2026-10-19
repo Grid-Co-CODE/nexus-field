@@ -18,8 +18,11 @@ source ferramentas/ambiente.sh             # JAVA_HOME, ANDROID_HOME, PATH e and
 npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug lint)
 ```
 
-O `lint` sai sem erro (os avisos que restam são do template e das versões). O `ambiente.sh` escreve o `sdk.dir` com o
-`:` escapado (`C\:/Users/...`): sem o escape o lint falha com PropertyEscape, mesmo o Gradle lendo o caminho certo.
+O `lint` sai sem erro. Os 13 avisos que restam (medido em 19/10/2026) são do template do Capacitor (`ManifestOrder`,
+`UnusedResources`), da versão do Gradle (`AndroidGradlePluginVersion`), dos ícones quadrados do Android 7
+(`IconLauncherShape`) e o `PluralsCandidate` do `casca_teste_enviado`, de propósito (ver "O atalho de teste dos avisos").
+O `ambiente.sh` escreve o `sdk.dir` com o `:` escapado (`C\:/Users/...`): sem o escape o lint falha com PropertyEscape,
+mesmo o Gradle lendo o caminho certo.
 
 No Windows, rode o `npm test` pelo Git Bash: o `testes/workflows.test.mjs` roda os scripts dos passos da Release num
 bash de verdade e PULA esses testes fora do Git Bash (o `bash.exe` do System32 é o do WSL, outro sistema de arquivos).
@@ -101,7 +104,12 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   (2) `CASCA_M2_LOCAL`, que o `ferramentas/ambiente.sh` exporta e o `build.gradle` repassa como `maven.repo.local`,
   para o jar do Android (~200 MB, baixado na primeira rodada) ficar numa pasta sem espaço. Com espaço no nome do
   usuário o Robolectric procura `...\Nome%20Sobrenome\.m2\...` e falha com "Unable to load Robolectric native runtime
-  library". No Linux do CI nada disso é preciso, e a variável fica vazia.
+  library". No Linux do CI nada disso é preciso, e a variável fica vazia. Dois testes pedem mais, e já o têm: o
+  `NotificacoesNoAndroid7Test` roda no SDK 24 (`@Config(sdk = N)`: o Android 7 não tem canais, e do 8 em diante o
+  NotificationCompat apaga o som e a vibração da própria notificação), e o Robolectric baixa o jar do Android 7 (~88 MB)
+  na primeira rodada, também no CI; o `MainActivityNaTelaTest` monta a MainActivity com o Bridge do Capacitor de verdade,
+  com um shadow do `ServiceWorkerController` (o Robolectric não tem o provedor da WebView) e a versão da WebView dada ao
+  `ShadowWebView`.
 - **Versão e assinatura vêm do ambiente** (`android/app/build.gradle`): `versionCode` de `GITHUB_RUN_NUMBER` (padrão 1),
   `versionName` de `VERSAO_CASCA` (padrão `0.0.0-dev`). O release só é assinado com `CASCA_KEYSTORE`,
   `CASCA_KEYSTORE_SENHA`, `CASCA_CHAVE_ALIAS` e `CASCA_CHAVE_SENHA` juntas. Com as quatro ausentes (ou vazias) sai sem
@@ -233,8 +241,10 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     abertura (permissões) nesse caso.
   - Do `CascaPlugin` e do `MainActivity` só as regras puras têm teste de JVM (`navegacaoParaOLog`, o endereço no log de
     depuração; `avisoDepoisDoPedido`; `configSemOApp`; a thread do espelho única; e as classes separadas para isso:
-    `Voltar`, `TetoDeRecriacao`, `FaxinaDaCamera`). O resto (WebView de verdade, o gesto do voltar, diálogos, a ligação
-    de cada regra no plugin) é conferido pela montagem e pela prova no aparelho.
+    `Voltar`, `TetoDeRecriacao`, `FaxinaDaCamera`, `PushNaCasca`, `OsDoToque`, `Expediente`), mais a `MainActivity` que
+    nasce de verdade no Robolectric (`MainActivityNaTelaTest`: a marca `criando`, o `onNewIntent` e a tela recriada, pelo
+    caminho da WebView antiga, a única que o Robolectric tem). O resto (WebView de verdade, o gesto do voltar, diálogos, a
+    ligação de cada regra no plugin) é conferido pela montagem e pela prova no aparelho.
   - O AGP 8 não gera o `BuildConfig` sem `buildFeatures.buildConfig` (o user agent e o `DEBUG` vêm dele), e o
     `androidx.webkit` entra no app de novo porque o `capacitor-android` o tem só como `implementation`.
 - **O script de início, por cima** (`www/casca/inicio.js`): o plugin o injeta com `addDocumentStartJavaScript`, só na
@@ -347,17 +357,29 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
   - **O contrato com o servidor** (tudo o que a casca assume; mudar um lado pede mudar o outro):
     - A mensagem do FCM é só de dados: `{tipo: 'resumo'|'emergencia', canal: 'resumo'|'emergencia'|'emergencia_silenciosa',
       titulo, texto, os?}`. O `Notificacoes.montar` a confere: tipo fora do contrato não aparece; o canal que não é do tipo
-      é trocado (Ruling N4: a emergência de canal errado vai ao silencioso e o resumo, ao do resumo, e o log diz o motivo
-      sem conteúdo, porque descartar a emergência perderia o aviso); título vazio vira "Nexus Field"; texto cortado em 240
-      caracteres; `os` só com 1 a 12 dígitos ASCII. **O título e o texto são do servidor**: a casca não acrescenta nada, e
-      nada de nome de usina ou de pessoa pode ir pelo Firebase (a mensagem passa pelo Google). O log da casca diz só o canal
-      e o motivo: nunca título, texto, OS nem token.
+      é trocado (a emergência de canal errado vai ao silencioso e o resumo, ao do resumo, e o log diz o motivo sem conteúdo,
+      porque descartar a emergência perderia o aviso); a emergência do canal alto que CHEGA fora do expediente vai ao
+      silencioso (abaixo); título vazio vira "Nexus Field"; texto cortado em 240 caracteres; `os` só com 1 a 12 dígitos
+      ASCII. A barra mostra a hora do ENVIO (o `getSentTime`, com `setShowWhen`), não a da chegada. **O título e o texto
+      são do servidor**: a casca não acrescenta nada, e nada de nome de usina ou de pessoa pode ir pelo Firebase (a
+      mensagem passa pelo Google). O log da casca diz só o canal e o motivo: nunca título, texto, OS nem token.
     - Os canais (os ids são o contrato e moram no `Notificacoes`; os nomes, no `strings.xml`): `resumo` ("Resumo do dia",
       importância padrão, som de notificação), `emergencia` ("Emergências", alta: aparece por cima, som de ALARME padrão do
-      aparelho como toque de notificação e vibração de três pulsos, Ruling N5) e `emergencia_silenciosa` ("Emergências fora
-      do expediente", baixa, sem som nem vibração). Quem escolhe o canal é o servidor: dia útil e expediente, das 7h às 17h,
-      o alto; fora disso, o silencioso. O som e a vibração de um canal que já existe NÃO mudam (o `criar` seguinte só o
-      renomeia): mudá-los exige id de canal novo, com o contrato do servidor junto.
+      aparelho como toque de notificação, no volume das notificações, e vibração de três pulsos) e `emergencia_silenciosa`
+      ("Emergências fora do expediente", baixa, sem som nem vibração). **Nenhum fura o Não perturbe nem o modo silencioso**
+      (decisão do dono, 18/10/2026): nenhuma notificação leva categoria (a `CATEGORY_ALARM` passava pelo Não perturbe no
+      modo prioridade, que libera os alarmes por padrão, e a `CATEGORY_REMINDER`, onde os lembretes estão liberados) e
+      nenhum canal pede o `setBypassDnd`. Quem escolhe o canal é o servidor, pela hora do ENVIO: dia útil e expediente, das
+      7h às 17h, o alto; fora disso, o silencioso. A casca só rebaixa ao silencioso a emergência que CHEGA fora do
+      expediente (`Expediente.dentro`, em Brasília; feriado conta como dia útil): o FCM segura a mensagem por até 12 h, e a
+      enviada às 16h50 de uma sexta a um celular sem sinal tocava às 19h40, em casa. No Android 7, sem canais, a própria
+      notificação leva a prioridade, o alarme e a vibração do canal (`NotificacoesNoAndroid7Test`). O som, a vibração e a
+      importância de um canal que já existe NÃO mudam (o `criar` seguinte só o renomeia): mudá-los pede um id de canal NOVO
+      no Android, mas esse id não precisa ser o texto do contrato: um mapa no `Notificacoes` (o canal `emergencia` da
+      mensagem indo ao canal `emergencia_2` do Android, com o `deleteNotificationChannel` do velho) muda o som sem o
+      servidor mudar nada. Na Release, a 1.1.0 é a primeira a criar os canais; o aparelho de prova que rodou um APK de
+      depuração deste ramo de antes do alarme tem as "Emergências" com o som padrão (só reinstalando, o que apaga o
+      espelho).
     - As rotas, todas com o Bearer da página e no ar desde a v286 do App de Campo: `POST {MIDDLEWARE_URL}/push/registrar
       {token, aparelho:'android', app:'NexusField/<versionName>'}`, `POST /push/esquecer {token}`, `GET /me` (o papel
       `Admin`) e `POST /push/teste {canal}` (só Admin), no endereço do `MIDDLEWARE_URL` sem a barra do fim (como a página
@@ -365,18 +387,23 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
       diário exige da página o que o `PUSH` lê (o `getTokenMW` sem abrir o login, a `async function sair` com o único
       logout da página e chamada pelo menu, a declaração do `MIDDLEWARE_URL` e o `#s-app`; ver o contrato, mais abaixo);
       o resto da conversa é do servidor.
-    - Os ids das notificações: o resumo tem id fixo (o das 13h toma o lugar do das 7h, e toca de novo) e a emergência, id
-      pela OS (a mesma OS substitui a anterior, sem tocar outra vez: `setOnlyAlertOnce` só nela). O `PendingIntent` do toque
-      tem por código o id da notificação: com o mesmo código o Android acharia "igual" o que só muda nos extras, e a
-      segunda emergência na barra abriria a OS da primeira.
+    - Os ids das notificações: o resumo tem id fixo (o das 13h toma o lugar do das 7h, e toca de novo; o MESMO resumo de
+      novo, com o mesmo título e texto ainda na barra, não toca: a entrega repetida do FCM) e sai da barra à meia-noite, em
+      Brasília (`setTimeoutAfter`: o "Faltam 2 tarefas de hoje" de sexta não fica até segunda); a emergência tem id pela OS
+      (`Notificacoes.idDaEmergencia`: a mesma OS substitui a anterior, sem tocar outra vez) e NÃO sai da barra no toque, só
+      quando a página diz que abriu a OS (o `osAberta`, que a cancela). O `PendingIntent` do toque abre a porta interna (ver
+      "Abrir a OS pelo toque na emergência") e tem por código o id da notificação: com o mesmo código o Android acharia
+      "igual" o que só muda nos extras, e a segunda emergência na barra abriria a OS da primeira.
   - **O lado da casca:**
     - `MensagensDoFirebase` (serviço NÃO exportado, no manifesto com o filtro `MESSAGING_EVENT`: exportado, qualquer app do
       aparelho mandaria uma "emergência") cria os canais, monta e mostra. O `CanaisDeNotificacao.criar` roda também no
-      `load()` do plugin, porque a primeira mensagem pode chegar antes de o técnico abrir o app atualizado; no Android 7,
-      sem canais, a prioridade da própria notificação faz o papel. O `onNewToken` só grava a chave `token` do
-      SharedPreferences `push` (hoje ninguém a lê: o registro pega o token na hora, pelo `FirebaseMessaging.getToken()`).
-      Esse método está obsoleto no firebase-messaging 25.1 e segue chamado, porque o meta-data
-      `firebase_messaging_installation_id_enabled` não está ligado (conferido no bytecode da 25.1.3).
+      `load()` do plugin, porque a primeira mensagem pode chegar antes de o técnico abrir o app atualizado. Com a marca
+      `semConta` (o Sair, abaixo) não mostra nada, e o log diz só que a mensagem veio depois do Sair. O
+      `Notificacoes.mostrar` não mostra (e o log não diz "mostrada") sem a permissão, com as notificações do app desligadas
+      ou com o canal desligado. O `onNewToken` grava a chave `token` do SharedPreferences `push` (o último token que o
+      Firebase deu; o pedido da página também a atualiza) e manda o token à página viva (`CascaPlugin.tokenNovo`); a chave
+      serve para COMPARAR na volta ao app (abaixo). Esse método está obsoleto no firebase-messaging 25.1 e segue chamado,
+      porque o meta-data `firebase_messaging_installation_id_enabled` não está ligado (conferido no bytecode da 25.1.3).
     - A permissão (Android 13+): `MainActivity.devePedirNotificacao`. Instalação nova: o "Antes de começar" e o pedido, a
       notificação por último. Atualização da 1.0.0, com a câmera e a localização já dadas: o diálogo "Avisos do Nexus
       Field" (não cancelável) e o pedido só da notificação. A marca `jaPediuNotificacao` (no arquivo `push`) só grava
@@ -390,11 +417,15 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
       - página → nativo: `{t:'pushPedirToken'}` 5 s depois do load (e de novo quando o token veio null, abaixo);
         `{t:'pushRegistrado'}` quando o servidor respondeu 2xx (não depois do Sair); `{t:'pushSaiu'}` no Sair, com token
         ou sem; e o `pushAdmin`/`pushTeste` do atalho de teste.
-      - nativo → página: `{t:'pushToken', token, versao, avisos}`, a resposta, que também chega SOZINHA a qualquer hora (o
-        token renovado com a página viva, a volta ao app com os avisos ligados de novo). A página aceita um token
-        DIFERENTE do atual e registra uma vez por token, e só com `avisos` true (ausente, do nativo antigo, vale true;
-        qualquer outro valor, não): com as notificações desligadas o servidor contaria um aparelho que não mostra nada.
-        Sem o `google-services.json` o `getInstance` lança e vai `token: null`.
+      - nativo → página: `{t:'pushToken', token, versao, avisos}`, a resposta, que também chega SOZINHA pela ponte da
+        página que pediu (`PushNaCasca`, na thread do espelho): no `onNewToken` com a tela viva (a primeira abertura sem
+        sinal, o token renovado) e na volta ao app quando os avisos passaram a ligados ou quando o token guardado não é o
+        que a página recebeu. `avisos` é a permissão (Android 13+), as notificações do app ligadas e o canal `emergencia`
+        não bloqueado (o do resumo não conta). A página aceita um token DIFERENTE do atual e registra uma vez por token, e
+        só com `avisos` true (ausente, do nativo antigo, vale true; qualquer outro valor, não): com as notificações
+        desligadas o servidor contaria um aparelho que não mostra nada. Sem o `google-services.json` o `getInstance` lança
+        e vai `token: null`. O `testes/canal.test.mjs` confere que todo tipo que o script manda o `Mensageiro` atende (o
+        `pushSaiu`, o `pushRegistrado` e o `osAberta` caíam em "tipo desconhecido").
       - **"Logado" é a tela do App na frente (`#s-app.on`, o `PUSH.id.app`), não "o getTokenMW devolveu algo"**: o site
         só liga o `.on` no `entrarComIdentidade`, depois do `setActiveAccount` da conta escolhida. Caso: o aparelho
         dividido; A não saiu; B toca em Entrar e volta do login com 4G fraco: até a tela do App, o MSAL ainda tinha A como
@@ -409,10 +440,12 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
         `online` que chega na espera tenta quando ela acaba. Erro vira `{t:'erro', onde:'push'}` com um texto nosso (nunca
         o token, o Bearer nem o e-mail).
       - **O Sair**, embrulhado (o `sair` do site troca as telas na primeira linha e vai ao `logoutRedirect`): manda o
-        `pushSaiu` (o nativo cala as notificações até o próximo `pushRegistrado` e apaga o token do Firebase: é o que segura
-        o Sair sem rede, com o servidor fora ou com a sessão vencida, quando o esquecer não chega ao servidor e o aparelho
-        seguia com os avisos de quem saiu), o `pushAdmin:false` e apaga a OS pendente do toque (a da conta que saiu não
-        abre para a que entra); depois pede ao servidor que esqueça o token com `keepalive: true` (o pedido sobrevive à
+        `pushSaiu` (o nativo grava a marca `semConta`, com commit e sem `clear()`, e não mostra nada até o próximo
+        `pushRegistrado`; tira da barra as notificações do app, esquece a OS do toque e apaga o token no Firebase, e o
+        pedido de token que chega com o apagamento em curso espera ele terminar: é o que segura o Sair sem rede, com o
+        servidor fora ou com a sessão vencida, quando o esquecer não chega ao servidor e o aparelho seguia com os avisos de
+        quem saiu), o `pushAdmin:false` e apaga a OS pendente do toque (a da conta que saiu não abre para a que entra);
+        depois pede ao servidor que esqueça o token com `keepalive: true` (o pedido sobrevive à
         navegação do logout) e roda o sair da página assim que o pedido sai, sem esperar a resposta (o teto de 3 s fica
         para o Bearer que não vem). O segundo toque com o primeiro em curso recebe a mesma Promise (o segundo
         `logoutRedirect` lançava `interaction_in_progress`, e a reserva da página apagava as contas enquanto o primeiro
@@ -430,7 +463,8 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     de daqui a um mês saírem das mesmas bibliotecas. O `android/app/google-services.json` (do `applicationId`
     `br.com.gridco.nexusfield`) NÃO é segredo (só identifica o projeto; a chave de serviço mora só nas App Settings do
     servidor) e entra no repositório. Sem ele o plugin do `google-services` não é aplicado: o build de depuração e o de PR
-    passam, o app roda, mas não recebe aviso e não mostra o atalho de teste. A Release FALHA sem ele (o passo "O Firebase do
+    passam, o app roda, mas não recebe aviso (o atalho de teste aparece para o Admin, porque o `/me` não depende do token,
+    e o teste chega só aos outros aparelhos da conta). A Release FALHA sem ele (o passo "O Firebase do
     app está no repositório", logo depois de "O commit da tag está na main", antes de a chave sair do secret; o arquivo
     vazio também falha): um APK que nunca recebe aviso indo a ~50 aparelhos, sem erro em lugar nenhum. O arquivo que existe
     e está torto aplica o plugin e derruba o build.
@@ -441,27 +475,41 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     dois timers e o envio na conferência do Fracttal; as rotas estão no ar desde a v286); 4) a prova pelo
     `docs/prova-no-aparelho.md` e, depois, o piloto. **A tag `v1.1.0` só sai depois de: os textos aprovados pelo dono na
     prévia, o `google-services.json` do dono no repositório e as rotas do servidor no ar.** Os textos novos (os canais, os
-    atalhos, os avisos rápidos, o "Avisos do Nexus Field" e o novo "Antes de começar") estão PENDENTES de aprovação; quando
-    ele aprovar, os cabeçalhos do `strings.xml` passam a dizer "aprovados", com a data.
-- **Abrir a OS pelo toque na emergência** (notificações, 18/10/2026; `MainActivity.osDoToque`, `CascaPlugin.AberturaDaOS`
-  e a seção 9 do `inicio.js`; testes `CascaPluginTest`, `MainActivityTest` e `testes/abrir-os.test.mjs`). O Intent do
-  toque traz o extra `gc_os` (o número da OS, só na emergência com OS válida; ver `Notificacoes.mostrar`):
+    atalhos e o texto do atalho desligado, os avisos rápidos, o "Avisos do Nexus Field" e o novo "Antes de começar")
+    estão PENDENTES de aprovação; quando ele aprovar, os cabeçalhos do `strings.xml` passam a dizer "aprovados", com a
+    data.
+- **Abrir a OS pelo toque na emergência** (notificações, 18/10/2026; `MainActivity.osDoToque`, `CascaPlugin.AberturaDaOS`,
+  `OsDoToque` e a seção 9 do `inicio.js`; testes `CascaPluginTest`, `OsDoToqueTest`, `PushNaCascaTest`, `MainActivityTest`,
+  `MainActivityNaTelaTest` e `testes/abrir-os.test.mjs`). O Intent do toque traz o extra `gc_os` (o número da OS, só na
+  emergência com OS válida; ver `Notificacoes.mostrar`):
+  - **A porta interna** (`MainActivity.PORTA_INTERNA`, a `activity-alias` `.PortaInterna` do manifesto, NÃO exportada e
+    sem filtro): o `PendingIntent` da notificação e o atalho de teste abrem a tela por ela (o PendingIntent é do próprio
+    app, e o launcher abre o atalho em nome do app), e os extras `gc_os` e `gc_teste` só valem no Intent cujo componente é
+    ela (`MainActivity.extraDoToque`, o ajudante dos dois). A MainActivity exportada (o ícone, e qualquer app do aparelho)
+    os ignora e consome. Caso que criou a regra: um app qualquer mandava à MainActivity uma OS que tomava o lugar da
+    pendente da emergência de verdade (a última vence) e trazia o app para a frente, ou um teste que mandava dois pares
+    de avisos a cada aparelho da conta. A alias herda o `singleTask` da MainActivity, e o Android entrega o toque com a
+    tela aberta no `onNewIntent` dela.
   - **A `MainActivity` o lê no `onCreate` (só sem estado salvo) e no `onNewIntent`**, confere com `Notificacoes.osValida`
-    (1 a 12 dígitos ASCII: a activity é exportada, qualquer app pode mandar o extra), consome o extra na leitura e
-    ignora o Intent que o Android reentrega ao voltar pelos recentes (`FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`). O
-    `BridgeActivity.load()` do Capacitor 8.5.3 chama `onNewIntent(getIntent())` dentro do próprio `onCreate`, com ou sem
-    estado salvo; por isso o `onNewIntent` daqui ignora a chamada que vem durante o `super.onCreate` (a marca `criando`).
-    Sem isso, a tela recriada pelo renderer que morreu abriria a OS de novo. O `testes/abrir-os.test.mjs` confere essa
-    ligação no texto do Java (a WebView não roda no JVM).
+    (1 a 12 dígitos ASCII: o número vai a um script), consome o extra na leitura e ignora o Intent que o Android
+    reentrega ao voltar pelos recentes (`FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`). O `BridgeActivity.load()` do Capacitor
+    8.5.3 chama `onNewIntent(getIntent())` dentro do próprio `onCreate`, com ou sem estado salvo; por isso o `onNewIntent`
+    daqui ignora a chamada que vem durante o `super.onCreate` (a marca `criando`). Sem isso, a tela recriada pelo
+    renderer que morreu leria o toque de novo. O `MainActivityNaTelaTest` prova as três coisas na tela de verdade, e o
+    `testes/abrir-os.test.mjs` confere a ligação no texto do Java.
   - **O `CascaPlugin.abrirOS(os)` só decide QUANDO** (`AberturaDaOS`, regra pura com página e agenda falsas no teste): a
     cada página do App que termina de carregar (`onPageLoaded` com `Voltar.eDoApp`) abre-se uma folga de 1,5 s, porque o
     fim do documento vem antes de o App montar a tela; passada a folga a página está "pronta". Pedido com a página pronta
     vai logo; sem ela, o último pedido fica guardado e vai ao fim da folga (`evaluateJavascript("window.__gcCascaAbrirOS&&
     window.__gcCascaAbrirOS('<os>')")`). Qualquer página que comece a carregar (`onPageStarted`: o login da Microsoft, o
     erro) tira o "pronta" e invalida a folga da carga velha: o login silencioso volta ao App em cerca de 1 s, e entregar
-    ali seria entregar a uma tela que não montou. Entregue, a OS não volta numa recarga. O número nunca vai ao log: da
-    resposta da página sai só "aberta", "pendente" ou "não aberta" (`AberturaDaOS.resultado`); o nativo não decide nada
-    com ela.
+    ali seria entregar a uma tela que não montou. A OS tocada fica guardada no PROCESSO (`OsDoToque`, estática no plugin)
+    e vai de novo a CADA carga do App, até a página dizer que a abriu (o `osAberta`, que a esquece e tira a emergência
+    da barra) ou o dia acabar (em Brasília); a última tocada vence. Caso que criou a regra: o técnico preenchendo uma OS
+    com fotos num aparelho de 4 GB toca na emergência, a página a deixa pendente, o renderer morre e a tela recriada
+    (plugin e sessionStorage novos) não sabia mais da OS, que já tinha saído da barra no toque. O número nunca vai ao log:
+    da resposta da página sai só "aberta", "pendente" ou "não aberta" (`AberturaDaOS.resultado`); quem diz que abriu é o
+    `osAberta`.
   - **No script, o toque nunca interrompe o técnico** (regra do dono, 18/10/2026: "Continua no preenchimento de OS ou
     ronda, a da notificação fica pendente"; o caso: a busca posta por baixo da OS aberta, que ele não via).
     `window.__gcCascaAbrirOS(os)` (não enumerável) confere `^[0-9]{1,12}$` de novo e vê se ele está ocupado:
@@ -499,15 +547,18 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
       `tela-ronda` e `s-app`, classes `on` e `rd-voltar`, aba `tarefas`, o `let RONDA` de topo e o `rdVoltar` com
       `RONDA.usina`, `RONDA.respostas`, `RONDA.dispersos` e `RONDA.finalizadaNoServidor`); os que são também do voltar ou
       do registro faltam em cada lista.
-  - **O que isto não faz** (conhecido, para a prova no aparelho): a pendência da página não sobrevive ao app fechado (o
-    sessionStorage é da partida): quem segura a emergência aí é o nativo, que a entrega de novo a cada carga até ouvir o
-    `osAberta`. Sem prova no aparelho ainda: o `setTab` que não apaga a busca, a volta do login que abre a OS pendente e
-    a camada que a página abrir fora da lista do `VOLTAR` (o toque a trataria como livre).
+  - **O que isto não faz** (conhecido, para a prova no aparelho): a pendência da página e a OS guardada no nativo não
+    sobrevivem ao app fechado (o sessionStorage é da partida, o `OsDoToque` é do processo): quem segura a emergência aí é
+    a notificação, que fica na barra até a OS abrir, e um toque novo refaz tudo. O toque traz a tela para a frente e o
+    `singleTask` fecha o que estiver por cima dela no Android (o app de câmera da reserva, a Custom Tab do Fracttal, o
+    instalador da atualização): a foto da reserva se tira de novo. Sem prova no aparelho ainda: o `setTab` que não apaga a
+    busca, a volta do login que abre a OS pendente e a camada que a página abrir fora da lista do `VOLTAR` (o toque a
+    trataria como livre).
 - **O atalho de teste dos avisos, só para administrador** (18/10/2026; `AtalhosDeTeste`,
-  `CascaPlugin.TesteDosAvisos`, `MainActivity.testeDoAtalho` e a seção 8 do `inicio.js`; testes `AtalhosDeTesteTest`,
-  `CascaPluginTest`, `MensageiroTest`, `MainActivityTest` e `testes/atalho-teste.test.mjs`). O dono quis testar as
-  notificações no celular por um botão que só quem é Admin vê, e o botão é um atalho do ícone (toque longo), não um botão
-  na página: a casca não desenha nada no App de Campo, e o técnico nunca o vê.
+  `CascaPlugin.TesteDosAvisos`, `CascaPlugin.UmTestePorVez`, `MainActivity.testeDoAtalho` e a seção 8 do `inicio.js`;
+  testes `AtalhosDeTesteTest`, `CascaPluginTest`, `MensageiroTest`, `MainActivityTest` e `testes/atalho-teste.test.mjs`).
+  O dono quis testar as notificações no celular por um botão que só quem é Admin vê, e o botão é um atalho do ícone
+  (toque longo), não um botão na página: a casca não desenha nada no App de Campo, e o técnico nunca o vê.
   - **Quem decide é a página, uma vez por carga:** 5 s depois do load, com a tela do App na frente (a mesma porta do
     registro: antes dela o Bearer seria o da conta anterior) e sem depender do token do Firebase (o teste manda aos
     aparelhos da conta, e o aparelho sem Firebase não pode deixar o Admin sem o atalho), o `GET {MIDDLEWARE_URL}/me` com
@@ -516,20 +567,36 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     `emergencia_silenciosa`); qualquer outro papel, erro, 401, a mensagem torta, a página sem o `getTokenMW` ou o
     `MIDDLEWARE_URL`, o `getTokenMW` que lança, o Sair e o 403 do teste os tiram. O Bearer null (a sessão vencida) espera
     o próximo `online` ou a volta ao app, e os atalhos ficam como estavam até lá.
-  - **O toque** abre a `MainActivity` com o extra `gc_teste` (ação VIEW, sem CLEAR_TASK: com o app aberto a página não
-    recarrega), lido como o `gc_os` (consumido, só os dois canais, ignorado o Intent dos recentes). O plugin o entrega
-    como a OS do toque (as duas usam a `EntregaNaPagina`: a folga de 1,5 s depois da carga do App, o último pedido
-    guardado) e segura o toque aceito há menos de 10 s (dois toques mandariam dois pares de avisos a cada aparelho). A
-    página chama `POST {MIDDLEWARE_URL}/push/teste {canal}` com o Bearer dela e devolve `{t:'pushTeste', ok, status,
-    aparelhos}` em no máximo 20 s; na tela de login, espera a tela do App dentro desse prazo (o pedido entregue na volta
-    do login), e sem ela devolve `status: 'sem login'`. A contagem só vai como inteiro de 0 ao teto do nativo
-    (`APARELHOS_NO_MAXIMO`, o mesmo número no `inicio.js` e no `AtalhosDeTeste`, que o `testes/atalho-teste.test.mjs`
-    compara); o 200 sem contagem que se leia vai `{ok:true, status:200, aparelhos:null}`, e quem decide o texto do toast
-    é o nativo (`casca_teste_*`). A página que nem aceitou o pedido dá o toast de falha.
-  - **Limite conhecido:** o atalho que o administrador fixar na tela inicial não sai com o `removeDynamicShortcuts`;
-    tocado por outra conta, o servidor recusa (403) e o toast diz "Só administrador pode testar". Os textos (rótulos
-    `atalho_teste_*` e toasts) estão PENDENTES de aprovação na prévia (`#t-atalhos`). O lint dá o aviso
-    `PluralsCandidate` no "aparelho(s)" (a prévia não lê `plurals`) e a dica `ReportShortcutUsage`: os dois ficam.
+  - **Publicar e tirar:** publicar é pelo `pushDynamicShortcut`, um a um (com o rank da ordem do menu), e nunca pelo
+    `setDynamicShortcuts`, que troca TODOS os dinâmicos do app pelos da lista (um atalho de outra origem sumiria a cada
+    carga do Admin); o push também conta o uso, como o `reportShortcutUsed` do toque. Tirar é o `removeDynamicShortcuts`
+    só dos dois e o `disableShortcuts` deles, com o texto `atalho_teste_desligado` ("Só para administrador"): o atalho
+    que o administrador FIXOU na tela inicial não sai com o remove, e tocado por outra conta mandava o pedido ao servidor;
+    desligado, o launcher mostra o texto e nem abre o app. O Admin o religa (`enableShortcuts`) antes de publicar. O Sair
+    também desliga (ele manda `admin:false`): o "Entre no Nexus Field para testar" fica para o toque com a tela de login
+    na frente.
+  - **O toque** abre a tela pela porta interna com o extra `gc_teste` (ação VIEW, sem CLEAR_TASK: com o app aberto a
+    página não recarrega), lido como o `gc_os` (consumido, só os dois canais, só pela porta interna, ignorado o Intent
+    dos recentes). O plugin o entrega como a OS do toque (as duas usam a `EntregaNaPagina`: a folga de 1,5 s depois da
+    carga do App, o último pedido guardado) e segura o toque aceito há menos de 10 s (dois toques mandariam dois pares de
+    avisos a cada aparelho): a contagem é uma por PROCESSO (`UmTestePorVez`, estática no plugin, como o teto das
+    recriações), porque a tela recriada pelo renderer que morreu tem plugin novo, e o toque recusado ganha o toast dele
+    (`casca_teste_ja_pedido`; o de falha seria falso, o primeiro teste já foi pedido). O pedido guardado vale 60 s: a
+    página que não fica pronta nesse tempo (o login que demora, sem sinal) não manda o teste minutos depois, de surpresa,
+    e ele sai com o toast de falha; o pedido que a página aceitou e não respondeu em 30 s (ela responde em 20 s; o caso é o
+    Entrar da tela de login, que navega antes da resposta) também. A página chama `POST {MIDDLEWARE_URL}/push/teste
+    {canal}` com o Bearer dela e devolve `{t:'pushTeste', ok, status, aparelhos}` em no máximo 20 s; na tela de login,
+    espera a tela do App dentro desse prazo (o pedido entregue na volta do login), e sem ela devolve `status: 'sem
+    login'`. A contagem só vai como inteiro de 0 ao teto do nativo (`APARELHOS_NO_MAXIMO`, o mesmo número no `inicio.js`
+    e no `AtalhosDeTeste`, que o `testes/atalho-teste.test.mjs` compara); o 200 sem contagem que se leia vai `{ok:true,
+    status:200, aparelhos:null}` e dá o toast de enviado sem o número (`casca_teste_enviado_sem_contagem`): o de falha
+    convidaria a repetir. Quem decide o texto do toast é o nativo (`casca_teste_*`). A página que nem aceitou o pedido dá
+    o toast de falha.
+  - Os textos (rótulos `atalho_teste_*`, o do atalho desligado e os toasts) estão PENDENTES de aprovação na prévia
+    (`#t-atalhos`). Nenhum rótulo promete "sem som" (o teste manda também um resumo, que toca no canal dele), e os curtos
+    têm no máximo 10 caracteres (o launcher corta o do atalho fixado; o `AtalhosDeTesteTest` confere). O lint dá o aviso
+    `PluralsCandidate` no "aparelho(s)", e ele fica: no pt-BR o Android põe o 0 no singular do `plurals` ("0 aparelho"),
+    e o 0 é o caso que a prova procura (o aparelho que não se registrou).
 - **A atualização da casca** (`Atualizador`, `VersaoRemota`; o `CascaPlugin` a chama no `load()` e no `handleOnResume()`):
   - Lê o `versao.json` de `releases/latest/download/` (não conta no limite da API do GitHub), com as chaves `versionCode`
     (inteiro), `versionName`, `apk`, `sha256` (64 dígitos hex) e `novidades` (lista de textos). O `ferramentas/versao-json.mjs`
@@ -609,9 +676,10 @@ site (`contrato.yml`). Detalhes na seção "A Release e o CI", mais abaixo.
     conjunto, os `Toast.makeText(..., R.string.x, ...)` do Java (o teste os lê do código), se uma string da casca ficar
     sem quadro, se os nomes no quadro dos canais não forem os `notificacao_canal_*` que o `CanaisDeNotificacao` dá a cada
     canal, se os rótulos do quadro dos atalhos não forem os `atalho_teste_*` que o `AtalhosDeTeste` dá a cada atalho
-    (o longo no menu, o curto na legenda), se uma notificação de exemplo não estiver no canal que a legenda diz, com a
-    importância que o `CanaisDeNotificacao` dá (por cima da tela só a alta) e uma OS que o `Notificacoes` aceitaria, se o
-    G da barra não for o `pathData` do `ic_notificacao.xml` (byte a byte) em branco, se o roteiro da prova das notificações
+    (o longo no menu, o curto e o texto do atalho desligado na legenda), se uma notificação de exemplo não estiver no
+    canal que a legenda diz, com a importância que o `CanaisDeNotificacao` dá (por cima da tela só a alta) e uma OS que o
+    `Notificacoes` aceitaria, se o G da barra não for o `pathData` do `ic_notificacao.xml` (byte a byte) em branco, se o
+    roteiro da prova das notificações
     citar um texto que o aplicativo não tem ou deixar de cobrir um atalho, canal ou toast, se o `strings.xml` ganhar uma string de prefixo sem quadro na prévia (só `package_name` e
     `custom_url_scheme` ficam fora, porque o técnico não os lê; caso de 18/10/2026: os nomes dos canais trocaram o
     `casca_` por outro prefixo e nenhum teste exigiu o quadro), se as novidades não forem uma linha `- item` cada, se o `srcdoc` do erro não for o `erro.html` inteiro (copie o arquivo

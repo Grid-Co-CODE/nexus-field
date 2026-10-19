@@ -29,8 +29,6 @@ import androidx.webkit.WebViewFeature;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.WebViewListener;
 import com.getcapacitor.annotation.CapacitorPlugin;
-import com.google.android.gms.tasks.Task;
-import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -43,6 +41,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 
@@ -53,10 +52,10 @@ import org.json.JSONObject;
  * de qualquer script da página, abre o canal gcCasca só para a origem do App, liga os cookies de terceiros e o user
  * agent, recria a tela quando o renderer morre, limpa o histórico depois do login e abre os endereços de fora numa
  * Custom Tab. Também dispara a checagem de atualização da casca ({@link Atualizador}) ao abrir e a cada volta ao app,
- * trata o voltar do Android ({@link Voltar}), dá à página o token do Firebase para ela registrar o aparelho
- * ({@link Mensageiro#respostaDoPush}), leva à página a OS do toque na emergência ({@link #abrirOS}) e o teste dos avisos
- * do atalho do ícone, só para administrador ({@link #testarAvisos}, {@link AtalhosDeTeste}) e, uma vez por processo,
- * apaga as fotos velhas da reserva da câmera ({@link FaxinaDaCamera}).
+ * trata o voltar do Android ({@link Voltar}), conversa com a página sobre as notificações ({@link PushNaCasca}: o token
+ * do Firebase para ela registrar o aparelho, o Sair, a OS aberta), leva à página a OS do toque na emergência
+ * ({@link #abrirOS}) e o teste dos avisos do atalho do ícone, só para administrador ({@link #testarAvisos},
+ * {@link AtalhosDeTeste}) e, uma vez por processo, apaga as fotos velhas da reserva da câmera ({@link FaxinaDaCamera}).
  *
  * Ordem no Capacitor 8.5.3 (conferida no código dele): o construtor do Bridge roda initWebView, registerAllPlugins (o
  * PluginHandle chama o load() de cada plugin) e só então loadWebView, que faz o primeiro webView.loadUrl(appUrl). Por
@@ -103,6 +102,14 @@ public class CascaPlugin extends Plugin {
     // contagem dele vale quando o SharedPreferences não grava). Fora do backup, como tudo (regras_dados.xml).
     private static final String PREFERENCIAS_DO_ESPELHO = "casca_espelho";
     private static Mensageiro.DisjuntorDaPerda perdasDoProcesso;
+    // A OS do toque na emergência, até a página dizer que a abriu (OsDoToque), e a regra dos 10 s do teste dos avisos:
+    // as duas atravessam a tela recriada pelo renderer que morreu, que tem plugin novo. O relógio da OS é o de parede (o
+    // dia em Brasília); o dos 10 s, o que não volta com a troca de hora.
+    private static final OsDoToque OS_DO_TOQUE_DO_PROCESSO = new OsDoToque(System::currentTimeMillis);
+    private static final UmTestePorVez TESTES_DO_PROCESSO = new UmTestePorVez(SystemClock::elapsedRealtime);
+    // O plugin da tela de agora, para o token novo do Firebase (que chega pelo serviço, fora da tela) ir à página viva.
+    // Sai quando a tela sai ou o renderer morre.
+    private static final AtomicReference<CascaPlugin> VIVO = new AtomicReference<>();
 
     private String origem;
     // Ligado quando a tela sai (onDestroy) ou o renderer morre: nada mais toca nesta WebView.
@@ -113,6 +120,7 @@ public class CascaPlugin extends Plugin {
     private Atualizador atualizador;              // null com a WebView antiga (o load() nem chega a criar)
     private AberturaDaOS aberturaDaOS;            // idem; só na thread de UI
     private TesteDosAvisos testeDosAvisos;        // idem
+    private PushNaCasca push;                     // idem; só na thread do espelho
     private ScriptHandler script;                 // só na thread de UI
     private JavaScriptReplyProxy ponteDaMensagem; // só na thread do espelho, durante a mensagem que a trouxe
 
@@ -161,23 +169,38 @@ public class CascaPlugin extends Plugin {
                 bridge.getWebView().evaluateJavascript(js, resposta ->
                     Log.i(TAG, "a OS do toque na página: " + AberturaDaOS.resultado(resposta)));
             },
-            (ms, tarefa) -> ui.postDelayed(tarefa, ms));
+            (ms, tarefa) -> ui.postDelayed(tarefa, ms),
+            OS_DO_TOQUE_DO_PROCESSO);
         // O teste dos avisos do atalho do ícone (só para administrador): a mesma espera da OS do toque. O resultado vem
-        // depois, pelo canal (o pushTeste), e vira o toast; a página que nem aceitou o pedido (sem o script, false) dá o
-        // toast de falha aqui, para o toque nunca ficar sem resposta.
+        // depois, pelo canal (o pushTeste), e vira o toast; a página que nem aceitou o pedido (sem o script, false), o
+        // pedido que venceu antes de a página ficar pronta e o aceito que ficou sem resposta dão o toast de falha aqui,
+        // para o toque nunca ficar sem resposta.
         testeDosAvisos = new TesteDosAvisos(
             js -> {
                 if (encerrado) return;
                 bridge.getWebView().evaluateJavascript(js, resposta -> {
                     boolean aceito = TesteDosAvisos.aceito(resposta);
                     Log.i(TAG, "o teste dos avisos na página: " + (aceito ? "pedido" : "não pedido"));
-                    if (!aceito && !encerrado) {
+                    if (encerrado) return;
+                    if (aceito) {
+                        testeDosAvisos.paginaAceitou();
+                    } else {
                         AtalhosDeTeste.avisar(getContext(), AtalhosDeTeste.Resultado.FALHOU, 0);
                     }
                 });
             },
             (ms, tarefa) -> ui.postDelayed(tarefa, ms),
-            SystemClock::elapsedRealtime);
+            TESTES_DO_PROCESSO,
+            () -> {
+                if (encerrado) return;
+                Log.i(TAG, "o teste dos avisos ficou sem resposta da página");
+                AtalhosDeTeste.avisar(getContext(), AtalhosDeTeste.Resultado.FALHOU, 0);
+            });
+        // A conversa das notificações com a página (o token, o Sair, a OS aberta) e o token novo do Firebase, que chega
+        // pelo serviço: vai à página desta tela.
+        push = new PushNaCasca(getContext(), PushNaCasca.FIREBASE_DO_APP, OS_DO_TOQUE_DO_PROCESSO,
+            BuildConfig.VERSION_NAME);
+        VIVO.set(this);
 
         if (origem == null || origem.isEmpty()) {
             Log.e(TAG, "sem server.url: a casca fica sem espelho nesta partida");
@@ -423,21 +446,30 @@ public class CascaPlugin extends Plugin {
     }
 
     /**
-     * O token do aparelho no Firebase (o de cache, ou um novo), entregue na thread do espelho; null quando não sai. O
-     * build sem o google-services.json (o de PR, e todos até o arquivo entrar no repositório) não inicia o Firebase (o
-     * FirebaseInitProvider só avisa no log), e o getInstance lança; sem rede, o pedido de um token novo falha. Nos dois
-     * casos a página recebe token null e não registra nada, e a próxima carga pede de novo.
+     * O Firebase deu um token novo (MensagensDoFirebase.onNewToken, na thread do Firebase): vai à página da tela viva, na
+     * thread do espelho ({@link PushNaCasca#tokenNovo}). Sem tela viva (o app no fundo sem tela, ou fechado), nada: a
+     * próxima carga pede o token e registra.
      */
-    private static void tokenDoFirebase(java.util.function.Consumer<String> entregar) {
-        Task<String> pedido;
+    static void tokenNovo(String token) {
+        CascaPlugin vivo = VIVO.get();
+        if (vivo == null || vivo.encerrado || vivo.push == null) return;
         try {
-            pedido = FirebaseMessaging.getInstance().getToken();
-        } catch (RuntimeException e) {
-            entregar.accept(null); // já na thread do espelho (o pedido vem do Mensageiro)
-            return;
+            threadDoEspelho().execute(() -> {
+                if (!vivo.encerrado) vivo.push.tokenNovo(token);
+            });
+        } catch (RejectedExecutionException e) {
+            // nunca: a thread do processo não é desligada
         }
-        pedido.addOnCompleteListener(threadDoEspelho(),
-            tarefa -> entregar.accept(tarefa.isSuccessful() ? tarefa.getResult() : null));
+    }
+
+    /** A OS do toque guardada no processo (a mesma para a tela velha e a recriada). */
+    static OsDoToque osDoToqueDoProcesso() {
+        return OS_DO_TOQUE_DO_PROCESSO;
+    }
+
+    /** A regra dos 10 s do teste dos avisos, uma por processo. */
+    static UmTestePorVez testesDoProcesso() {
+        return TESTES_DO_PROCESSO;
     }
 
     private void abrirNaCustomTab(String url) {
@@ -487,12 +519,15 @@ public class CascaPlugin extends Plugin {
     /**
      * O teste dos avisos que o atalho do ícone pediu (só para administrador, {@link AtalhosDeTeste}; a MainActivity, na
      * thread de UI, ao nascer ou ao receber o Intent). Devolve false se o canal não é um dos dois, se outro toque foi
-     * aceito há menos de 10 s ou se a tela não abre o App (a WebView antiga); true se o pedido foi guardado ou agendado
-     * ({@link TesteDosAvisos}).
+     * aceito há menos de 10 s (esse ganha o toast dele: o primeiro teste já foi pedido, e "falhou" seria falso) ou se a
+     * tela não abre o App (a WebView antiga); true se o pedido foi guardado ou agendado ({@link TesteDosAvisos}).
      */
     boolean testarAvisos(String canal) {
         TesteDosAvisos teste = testeDosAvisos;
-        return teste != null && teste.pedir(canal);
+        if (teste == null) return false;
+        Pedido pedido = teste.pedir(canal);
+        if (pedido == Pedido.JA_PEDIDO) AtalhosDeTeste.avisar(getContext(), AtalhosDeTeste.Resultado.JA_PEDIDO, 0);
+        return pedido == Pedido.ACEITO;
     }
 
     /**
@@ -507,8 +542,9 @@ public class CascaPlugin extends Plugin {
      *   <li>pedido com a página pronta vai logo (no ciclo seguinte da thread de UI); sem ela, o ÚLTIMO pedido fica
      *       guardado e vai quando a folga terminar (dois toques seguidos: vale o segundo);</li>
      *   <li>a página que recomeça (o login da Microsoft logo depois da carga) tira o "pronta", e a folga da carga velha
-     *       deixa de valer: o pedido espera a carga seguinte do App. A entrega é uma só: entregue, não volta numa
-     *       recarga.</li>
+     *       deixa de valer: o pedido espera a carga seguinte do App;</li>
+     *   <li>entregue, o pedido sai; a subclasse que precisa dele em toda carga o devolve no {@link #aRepetir} (a OS do
+     *       toque, até a página dizer que a abriu).</li>
      * </ul>
      * Quem chama já validou o que vai no script (o texto vai direto ao evaluateJavascript). Só na thread de UI (a do
      * onPageStarted, do onPageLoaded, do postDelayed e do evaluateJavascript).
@@ -529,7 +565,7 @@ public class CascaPlugin extends Plugin {
         }
 
         private final Pagina pagina;
-        private final Agenda agenda;
+        final Agenda agenda;
         private boolean pronta = false;  // o App carregou e a folga passou
         private int carga = 0;           // conta as cargas: a folga de uma carga que já passou não vale
         private String pendente = null;  // o último pedido ainda não entregue
@@ -545,6 +581,18 @@ public class CascaPlugin extends Plugin {
             if (pronta) agenda.depois(0, this::entregar);
         }
 
+        /** Tira o pedido guardado que ainda não foi entregue. Devolve false se não havia nenhum. */
+        final boolean descartar() {
+            if (pendente == null) return false;
+            pendente = null;
+            return true;
+        }
+
+        /** O script a entregar de novo nesta carga do App, sem pedido novo; null (o padrão) é nada. */
+        String aRepetir() {
+            return null;
+        }
+
         /** Uma página começou a carregar (qualquer uma: o App, o login da Microsoft, a tela de erro). */
         final void comecouACarregar() {
             pronta = false;
@@ -558,6 +606,7 @@ public class CascaPlugin extends Plugin {
             agenda.depois(FOLGA_MS, () -> {
                 if (carga != desta) return; // outra página começou a carregar nesse meio-tempo
                 pronta = true;
+                if (pendente == null) pendente = aRepetir();
                 entregar();
             });
         }
@@ -574,14 +623,20 @@ public class CascaPlugin extends Plugin {
      * A OS que o toque na emergência pediu para abrir (spec das notificações, 4.2, "Ao tocar"), entregue à página do App
      * como diz a {@link EntregaNaPagina}: {@code window.__gcCascaAbrirOS('<os>')} (www/casca/inicio.js, seção 9) põe o
      * número no campo de busca da página, ou o deixa pendente até o técnico sair da OS ou da ronda em que está (a página
-     * decide e espera; o nativo só entrega). Só OS que passa pela {@link Notificacoes#osValida} (1 a 12 dígitos ASCII)
-     * entra, porque o texto vai direto a um script, e o script a confere de novo (o extra do Intent pode vir de qualquer
-     * app). O número nunca vai ao log.
+     * decide e espera). Só OS que passa pela {@link Notificacoes#osValida} (1 a 12 dígitos ASCII) entra, porque o texto vai
+     * direto a um script, e o script a confere de novo. O número nunca vai ao log.
+     *
+     * A OS pedida fica guardada no processo ({@link OsDoToque}) e vai de novo a CADA carga do App, até a página dizer que
+     * a abriu (o osAberta) ou o dia acabar: a pendência da página mora no sessionStorage dela, e a tela recriada pelo
+     * renderer que morreu começa sem ele (e com outra instância daqui). A página não reabre a mesma OS na mesma carga.
      */
     static final class AberturaDaOS extends EntregaNaPagina {
 
-        AberturaDaOS(Pagina pagina, Agenda agenda) {
+        private final OsDoToque guardada;
+
+        AberturaDaOS(Pagina pagina, Agenda agenda, OsDoToque guardada) {
             super(pagina, agenda);
+            this.guardada = guardada;
         }
 
         /** O script que a página roda. A OS tem de ter passado pela {@link Notificacoes#osValida}: só dígitos. */
@@ -595,7 +650,8 @@ public class CascaPlugin extends Plugin {
          * {@code __gcCascaAbrirOS} devolve 'aberta' (a busca foi posta), 'pendente' (o técnico estava numa camada ou numa
          * ronda: nada foi fechado, e a página abre a OS sozinha quando ele ficar livre) ou false; o evaluateJavascript
          * entrega o JSON disso, com o texto entre aspas. O nativo não decide nada com a resposta: quem espera o técnico é
-         * a página. Qualquer outra coisa (false, null da página sem o script) é "não aberta", e nada dela vai ao log.
+         * a página, e quem diz que abriu é o osAberta dela. Qualquer outra coisa (false, null da página sem o script) é
+         * "não aberta", e nada dela vai ao log.
          */
         static String resultado(String resposta) {
             if ("\"aberta\"".equals(resposta)) return "aberta";
@@ -603,26 +659,32 @@ public class CascaPlugin extends Plugin {
             return "não aberta";
         }
 
-        /** Pede a OS. False (e nada acontece) se o número não é de OS. */
+        /** Pede a OS (e a guarda no processo). False (e nada acontece) se o número não é de OS. */
         boolean pedir(String os) {
             if (!Notificacoes.osValida(os)) return false;
+            guardada.guardar(os);
             entregarQuandoPronta(script(os));
             return true;
         }
+
+        @Override
+        String aRepetir() {
+            String os = guardada.aEntregar();
+            return os == null ? null : script(os);
+        }
     }
 
+    /** O que o toque no atalho de teste deu: aceito, recusado pelos 10 s ou com o canal fora dos dois. */
+    enum Pedido { ACEITO, JA_PEDIDO, INVALIDO }
+
     /**
-     * O teste dos avisos que o atalho do ícone pede (só para administrador, Ruling N7, 18/10/2026; {@link AtalhosDeTeste}),
-     * entregue à página do App como a OS do toque ({@link EntregaNaPagina}): {@code window.__gcCascaTestarAvisos('<canal>')}
-     * (www/casca/inicio.js, seção 8) chama o servidor com o Bearer da página e devolve o resultado pelo canal
-     * ({@code {t:'pushTeste'}}), que vira o toast. Só os dois canais da emergência entram ({@link AtalhosDeTeste#canalValido}:
-     * o texto vai a um script, e o extra pode vir de qualquer app), e o script os confere de novo.
-     *
      * UM TESTE POR TOQUE: o toque aceito há menos de {@value #INTERVALO_MS} ms segura o seguinte, seja qual for o canal.
      * Dois toques seguidos (o atalho que parece não ter respondido enquanto o app abre) mandariam dois pares de avisos a
-     * cada aparelho da conta. O relógio é o que não volta com a troca de hora (elapsedRealtime, no plugin).
+     * cada aparelho da conta. Uma por processo (estática no plugin, como o teto das recriações): a tela recriada pelo
+     * renderer que morreu tem plugin novo, e a contagem tem de atravessá-la. O relógio é o que não volta com a troca de
+     * hora (elapsedRealtime, no plugin). Sincronizada, como as outras do processo.
      */
-    static final class TesteDosAvisos extends EntregaNaPagina {
+    static final class UmTestePorVez {
 
         /** O intervalo mínimo entre dois toques aceitos. */
         static final long INTERVALO_MS = 10_000L;
@@ -631,9 +693,54 @@ public class CascaPlugin extends Plugin {
         private boolean houveToque = false;
         private long ultimoToque;
 
-        TesteDosAvisos(Pagina pagina, Agenda agenda, LongSupplier relogio) {
-            super(pagina, agenda);
+        UmTestePorVez(LongSupplier relogio) {
             this.relogio = relogio;
+        }
+
+        /** Conta um toque agora, se o último aceito tem 10 s ou mais, e diz se ele vale. */
+        synchronized boolean libera() {
+            long agora = relogio.getAsLong();
+            if (houveToque && agora - ultimoToque < INTERVALO_MS) return false;
+            houveToque = true;
+            ultimoToque = agora;
+            return true;
+        }
+    }
+
+    /**
+     * O teste dos avisos que o atalho do ícone pede (só para administrador, {@link AtalhosDeTeste}), entregue à página do
+     * App como a OS do toque ({@link EntregaNaPagina}): {@code window.__gcCascaTestarAvisos('<canal>')} (www/casca/inicio.js,
+     * seção 8) chama o servidor com o Bearer da página e devolve o resultado pelo canal ({@code {t:'pushTeste'}}), que
+     * vira o toast. Só os dois canais da emergência entram ({@link AtalhosDeTeste#canalValido}: o texto vai a um script),
+     * e o script os confere de novo. A regra dos 10 s é a do processo ({@link UmTestePorVez}).
+     *
+     * O toque nunca fica sem resposta, e o teste nunca sai de surpresa:
+     * <ul>
+     *   <li>o pedido guardado vale {@value #VALIDADE_MS} ms: a página que não fica pronta nesse tempo (o login que demora,
+     *       sem sinal) não manda o teste minutos depois, para todos os aparelhos da conta; ele sai da fila com o toast de
+     *       falha (o {@code semResposta});</li>
+     *   <li>o pedido que a página aceitou e não respondeu em {@value #PRAZO_DA_RESPOSTA_MS} ms (ela responde em até 20 s;
+     *       o caso é o Entrar da tela de login, que leva a página ao loginRedirect antes da resposta) também dá o toast de
+     *       falha.</li>
+     * </ul>
+     */
+    static final class TesteDosAvisos extends EntregaNaPagina {
+
+        /** Quanto o pedido guardado (a página ainda não pronta) vale. */
+        static final long VALIDADE_MS = 60_000L;
+        /** Quanto esperar a resposta da página que aceitou o pedido (o prazo dela é de 20 s). */
+        static final long PRAZO_DA_RESPOSTA_MS = 30_000L;
+
+        private final UmTestePorVez regra;
+        private final Runnable semResposta;
+        private int pedidos = 0;   // conta os pedidos aceitos: a validade de um velho não tira um novo
+        private int esperas = 0;   // conta as esperas de resposta: o prazo de uma velha não vale para uma nova
+        private boolean esperando = false;
+
+        TesteDosAvisos(Pagina pagina, Agenda agenda, UmTestePorVez regra, Runnable semResposta) {
+            super(pagina, agenda);
+            this.regra = regra;
+            this.semResposta = semResposta;
         }
 
         /** O script que a página roda. O canal tem de ser um dos dois: o texto vai direto ao evaluateJavascript. */
@@ -650,15 +757,32 @@ public class CascaPlugin extends Plugin {
             return "true".equals(resposta);
         }
 
-        /** Pede o teste. False (e nada acontece) com o canal fora dos dois ou com outro toque aceito há menos de 10 s. */
-        boolean pedir(String canal) {
-            if (!AtalhosDeTeste.canalValido(canal)) return false;
-            long agora = relogio.getAsLong();
-            if (houveToque && agora - ultimoToque < INTERVALO_MS) return false;
-            houveToque = true;
-            ultimoToque = agora;
+        /** Pede o teste: aceito (guardado ou agendado), recusado pelos 10 s ou com o canal fora dos dois. */
+        Pedido pedir(String canal) {
+            if (!AtalhosDeTeste.canalValido(canal)) return Pedido.INVALIDO;
+            if (!regra.libera()) return Pedido.JA_PEDIDO;
+            final int este = ++pedidos;
             entregarQuandoPronta(script(canal));
-            return true;
+            agenda.depois(VALIDADE_MS, () -> {
+                if (pedidos == este && descartar()) semResposta.run();
+            });
+            return Pedido.ACEITO;
+        }
+
+        /** A página aceitou o pedido: o resultado tem de vir pelo canal dentro do prazo. */
+        void paginaAceitou() {
+            final int esta = ++esperas;
+            esperando = true;
+            agenda.depois(PRAZO_DA_RESPOSTA_MS, () -> {
+                if (esperas != esta || !esperando) return;
+                esperando = false;
+                semResposta.run();
+            });
+        }
+
+        /** O resultado chegou (o pushTeste): o toast é o dele. */
+        void respondeu() {
+            esperando = false;
         }
     }
 
@@ -699,16 +823,27 @@ public class CascaPlugin extends Plugin {
     }
 
     // A volta ao app (a câmera, os ajustes, a Custom Tab do Fracttal): a checagem das 6 h e, depois de o técnico liberar
-    // "Instalar apps desconhecidos", a retomada da instalação.
+    // "Instalar apps desconhecidos", a retomada da instalação. E o token do aparelho de novo à página, se os avisos
+    // passaram a ligados nos ajustes ou se o Firebase deu outro token (PushNaCasca.voltouAoApp), na thread do espelho.
     @Override
     protected void handleOnResume() {
         super.handleOnResume();
         if (atualizador != null) atualizador.verificar();
+        PushNaCasca conversa = push;
+        if (conversa == null) return;
+        try {
+            threadDoEspelho().execute(() -> {
+                if (!encerrado) conversa.voltouAoApp();
+            });
+        } catch (RejectedExecutionException e) {
+            // nunca: a thread do processo não é desligada
+        }
     }
 
     @Override
     protected void handleOnDestroy() {
         encerrado = true;
+        VIVO.compareAndSet(this, null);
         if (atualizador != null) atualizador.encerrar(); // fecha o diálogo aberto; o download em curso termina sozinho
         // A thread do espelho é do processo e fica: o que já está na fila dela ainda é gravado (é o que a página
         // mandou), e o encerrado impede que algo novo desta tela entre (aoReceber) ou volte à WebView (naUi).
@@ -750,13 +885,29 @@ public class CascaPlugin extends Plugin {
             naUi(() -> abrirNaCustomTab(url));
         }
 
-        // A resposta vai pela ponte da mensagem que pediu, quando o Firebase responder (na thread do espelho). A página
-        // que já foi embora não recebe nada (o responder engole), e a próxima carga pede de novo.
+        // A resposta vai pela ponte da mensagem que pediu, quando o Firebase responder (na thread do espelho), e a
+        // ponte fica como a da página, para o que o nativo mandar sozinho depois (PushNaCasca). A página que já foi
+        // embora não recebe nada (o responder engole), e a próxima carga pede de novo.
         @Override
         public void pushPedirToken() {
             JavaScriptReplyProxy ponte = ponteDaMensagem;
             if (ponte == null) return;
-            tokenDoFirebase(token -> responder(ponte, Mensageiro.respostaDoPush(token, BuildConfig.VERSION_NAME)));
+            push.pediuToken(mensagem -> responder(ponte, mensagem));
+        }
+
+        @Override
+        public void pushSaiu() {
+            push.saiu();
+        }
+
+        @Override
+        public void pushRegistrado() {
+            push.registrado();
+        }
+
+        @Override
+        public void osAberta(String os) {
+            push.osAberta(os);
         }
 
         // Na thread do espelho mesmo: o ShortcutManager é um serviço do sistema e não pede a de UI. Vale também com a
@@ -767,12 +918,16 @@ public class CascaPlugin extends Plugin {
             if (admin) AtalhosDeTeste.publicar(app); else AtalhosDeTeste.tirar(app);
         }
 
-        // O toast precisa da thread de UI. Ao log vai só o resultado e a contagem.
+        // O toast precisa da thread de UI. Ao log vai só o resultado e a contagem. O resultado que chegou tira a espera da
+        // resposta (o toast de falha do pedido aceito sem resposta).
         @Override
         public void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos) {
             Log.i(TAG, "o teste dos avisos: " + resultado
                 + (resultado == AtalhosDeTeste.Resultado.ENVIADO ? " (" + aparelhos + " aparelho(s))" : ""));
-            naUi(() -> AtalhosDeTeste.avisar(getContext(), resultado, aparelhos));
+            naUi(() -> {
+                if (testeDosAvisos != null) testeDosAvisos.respondeu();
+                AtalhosDeTeste.avisar(getContext(), resultado, aparelhos);
+            });
         }
 
         @Override
@@ -809,6 +964,7 @@ public class CascaPlugin extends Plugin {
         @Override
         public boolean onRenderProcessGone(WebView webView, RenderProcessGoneDetail detalhe) {
             encerrado = true;
+            VIVO.compareAndSet(CascaPlugin.this, null);
             if (RECRIACOES_DO_PROCESSO.cabe()) {
                 Log.w(TAG, "o renderer da WebView morreu; recriando a tela");
             } else {

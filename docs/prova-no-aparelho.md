@@ -127,8 +127,8 @@ em "Antes de começar".
 
 ### O registro do aparelho e o atalho de teste (só Admin)
 
-- [ ] Entrar com a conta Admin: o toque longo no ícone mostra **Testar avisos** e **Testar fora do expediente** (podem
-      levar alguns segundos depois da abertura, com internet).
+- [ ] Entrar com a conta Admin: o toque longo no ícone mostra **Testar avisos** e **Testar avisos fora do expediente**
+      (podem levar alguns segundos depois da abertura, com internet).
 - [ ] Entrar com a conta sem Admin (passando pelo Sair): o toque longo não mostra nenhum dos dois. Depois do Sair da conta
       Admin, eles também saem.
 - [ ] Com a conta Admin, **Testar avisos**: o aviso rápido diz **Aviso de teste enviado para 1 aparelho(s)**. Se disser
@@ -138,13 +138,19 @@ em "Antes de começar".
 - [ ] **Testar avisos** manda um resumo e uma emergência de teste: o resumo chega no canal **Resumo do dia**, e a
       emergência (título **Emergência**, OS 12345) no canal **Emergências**: aparece por cima da tela, toca o alarme do
       aparelho e vibra três vezes.
-- [ ] **Testar fora do expediente**: a emergência de teste chega no canal **Emergências fora do expediente**, na barra,
-      sem som, sem vibração e sem aparecer por cima da tela.
-- [ ] Dois toques seguidos num atalho, em menos de 10 s, mandam um teste só.
+- [ ] **Testar avisos fora do expediente**: a emergência de teste chega no canal **Emergências fora do expediente**, na
+      barra, sem som, sem vibração e sem aparecer por cima da tela (o resumo de teste que vem junto toca no **Resumo do
+      dia**).
+- [ ] Dois toques seguidos num atalho, em menos de 10 s, mandam um teste só: o segundo mostra **Teste já pedido. Espere
+      alguns segundos para pedir outro**.
 - [ ] Com a rede cortada, o toque no atalho mostra **Não consegui enviar o teste agora** (em até 20 s).
-- [ ] (opcional) Fixar um atalho na tela inicial (arrastar do menu do toque longo) e tocar nele com ninguém logado:
-      **Entre no Nexus Field para testar**. Entrar com a conta sem Admin e tocar nele: **Só administrador pode testar**,
-      e os dois atalhos do ícone saem. O atalho fixado não some sozinho com o Sair (limite conhecido).
+- [ ] Com a conta Admin no aparelho (sem o Sair), tirar o Nexus Field dos recentes, tocar no atalho e não entrar: em uns
+      20 s, **Entre no Nexus Field para testar**.
+- [ ] (opcional) Fixar um atalho na tela inicial (arrastar do menu do toque longo). Depois do Sair, tocar nele: o Android
+      mostra **Só para administrador** e o Nexus Field não abre; com a conta sem Admin, o mesmo. Com a conta Admin de
+      novo, ele volta a testar.
+- [ ] (opcional, com a sessão "App de campo") Tirar o papel Admin da conta no servidor com o Nexus Field aberto e tocar no
+      atalho: **Só administrador pode testar**, e os atalhos saem na hora (o fixado fica desligado).
 
 ### Os canais e o ícone
 
@@ -152,7 +158,8 @@ em "Antes de começar".
 - [ ] Segurar a notificação mostra o canal certo. Mudar o som de **Emergências** nos ajustes do Android e abrir o Nexus
       Field de novo: o ajuste do técnico continua.
 - [ ] **Testar avisos** duas vezes (com mais de 10 s entre elas), a primeira ainda na barra: fica uma emergência só (a
-      mesma OS substitui a anterior) e ela não toca de novo; o resumo também fica um só, e esse toca de novo.
+      mesma OS substitui a anterior) e ela não toca de novo; o resumo também fica um só e, com o mesmo texto na barra,
+      também não toca de novo.
 
 ### O toque na emergência
 
@@ -168,8 +175,9 @@ Use **Testar avisos**. A regra é que o toque nunca interrompe o técnico.
 - [ ] No meio de uma ronda: igual, a OS fica pendente até a ronda ser fechada.
 - [ ] Com a câmera interna, uma folha ou a APR abertas por cima da OS: o toque não fecha nenhuma delas, e a OS fica
       pendente até ele fechar tudo.
-- [ ] Anotar o que se vê, sem passa ou falha: com uma OS pendente, tirar o Nexus Field dos recentes e abrir de novo. A
-      pendência não sobrevive ao app fechado (limite conhecido), e a OS não abre sozinha.
+- [ ] A emergência tocada fica na barra até a OS abrir. Com uma OS pendente, tirar o Nexus Field dos recentes e abrir
+      pelo ícone: a OS não abre sozinha (a pendência era da partida), e a emergência continua na barra; tocar nela de novo
+      abre a OS, e aí ela sai da barra.
 - [ ] Tocar no resumo abre o Nexus Field onde ele estava, sem mexer na tela.
 
 ### O resumo das 7h e das 13h

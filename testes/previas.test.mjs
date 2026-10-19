@@ -96,9 +96,11 @@ const DIALOGOS = [
   { titulo: 'casca_instalar_titulo', textos: ['casca_instalar_texto'], botoes: ['casca_abrir_ajustes'] },
 ];
 // Os toasts, na ordem da prévia: o do download que começou e o da atualização que não deu certo; depois, os do resultado
-// do teste dos avisos pelo atalho do ícone (só para administrador): enviado, só administrador, sem login e a falha.
+// do teste dos avisos pelo atalho do ícone (só para administrador): enviado (com e sem a contagem), só administrador, sem
+// login, a falha e o segundo toque em menos de 10 s.
 const TOASTS = ['casca_atualizacao_baixando', 'casca_atualizacao_sha_toast',
-  'casca_teste_enviado', 'casca_teste_so_admin', 'casca_teste_entrar', 'casca_teste_falhou'];
+  'casca_teste_enviado', 'casca_teste_enviado_sem_contagem', 'casca_teste_so_admin', 'casca_teste_entrar',
+  'casca_teste_falhou', 'casca_teste_ja_pedido'];
 
 // Os botões de cada AlertDialog.Builder do código Java, "negativo>positivo" (ou só o positivo): é como o aplicativo os
 // monta de verdade. Vai até o primeiro .show() ou .create() da cadeia (as lambdas dos botões não têm nenhum dos dois).
@@ -137,11 +139,12 @@ function canaisDoJava() {
   return [...fonte.matchAll(/\.setName\([^;]*?R\.string\.(\w+)/g)].map((m) => m[1]);
 }
 
-// Os rótulos que o AtalhosDeTeste dá a cada atalho do ícone (o setShortLabel e o setLongLabel do ShortcutInfoCompat).
+// Os rótulos que o AtalhosDeTeste dá a cada atalho do ícone (o setShortLabel e o setLongLabel do ShortcutInfoCompat) e o
+// texto do atalho fixado que fica desligado para quem não é Admin (o do disableShortcuts), que o launcher mostra no toque.
 function rotulosDosAtalhosDoJava() {
   const fonte = lerArquivo(PASTA_JAVA + 'AtalhosDeTeste.java');
   const de = (metodo) => [...fonte.matchAll(new RegExp(`\\.${metodo}\\([^;]*?R\\.string\\.(\\w+)`, 'g'))].map((m) => m[1]);
-  return { curtos: de('setShortLabel'), longos: de('setLongLabel') };
+  return { curtos: de('setShortLabel'), longos: de('setLongLabel'), desligado: de('disableShortcuts') };
 }
 
 // Os canais como o CanaisDeNotificacao os cria: o id (o valor da constante CANAL_* do Notificacoes), a importância
@@ -276,11 +279,12 @@ test('os nomes dos canais de notificação estão no quadro dos ajustes: os que 
 test('os rótulos dos atalhos de teste estão no quadro do toque longo: os que o AtalhosDeTeste dá a cada atalho, e só eles', () => {
   // O dono escolheu testar as notificações por um botão que só o administrador vê; o botão é o atalho do ícone (toque
   // longo). O menu do launcher mostra o rótulo longo quando cabe e o curto quando não cabe (ou no atalho fixado na tela).
-  const { curtos, longos } = rotulosDosAtalhosDoJava();
+  const { curtos, longos, desligado } = rotulosDosAtalhosDoJava();
   assert.equal(curtos.length, 2, 'o teste achou os dois atalhos do AtalhosDeTeste');
   assert.equal(longos.length, 2);
-  assert.deepEqual(stringsDosAtalhos().map((s) => s.nome).sort(), [...curtos, ...longos].sort(),
-    'todo atalho_* do strings.xml é o rótulo de um atalho, e todo atalho tira os rótulos de um deles');
+  assert.equal(desligado.length, 1, 'o texto do atalho fixado desligado');
+  assert.deepEqual(stringsDosAtalhos().map((s) => s.nome).sort(), [...curtos, ...longos, ...desligado].sort(),
+    'todo atalho_* do strings.xml é o rótulo de um atalho ou o texto do desligado, e o AtalhosDeTeste tira cada um dali');
 
   const figura = doc().getElementById('t-atalhos');
   const quadro = figura?.querySelector('.celular');
@@ -288,6 +292,7 @@ test('os rótulos dos atalhos de teste estão no quadro do toque longo: os que o
   const ler = (dentro, seletor) => [...dentro.querySelectorAll(seletor)].map((e) => compactar(e.textContent));
   assert.deepEqual(ler(quadro, '.menu-atalhos .atalho-rotulo'), longos.map(textoDe), 'o menu mostra os rótulos longos, na ordem do código');
   assert.deepEqual(ler(figura, '.atalho-curto'), curtos.map(textoDe), 'e a legenda diz os curtos, na mesma ordem');
+  assert.deepEqual(ler(figura, '.atalho-desligado'), desligado.map(textoDe), 'e o texto do atalho fixado desligado');
   // O ícone embaixo do menu é o do aplicativo, com o rótulo dele.
   assert.ok(quadro.querySelector('svg.icone use[href="#g-nexus-field"]'), 'o ícone do Nexus Field embaixo do menu');
   assert.equal(compactar(quadro.querySelector('.inicio-rotulo').textContent), stringDoApp('title_activity_main'));
@@ -745,7 +750,7 @@ test('o roteiro da prova das notificações só cita textos do aplicativo e cobr
   // E cita cada um dos que a prova precisa ver.
   const obrigatorios = [
     ...rotulosDosAtalhosDoJava().longos, ...canaisDoJava(),
-    'casca_teste_enviado', 'casca_teste_so_admin', 'casca_teste_entrar', 'casca_teste_falhou',
+    'casca_teste_enviado', 'casca_teste_so_admin', 'casca_teste_entrar', 'casca_teste_falhou', 'casca_teste_ja_pedido',
     'casca_avisos_titulo', 'casca_permissoes_titulo',
   ];
   for (const nome of obrigatorios) {

@@ -18,9 +18,11 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * As regras do plugin que não dependem da WebView: o endereço da navegação como vai ao log de depuração e a fila da OS
- * que o toque na emergência pede para abrir ({@link CascaPlugin.AberturaDaOS}, com a página e o relógio falsos). O resto
- * (script, canal, recarga, recriação, Custom Tab) só se vê no aparelho. Os e-mails abaixo são fictícios.
+ * As regras do plugin que não dependem da WebView: o endereço da navegação como vai ao log de depuração, a OS que o
+ * toque na emergência pede para abrir ({@link CascaPlugin.AberturaDaOS}, com a OS guardada no processo) e o teste dos
+ * avisos do atalho do ícone ({@link CascaPlugin.TesteDosAvisos}, com a regra dos 10 s do processo), com a página, a agenda
+ * e os relógios falsos. O resto (script, canal, recarga, recriação, Custom Tab) só se vê no aparelho. Os e-mails abaixo são
+ * fictícios.
  */
 @RunWith(RobolectricTestRunner.class)
 public class CascaPluginTest {
@@ -100,27 +102,54 @@ public class CascaPluginTest {
         }
     }
 
-    /** O postDelayed falso: guarda a tarefa e o atraso, e só roda quando o teste manda. */
+    /**
+     * O postDelayed falso: guarda a tarefa e o atraso, e só roda quando o teste manda, na ordem do relógio dela (o
+     * instante em que venceria; no mesmo instante, a ordem em que foi agendada), como a fila da thread de UI.
+     */
     private static final class AgendaFalsa implements CascaPlugin.AberturaDaOS.Agenda {
         final List<Long> atrasos = new ArrayList<>();
-        private final List<Runnable> tarefas = new ArrayList<>();
+        private final List<Object[]> tarefas = new ArrayList<>(); // {vence (Long), ordem (Long), tarefa (Runnable)}
+        private long agora = 0;
+        private long ordem = 0;
 
         @Override
         public void depois(long ms, Runnable tarefa) {
             atrasos.add(ms);
-            tarefas.add(tarefa);
+            tarefas.add(new Object[] {agora + ms, ordem++, tarefa});
         }
 
-        /** Roda o que está agendado (o que as tarefas agendarem de novo fica para a próxima rodada). */
+        private void ordenar(List<Object[]> lista) {
+            lista.sort((a, b) -> a[0].equals(b[0]) ? Long.compare((Long) a[1], (Long) b[1]) : Long.compare((Long) a[0], (Long) b[0]));
+        }
+
+        private void rodar(Object[] t) {
+            agora = Math.max(agora, (Long) t[0]);
+            ((Runnable) t[2]).run();
+        }
+
+        /** Roda o que está agendado, na ordem do relógio (o que as tarefas agendarem de novo fica para a próxima rodada). */
         void rodar() {
-            List<Runnable> agora = new ArrayList<>(tarefas);
+            List<Object[]> lista = new ArrayList<>(tarefas);
             tarefas.clear();
-            for (Runnable t : agora) t.run();
+            ordenar(lista);
+            for (Object[] t : lista) rodar(t);
         }
 
-        /** Roda só a tarefa mais antiga (a folga de uma carga que a seguinte já passou). */
+        /** Roda só a próxima tarefa do relógio (a folga de uma carga que a seguinte já passou, a entrega na hora). */
         void rodarUma() {
-            tarefas.remove(0).run();
+            ordenar(tarefas);
+            rodar(tarefas.remove(0));
+        }
+
+        /** O tempo anda {@code ms}: roda, na ordem, o que vencer até lá (também o que for agendado nesse meio-tempo). */
+        void andar(long ms) {
+            long ate = agora + ms;
+            while (true) {
+                ordenar(tarefas);
+                if (tarefas.isEmpty() || (Long) tarefas.get(0)[0] > ate) break;
+                rodar(tarefas.remove(0));
+            }
+            agora = ate;
         }
 
         int pendentes() {
@@ -130,7 +159,10 @@ public class CascaPluginTest {
 
     private final PaginaFalsa pagina = new PaginaFalsa();
     private final AgendaFalsa agenda = new AgendaFalsa();
-    private final CascaPlugin.AberturaDaOS abertura = new CascaPlugin.AberturaDaOS(pagina, agenda);
+    // A OS guardada no processo, com o relógio de parede do teste (uma terça, 10:00 em Brasília).
+    private long parede = ExpedienteTest.em(2026, 10, 20, 10, 0);
+    private final OsDoToque osDoProcesso = new OsDoToque(() -> parede);
+    private final CascaPlugin.AberturaDaOS abertura = new CascaPlugin.AberturaDaOS(pagina, agenda, osDoProcesso);
 
     private static String roda(String os) {
         return "window.__gcCascaAbrirOS&&window.__gcCascaAbrirOS('" + os + "')";
@@ -263,17 +295,68 @@ public class CascaPluginTest {
     }
 
     @Test
-    public void umaOsEntregueNaoVoltaNasCargasSeguintes() {
+    public void aOsEntregueVoltaACadaCargaAteAPaginaDizerQueAbriu() {
+        // A página pode ter deixado a OS pendente (o técnico estava ocupado), e a pendência mora no sessionStorage dela:
+        // a carga seguinte (a tela recriada pelo renderer que morreu começa sem ele) recebe a OS de novo. A página não
+        // reabre a mesma OS na mesma carga, e diz quando abriu (o osAberta, que esquece a guardada).
         assertTrue(abertura.pedir("12345"));
         abertura.carregou();
         agenda.rodar();
-        assertEquals(1, pagina.scripts.size());
+        assertEquals(Collections.singletonList(roda("12345")), pagina.scripts);
 
         abertura.comecouACarregar();
         abertura.carregou();
         agenda.rodar();
-        assertEquals("a recarga da página não abre a OS de novo", 1, pagina.scripts.size());
+        assertEquals("a recarga entrega a mesma OS de novo", Arrays.asList(roda("12345"), roda("12345")), pagina.scripts);
+
+        osDoProcesso.esquecerSe("12345"); // o osAberta
+        abertura.comecouACarregar();
+        abertura.carregou();
+        agenda.rodar();
+        assertEquals("aberta, não volta mais", 2, pagina.scripts.size());
         assertEquals(0, agenda.pendentes());
+    }
+
+    @Test
+    public void aTelaRecriadaEntregaAOsGuardadaNoProcesso() {
+        // O renderer morre com a OS pendente na página: a tela recriada tem plugin (e AberturaDaOS) novos, sem o pedido da
+        // velha. A OS guardada no processo vai à primeira carga do App da tela nova.
+        assertTrue(abertura.pedir("4521"));
+        abertura.carregou();
+        agenda.rodar();
+        PaginaFalsa nova = new PaginaFalsa();
+        CascaPlugin.AberturaDaOS recriada = new CascaPlugin.AberturaDaOS(nova, agenda, osDoProcesso);
+        recriada.carregou();
+        agenda.rodar();
+        assertEquals(Collections.singletonList(roda("4521")), nova.scripts);
+    }
+
+    @Test
+    public void aOsGuardadaDeOntemNaoVaiAPagina() {
+        assertTrue(abertura.pedir("4521"));
+        abertura.carregou();
+        agenda.rodar();
+        parede = ExpedienteTest.em(2026, 10, 21, 0, 1);
+        abertura.comecouACarregar();
+        abertura.carregou();
+        agenda.rodar();
+        assertEquals("a da véspera não volta", 1, pagina.scripts.size());
+    }
+
+    @Test
+    public void semToqueNenhumACargaNaoEntregaNada() {
+        abertura.carregou();
+        agenda.rodar();
+        abertura.comecouACarregar();
+        abertura.carregou();
+        agenda.rodar();
+        assertTrue(pagina.scripts.isEmpty());
+    }
+
+    @Test
+    public void aOsDoProcessoEUmaSoParaAsTelas() {
+        // As telas do processo (a velha e a recriada) usam a mesma, estática no plugin.
+        assertSame(CascaPlugin.osDoToqueDoProcesso(), CascaPlugin.osDoToqueDoProcesso());
     }
 
     @Test
@@ -298,29 +381,36 @@ public class CascaPluginTest {
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // O teste dos avisos que o atalho do ícone pede (só para administrador, Ruling N7)
+    // O teste dos avisos que o atalho do ícone pede (só para administrador)
     // ---------------------------------------------------------------------------------------------------------------
 
     private long relogio = 50_000L;
-    private final CascaPlugin.TesteDosAvisos teste = new CascaPlugin.TesteDosAvisos(pagina, agenda, () -> relogio);
+    private final CascaPlugin.UmTestePorVez regraDoProcesso = new CascaPlugin.UmTestePorVez(() -> relogio);
+    private int semResposta = 0;
+    private final CascaPlugin.TesteDosAvisos teste =
+        new CascaPlugin.TesteDosAvisos(pagina, agenda, regraDoProcesso, () -> semResposta++);
 
     private static String testa(String canal) {
         return "window.__gcCascaTestarAvisos&&window.__gcCascaTestarAvisos('" + canal + "')";
     }
 
+    private static final CascaPlugin.Pedido ACEITO = CascaPlugin.Pedido.ACEITO;
+    private static final CascaPlugin.Pedido JA_PEDIDO = CascaPlugin.Pedido.JA_PEDIDO;
+    private static final CascaPlugin.Pedido INVALIDO = CascaPlugin.Pedido.INVALIDO;
+
     @Test
     public void oCanalDoTesteForaDosDoisEDescartadoENuncaChegaAPagina() {
-        // O extra do atalho vem de fora (a MainActivity é exportada) e o texto vira JavaScript: só os dois canais.
+        // O texto vira JavaScript: só os dois canais (a porta interna já filtra; confere-se de novo aqui).
         teste.carregou();
         agenda.rodar();
         for (String canal : new String[] {null, "", "resumo", "EMERGENCIA", "emergencia ", "emergencia'); x('",
                 "emergencia_silenciosa\n"}) {
-            assertFalse(String.valueOf(canal), teste.pedir(canal));
+            assertEquals(String.valueOf(canal), INVALIDO, teste.pedir(canal));
         }
         agenda.rodar();
         assertTrue("nada foi executado", pagina.scripts.isEmpty());
         // O canal torto não gasta a vez dos 10 s: o toque válido logo depois passa.
-        assertTrue(teste.pedir("emergencia"));
+        assertEquals(ACEITO, teste.pedir("emergencia"));
         agenda.rodar();
         assertEquals(Collections.singletonList(testa("emergencia")), pagina.scripts);
     }
@@ -328,13 +418,11 @@ public class CascaPluginTest {
     @Test
     public void oTestePedidoAntesDaCargaEGuardadoEEntregueDepoisDaFolga() {
         // O toque no atalho com o app fechado: a tela nasce, e a página ainda nem começou.
-        assertTrue(teste.pedir("emergencia_silenciosa"));
-        agenda.rodar();
-        assertTrue(pagina.scripts.isEmpty());
+        assertEquals(ACEITO, teste.pedir("emergencia_silenciosa"));
         teste.comecouACarregar();
         teste.carregou();
         assertTrue("a folga de 1,5 s: o App ainda monta a tela", pagina.scripts.isEmpty());
-        assertEquals(Collections.singletonList(1_500L), agenda.atrasos);
+        assertTrue(agenda.atrasos.contains(1_500L));
         agenda.rodar();
         assertEquals(Collections.singletonList(testa("emergencia_silenciosa")), pagina.scripts);
         // Entregue, não volta na recarga.
@@ -348,39 +436,125 @@ public class CascaPluginTest {
     public void doisToquesEmMenosDe10SegundosMandamUmTesteSo() {
         teste.carregou();
         agenda.rodar();
-        assertTrue(teste.pedir("emergencia"));
+        assertEquals(ACEITO, teste.pedir("emergencia"));
         relogio += 9_999L;
-        assertFalse("o segundo toque em menos de 10 s não manda outro", teste.pedir("emergencia"));
-        assertFalse("nem com o outro canal", teste.pedir("emergencia_silenciosa"));
+        assertEquals("o segundo toque em menos de 10 s não manda outro (e ganha o toast dele)", JA_PEDIDO,
+            teste.pedir("emergencia"));
+        assertEquals("nem com o outro canal", JA_PEDIDO, teste.pedir("emergencia_silenciosa"));
         agenda.rodar();
         assertEquals(Collections.singletonList(testa("emergencia")), pagina.scripts);
         // Passados os 10 s do primeiro toque aceito, o próximo vale.
         relogio += 1L;
-        assertTrue(teste.pedir("emergencia_silenciosa"));
+        assertEquals(ACEITO, teste.pedir("emergencia_silenciosa"));
         agenda.rodar();
         assertEquals(Arrays.asList(testa("emergencia"), testa("emergencia_silenciosa")), pagina.scripts);
     }
 
     @Test
     public void doisToquesAntesDaCargaTambemMandamUmSo() {
-        assertTrue(teste.pedir("emergencia"));
+        assertEquals(ACEITO, teste.pedir("emergencia"));
         relogio += 3_000L;
-        assertFalse(teste.pedir("emergencia_silenciosa"));
+        assertEquals(JA_PEDIDO, teste.pedir("emergencia_silenciosa"));
         teste.carregou();
         agenda.rodar();
         assertEquals(Collections.singletonList(testa("emergencia")), pagina.scripts);
     }
 
     @Test
+    public void aRegraDos10SegundosAtravessaATelaRecriada() {
+        // O renderer que morre recria a tela, com plugin e TesteDosAvisos novos: a contagem é do processo (estática no
+        // plugin), senão o toque logo depois da recriação mandava outro par de avisos a cada aparelho da conta.
+        assertEquals(ACEITO, teste.pedir("emergencia"));
+        CascaPlugin.TesteDosAvisos daTelaRecriada =
+            new CascaPlugin.TesteDosAvisos(new PaginaFalsa(), agenda, regraDoProcesso, () -> semResposta++);
+        relogio += 2_000L;
+        assertEquals(JA_PEDIDO, daTelaRecriada.pedir("emergencia"));
+        assertSame("a regra do plugin é uma por processo", CascaPlugin.testesDoProcesso(), CascaPlugin.testesDoProcesso());
+    }
+
+    @Test
+    public void oPedidoGuardadoValeSessentaSegundos() {
+        // O toque com o app fechado, e a página que não fica pronta (o login que demora, sem sinal): o teste não pode
+        // sair minutos depois, de surpresa, para todos os aparelhos da conta. Passados 60 s, ele é descartado com o toast
+        // de falha (o toque nunca fica sem resposta).
+        assertEquals(ACEITO, teste.pedir("emergencia"));
+        assertEquals(Collections.singletonList(CascaPlugin.TesteDosAvisos.VALIDADE_MS), agenda.atrasos);
+        assertEquals(60_000L, CascaPlugin.TesteDosAvisos.VALIDADE_MS);
+        agenda.rodar(); // passaram os 60 s
+        assertEquals("o toast de falha", 1, semResposta);
+        teste.carregou();
+        agenda.rodar();
+        assertTrue("vencido, não vai à página", pagina.scripts.isEmpty());
+    }
+
+    @Test
+    public void oPedidoEntregueAntesDosSessentaSegundosNaoVence() {
+        assertEquals(ACEITO, teste.pedir("emergencia"));
+        teste.carregou();
+        agenda.rodarUma(); // a folga (1,5 s) vence antes da validade (60 s): a entrega
+        assertEquals(1, pagina.scripts.size());
+        agenda.rodar(); // a validade
+        assertEquals("entregue, a validade não dá toast", 0, semResposta);
+    }
+
+    @Test
+    public void aValidadeDeUmPedidoVelhoNaoTiraONovo() {
+        // O primeiro teste foi entregue na hora; 15 s depois, com a página recarregando, o segundo fica guardado. Os 60 s
+        // do primeiro vencem com o segundo ainda guardado, e não podem tirá-lo (nem dar o toast de falha dele).
+        teste.carregou();
+        agenda.rodar(); // a folga: a página está pronta
+        assertEquals(ACEITO, teste.pedir("emergencia"));
+        agenda.rodarUma(); // a entrega na hora
+        assertEquals(1, pagina.scripts.size());
+        agenda.andar(15_000);
+        relogio += 15_000L;
+        teste.comecouACarregar();
+        assertEquals(ACEITO, teste.pedir("emergencia_silenciosa"));
+        agenda.andar(50_000); // passam os 60 s do primeiro pedido, não os do segundo
+        assertEquals("a validade do primeiro não tira o segundo", 0, semResposta);
+        teste.carregou();
+        agenda.andar(2_000);
+        assertEquals(Arrays.asList(testa("emergencia"), testa("emergencia_silenciosa")), pagina.scripts);
+    }
+
+    @Test
+    public void oPedidoAceitoSemRespostaDaPaginaDaOToastDeFalha() {
+        // A página aceitou o teste (o script devolveu true) e foi embora antes de responder: o Entrar da tela de login, o
+        // loginRedirect. Sem o pushTeste em 30 s (a página responde em 20 s), o toast de falha.
+        teste.carregou();
+        agenda.rodar();
+        assertEquals(ACEITO, teste.pedir("emergencia"));
+        agenda.rodarUma(); // a entrega
+        teste.paginaAceitou();
+        assertTrue(agenda.atrasos.contains(CascaPlugin.TesteDosAvisos.PRAZO_DA_RESPOSTA_MS));
+        assertTrue(CascaPlugin.TesteDosAvisos.PRAZO_DA_RESPOSTA_MS > 20_000L);
+        agenda.rodar();
+        assertEquals(1, semResposta);
+    }
+
+    @Test
+    public void oPedidoAceitoComRespostaNaoDaToastDeFalha() {
+        teste.carregou();
+        agenda.rodar();
+        assertEquals(ACEITO, teste.pedir("emergencia"));
+        agenda.rodarUma(); // a entrega
+        teste.paginaAceitou();
+        teste.respondeu(); // o pushTeste chegou: o toast é o dele
+        agenda.rodar();
+        assertEquals(0, semResposta);
+    }
+
+    @Test
     public void oTesteEAOsDoToqueNaoSeAtropelam() {
         // A emergência tocada e o atalho de teste na mesma partida: cada um tem o seu pedido guardado.
-        CascaPlugin.AberturaDaOS os = new CascaPlugin.AberturaDaOS(pagina, agenda);
+        CascaPlugin.AberturaDaOS os = new CascaPlugin.AberturaDaOS(pagina, agenda, osDoProcesso);
         assertTrue(os.pedir("4521"));
-        assertTrue(teste.pedir("emergencia"));
+        assertEquals(ACEITO, teste.pedir("emergencia"));
         os.carregou();
         teste.carregou();
         agenda.rodar();
         assertEquals(Arrays.asList(roda("4521"), testa("emergencia")), pagina.scripts);
+        assertEquals("a validade do teste não deu toast: ele foi entregue", 0, semResposta);
     }
 
     @Test

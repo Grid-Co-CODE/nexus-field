@@ -79,21 +79,31 @@
     <string name="notificacao_canal_emergencia_silenciosa">Emergências fora do expediente</string>
 
     <!--
-      O atalho de teste dos avisos, só para administrador (Ruling N7, 18/10/2026): o toque longo no ícone do Nexus Field
-      mostra estes dois atalhos só na conta que o servidor diz Admin, e cada um pede ao servidor um aviso de teste no
-      canal dele (o alto e o silencioso). O launcher mostra o rótulo longo quando cabe e o curto quando não cabe.
-      Textos novos de 18/10/2026, PENDENTES de aprovação do dono da casca na prévia (o quadro #t-atalhos). Prefixo
-      próprio, não casca_: não são diálogo nem toast. O testes/previas.test.mjs confere que são os do AtalhosDeTeste.
+      O atalho de teste dos avisos, só para administrador (decisão do dono, 18/10/2026): o toque longo no ícone do Nexus
+      Field mostra estes dois atalhos só na conta que o servidor diz Admin, e cada um pede ao servidor um aviso de teste
+      no canal dele (o alto e o silencioso), junto com um resumo de teste, que toca no canal do resumo: por isso nenhum
+      rótulo promete "sem som". O launcher mostra o rótulo longo quando cabe e o curto quando não cabe (o do atalho fixado
+      na tela inicial), cortado a uns 10 caracteres. O "_desligado" é o que o launcher mostra no toque do atalho fixado
+      que ficou desligado (a conta não é Admin, ou saiu). Textos de 19/10/2026 (os rótulos de 18/10 diziam "Testar sem
+      som" e "Testar fora do expediente"), PENDENTES de aprovação do dono da casca na prévia (o quadro #t-atalhos).
+      Prefixo próprio, não casca_: não são diálogo nem toast. O testes/previas.test.mjs confere que são os do
+      AtalhosDeTeste.
     -->
-    <string name="atalho_teste_avisos_curto">Testar avisos</string>
+    <string name="atalho_teste_avisos_curto">Testar</string>
     <string name="atalho_teste_avisos_longo">Testar avisos</string>
-    <string name="atalho_teste_fora_curto">Testar sem som</string>
-    <string name="atalho_teste_fora_longo">Testar fora do expediente</string>
+    <string name="atalho_teste_fora_curto">Silencioso</string>
+    <string name="atalho_teste_fora_longo">Testar avisos fora do expediente</string>
+    <string name="atalho_teste_desligado">Só para administrador</string>
 
-    <!-- O resultado do teste pedido pelo atalho (toast). Sem dado da conta: só a contagem de aparelhos. Textos novos de
-         18/10/2026, PENDENTES de aprovação do dono da casca na prévia. -->
+    <!-- O resultado do teste pedido pelo atalho (toast). Sem dado da conta: só a contagem de aparelhos. O "(s)" fica, e
+         não um plurals: no pt-BR o Android põe o 0 no singular ("0 aparelho"), e o 0 é o caso que a prova procura (o
+         aparelho que não se registrou). Textos novos de 18/10/2026 (o "_sem_contagem", o 200 cuja contagem não se lê, e o
+         "_ja_pedido", o segundo toque em menos de 10 s, de 19/10/2026), PENDENTES de aprovação do dono da casca na
+         prévia. -->
     <string name="casca_teste_enviado">Aviso de teste enviado para %1$d aparelho(s)</string>
+    <string name="casca_teste_enviado_sem_contagem">Aviso de teste enviado</string>
     <string name="casca_teste_so_admin">Só administrador pode testar</string>
     <string name="casca_teste_entrar">Entre no Nexus Field para testar</string>
     <string name="casca_teste_falhou">Não consegui enviar o teste agora</string>
+    <string name="casca_teste_ja_pedido">Teste já pedido. Espere alguns segundos para pedir outro</string>
 </resources>

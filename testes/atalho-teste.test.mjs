@@ -483,12 +483,19 @@ test('a ligação do nativo: o extra do atalho lido como o da OS, e o pedido ent
   // A página do App que termina de carregar abre a folga; qualquer página que começa tira o "pronta".
   assert.match(plugin, /public void onPageLoaded\(WebView webView\) \{[\s\S]*?Voltar\.eDoApp\(url, origem\)\) \{?[^}]*testeDosAvisos\.carregou\(\);/);
   assert.match(plugin, /public void onPageStarted\(WebView webView\) \{[^}]*testeDosAvisos\.comecouACarregar\(\);/);
-  // O pushAdmin publica ou tira; o resultado do teste vira toast na thread de UI.
+  // O pushAdmin publica ou tira; o resultado do teste vira toast na thread de UI, e tira a espera da resposta.
   assert.match(plugin, /public void pushAdmin\(boolean admin\) \{[^}]*AtalhosDeTeste\.publicar\([^}]*AtalhosDeTeste\.tirar\(/);
-  assert.match(plugin, /public void pushTeste\([^)]*\) \{[\s\S]*?naUi\(\(\) -> AtalhosDeTeste\.avisar\(/);
-  // Os atalhos são dinâmicos, pelo ShortcutManagerCompat, com os ids fixos.
-  assert.match(atalhos, /ShortcutManagerCompat\.setDynamicShortcuts\(/);
-  assert.match(atalhos, /ShortcutManagerCompat\.removeDynamicShortcuts\(/);
+  assert.match(plugin, /public void pushTeste\([^)]*\) \{[\s\S]*?naUi\(\(\) -> \{\s*if \(testeDosAvisos != null\) testeDosAvisos\.respondeu\(\);\s*AtalhosDeTeste\.avisar\(/);
+  // O toque recusado pelos 10 s ganha o toast dele (não o de falha: o primeiro teste já foi pedido).
+  assert.match(plugin, /if \(pedido == Pedido\.JA_PEDIDO\) AtalhosDeTeste\.avisar\([^;]*Resultado\.JA_PEDIDO/);
+  // Os atalhos são dinâmicos, pelo ShortcutManagerCompat, com os ids fixos. Publicar é um a um pelo push (o
+  // setDynamicShortcuts trocaria todos os dinâmicos do app pelos dois), religando antes o fixado; tirar desliga o fixado.
+  assert.doesNotMatch(atalhos, /setDynamicShortcuts\(/);
+  assert.match(atalhos, /static void publicar\([^)]*\) \{[\s\S]*?ShortcutManagerCompat\.enableShortcuts\([\s\S]*?ShortcutManagerCompat\.pushDynamicShortcut\(/);
+  assert.match(atalhos, /static void tirar\([^)]*\) \{[\s\S]*?ShortcutManagerCompat\.removeDynamicShortcuts\([\s\S]*?ShortcutManagerCompat\.disableShortcuts\([^;]*R\.string\.atalho_teste_desligado/);
   assert.match(atalhos, /"teste_avisos"/);
   assert.match(atalhos, /"teste_fora_expediente"/);
+  // O atalho abre a porta interna (a activity-alias não exportada), e o toque conta o uso dele.
+  assert.match(atalhos, /setClassName\(app, MainActivity\.PORTA_INTERNA\)/);
+  assert.match(main, /private void pedirTesteDoAtalho\(Intent intent\) \{[\s\S]*?AtalhosDeTeste\.relatarUso\(this, canal\);/);
 });

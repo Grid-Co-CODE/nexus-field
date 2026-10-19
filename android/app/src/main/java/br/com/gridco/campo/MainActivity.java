@@ -3,6 +3,7 @@ package br.com.gridco.campo;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -34,9 +35,20 @@ import java.util.Map;
  * a WebView antiga, nem o App nem o pedido: só o aviso do plugin. O toque numa emergência traz a OS no extra gc_os, e
  * a tela a leva ao plugin ({@link #osDoToque}, {@link CascaPlugin#abrirOS}): na partida (onCreate) ou com a tela já
  * aberta (onNewIntent). Do mesmo jeito, o atalho de teste dos avisos do ícone (só na conta Admin) traz o canal no extra
- * gc_teste ({@link #testeDoAtalho}, {@link CascaPlugin#testarAvisos}).
+ * gc_teste ({@link #testeDoAtalho}, {@link CascaPlugin#testarAvisos}). Os dois só valem pela {@link #PORTA_INTERNA}.
  */
 public class MainActivity extends BridgeActivity {
+
+    /**
+     * A porta interna: a activity-alias NÃO exportada desta tela (AndroidManifest), sem filtro, por onde chegam o toque
+     * na notificação (o PendingIntent é do próprio app) e o atalho de teste (o launcher o abre em nome do app). Os
+     * extras gc_os e gc_teste só valem no Intent que chegou por ela; a MainActivity exportada (o ícone, e qualquer app
+     * do aparelho) os ignora. Caso que criou a regra: com a MainActivity exportada, um app qualquer mandava uma OS que
+     * tomava o lugar da pendente da emergência de verdade (a última vence) e trazia o app para a frente, ou um "teste"
+     * que mandava dois pares de avisos a cada aparelho da conta. O nome é o do pacote do código (o namespace), não o do
+     * applicationId.
+     */
+    static final String PORTA_INTERNA = "br.com.gridco.campo.PortaInterna";
 
     private static final String[] PERMISSOES = {
         Manifest.permission.CAMERA,
@@ -125,41 +137,45 @@ public class MainActivity extends BridgeActivity {
 
     /**
      * A OS que o toque na emergência pede para abrir (o extra gc_os que {@link Notificacoes#mostrar} põe no Intent), ou
-     * null: sem o extra (o toque no resumo, o ícone do launcher), com o extra que não é um número de OS (a MainActivity
-     * é exportada, e qualquer app pode mandar um Intent com ele) ou no Intent que o Android entrega de novo ao voltar
-     * pelos recentes (FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY: a OS do toque de ontem não é a de agora). O extra é consumido
-     * na leitura, valendo ou não, para o mesmo Intent não abrir a OS duas vezes (o setIntent, a tela recriada).
+     * null: sem o extra (o toque no resumo, o ícone do launcher), com o extra que não é um número de OS, fora da porta
+     * interna ou no Intent que o Android entrega de novo ao voltar pelos recentes ({@link #extraDoToque}).
      */
     static String osDoToque(Intent intent) {
-        if (intent == null) return null;
-        String os;
-        try {
-            os = intent.getStringExtra(Notificacoes.EXTRA_OS);
-            intent.removeExtra(Notificacoes.EXTRA_OS);
-        } catch (RuntimeException e) {
-            return null; // o Bundle de um app de fora que não se lê
-        }
-        if ((intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return null;
+        String os = extraDoToque(intent, Notificacoes.EXTRA_OS);
         return Notificacoes.osValida(os) ? os : null;
     }
 
     /**
      * O canal do teste dos avisos que o atalho do ícone pede (o extra gc_teste que o {@link AtalhosDeTeste} põe no
-     * Intent, só na conta Admin), ou null, com as mesmas regras da OS do toque ({@link #osDoToque}): sem o extra, com um
-     * canal que não é um dos dois da emergência (a MainActivity é exportada), ou no Intent reentregue pelos recentes; o
-     * extra é consumido na leitura, valendo ou não.
+     * Intent, só na conta Admin), ou null, com as mesmas regras da OS do toque ({@link #extraDoToque}) e só um dos dois
+     * canais da emergência.
      */
     static String testeDoAtalho(Intent intent) {
+        String canal = extraDoToque(intent, AtalhosDeTeste.EXTRA_TESTE);
+        return AtalhosDeTeste.canalValido(canal) ? canal : null;
+    }
+
+    /**
+     * O texto de um extra do toque (a OS da notificação, o canal do atalho), ou null: sem o extra, no Intent que não
+     * chegou pela {@link #PORTA_INTERNA} (o componente do Intent é o da alias quando ela o abriu, também no onNewIntent)
+     * ou no Intent que o Android entrega de novo ao voltar pelos recentes (FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY: o toque
+     * de ontem não é o de agora). O extra é consumido na leitura, valendo ou não, para o mesmo Intent não valer duas vezes
+     * (o setIntent, a tela recriada).
+     */
+    static String extraDoToque(Intent intent, String extra) {
         if (intent == null) return null;
-        String canal;
+        String valor;
         try {
-            canal = intent.getStringExtra(AtalhosDeTeste.EXTRA_TESTE);
-            intent.removeExtra(AtalhosDeTeste.EXTRA_TESTE);
+            valor = intent.getStringExtra(extra);
+            intent.removeExtra(extra);
         } catch (RuntimeException e) {
             return null; // o Bundle de um app de fora que não se lê
         }
         if ((intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return null;
-        return AtalhosDeTeste.canalValido(canal) ? canal : null;
+        ComponentName porta = intent.getComponent();
+        boolean pelaPortaInterna = porta != null && PORTA_INTERNA.equals(porta.getClassName())
+            && BuildConfig.APPLICATION_ID.equals(porta.getPackageName());
+        return pelaPortaInterna ? valor : null;
     }
 
     // Entrega a OS ao plugin da casca, que a leva à página quando o App estiver pronto. Sem plugin (o Bridge não nasceu)
@@ -170,10 +186,13 @@ public class MainActivity extends BridgeActivity {
         if (casca != null) casca.abrirOS(os);
     }
 
-    // O mesmo para o teste do atalho: o plugin o leva à página, e a página chama o servidor com o Bearer dela.
+    // O mesmo para o teste do atalho: o plugin o leva à página, e a página chama o servidor com o Bearer dela. O toque
+    // conta como uso do atalho (o launcher ordena o menu por ele).
     private void pedirTesteDoAtalho(Intent intent) {
         String canal = testeDoAtalho(intent);
-        CascaPlugin casca = canal == null ? null : casca();
+        if (canal == null) return;
+        AtalhosDeTeste.relatarUso(this, canal);
+        CascaPlugin casca = casca();
         if (casca != null) casca.testarAvisos(canal);
     }
 

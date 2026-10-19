@@ -35,13 +35,14 @@ import org.json.JSONObject;
  * <pre>
  *   ls {k, v} · lsDel {k} · idbPut {k, tipo, v} · idbDel {k} · idbPedaco {k, id, i, n, mime, b64} · sentinela
  *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila}
- *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken
- *   pushAdmin {admin} · pushTeste {ok, status, aparelhos}
+ *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken · pushSaiu · pushRegistrado
+ *   pushAdmin {admin} · pushTeste {ok, status, aparelhos} · osAberta {os}
  * </pre>
  *
  * E a resposta do idbPedir, pela ponte da mesma mensagem: idbItem, idbPedaco e idbFim ({@link #enviarIdb}), ou
  * idbRecusado ({@link #recusarIdb}) quando o disjuntor do dia não deixa. A do pushPedirToken, também pela ponte dela, é
- * o pushToken {token, versao} ({@link #respostaDoPush}).
+ * o pushToken {token, versao, avisos} ({@link #respostaDoPush}), que também vai sozinho à página que pediu
+ * ({@link PushNaCasca}).
  *
  * Regras que o código não mostra sozinho:
  * <ul>
@@ -123,6 +124,18 @@ public final class Mensageiro {
          * configurado ou ainda não deu o token).
          */
         void pushPedirToken();
+
+        /**
+         * O técnico tocou em Sair (com token ou sem, com rede ou sem): cale as notificações até o próximo registro, tire
+         * as do app da barra, esqueça a OS do toque e apague o token no Firebase ({@link PushNaCasca#saiu}).
+         */
+        void pushSaiu();
+
+        /** O servidor aceitou o registro do aparelho para a conta de agora: as notificações voltam. */
+        void pushRegistrado();
+
+        /** A página abriu de fato a OS do toque (já validada): ela sai da barra e não vai mais à página. */
+        void osAberta(String os);
 
         /**
          * A página disse se a conta é Admin (o GET /me do servidor, uma vez por carga; o Sair diz false): publique os
@@ -327,22 +340,24 @@ public final class Mensageiro {
     }
 
     /**
-     * A resposta ao pushPedirToken (o registro do aparelho para as notificações, spec 2026-10-18, seção 4.2):
-     * {@code {t:'pushToken', token, versao}}. Quem registra é a página, com o Bearer dela (o nativo nunca vê token da
-     * Microsoft), e a CADA CARGA (Ruling N3, 18/10/2026): o nativo não guarda nada do registro. A primeira versão
-     * guardava a hora do registro e respondia "já registrado" por 7 dias, e isso não sabia de QUEM era o registro (o
-     * técnico que trocava de conta sem o Sair seguia recebendo no e-mail anterior) nem voltava depois do Sair, que tira
-     * o aparelho do servidor (o aparelho ficava sem aviso até os 7 dias passarem). Custo: uma chamada ao servidor do
-     * App de Campo por abertura do app.
+     * O token do aparelho para a página (o registro para as notificações, spec 2026-10-18, seção 4.2):
+     * {@code {t:'pushToken', token, versao, avisos}}, a resposta ao pushPedirToken e o que o {@link PushNaCasca} manda
+     * sozinho depois. Quem registra é a página, com o Bearer dela (o nativo nunca vê token da Microsoft), uma vez por
+     * token em CADA CARGA: o nativo não guarda nada do registro. A primeira versão guardava a hora do registro e respondia
+     * "já registrado" por 7 dias, e isso não sabia de QUEM era o registro (o técnico que trocava de conta sem o Sair
+     * seguia recebendo no e-mail anterior) nem voltava depois do Sair, que tira o aparelho do servidor (o aparelho ficava
+     * sem aviso até os 7 dias passarem). Custo: uma chamada ao servidor do App de Campo por abertura do app.
      *
-     * @param doFirebase o token que o Firebase deu agora, ou null (não configurado, ou o token ainda não saiu): aí vai
-     *                   {@code token: null}, e a página não registra nada nesta carga
+     * @param doFirebase o token que o Firebase deu, ou null (não configurado, ou o token ainda não saiu): aí vai
+     *                   {@code token: null}, e a página pede de novo mais tarde
      * @param versao     o versionName do app, que a página manda ao servidor como "NexusField/&lt;versao&gt;"
+     * @param avisos     as notificações do app ligadas e o canal das emergências não bloqueado: com false a página não
+     *                   registra
      */
-    static String respostaDoPush(String doFirebase, String versao) {
+    static String respostaDoPush(String doFirebase, String versao, boolean avisos) {
         String token = doFirebase == null || doFirebase.isEmpty() ? null : doFirebase;
         return json("t", "pushToken", "token", token == null ? JSONObject.NULL : token,
-            "versao", versao == null ? "" : versao);
+            "versao", versao == null ? "" : versao, "avisos", avisos);
     }
 
     private final ArmazemEspelho armazem;
@@ -456,6 +471,19 @@ public final class Mensageiro {
                 case "pushPedirToken":
                     acoes.pushPedirToken();
                     return true;
+                case "pushSaiu":
+                    acoes.pushSaiu();
+                    return true;
+                case "pushRegistrado":
+                    acoes.pushRegistrado();
+                    return true;
+                case "osAberta": {
+                    // O número vai ao cancelamento da notificação: só o que é número de OS.
+                    String os = texto(m, "os");
+                    if (!Notificacoes.osValida(os)) return recusar(t);
+                    acoes.osAberta(os);
+                    return true;
+                }
                 case "pushAdmin": {
                     // Nunca fica com o atalho de teste quem não foi dito Admin: o campo que falta ou não é booleano
                     // conta como "não" (os atalhos saem) e a mensagem é recusada.

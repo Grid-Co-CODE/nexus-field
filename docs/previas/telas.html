@@ -293,7 +293,7 @@
       <li><input type="checkbox" id="ok-fracttal"><label for="ok-fracttal">O aviso do Fracttal: o botão <b class="cita">Fechar</b> e o visual da camada. O texto da explicação vem da página do App de Campo.</label><a class="ver" href="#t-fracttal">Ver</a></li>
       <li><input type="checkbox" id="ok-notificacoes"><label for="ok-notificacoes">Novo: as notificações na barra do Android, com o G da Grid em branco como ícone pequeno e o nome <b class="cita">Nexus Field</b>: o resumo das 7h, o das 13h, a emergência que toca e a que chega em silêncio. O texto de cada uma é escrito pelo servidor do App de Campo (os exemplos são os dele). E o toque na emergência: abre a OS, e se o técnico estiver no meio de uma OS ou de uma ronda ela fica pendente até ele fechar o que está fazendo.</label><a class="ver" href="#t-notif-manha">Ver</a></li>
       <li><input type="checkbox" id="ok-canais"><label for="ok-canais">Novo: os nomes dos canais das notificações, nos ajustes do Android: <b class="cita">Emergências</b>, <b class="cita">Emergências fora do expediente</b> e <b class="cita">Resumo do dia</b>.</label><a class="ver" href="#t-canais">Ver</a></li>
-      <li><input type="checkbox" id="ok-atalhos"><label for="ok-atalhos">Novo, só para administrador: os atalhos do toque longo no ícone, <b class="cita">Testar avisos</b> e <b class="cita">Testar fora do expediente</b> (com os rótulos curtos), e os quatro avisos rápidos (toast) do resultado do teste.</label><a class="ver" href="#t-atalhos">Ver</a></li>
+      <li><input type="checkbox" id="ok-atalhos"><label for="ok-atalhos">Novo, só para administrador: os atalhos do toque longo no ícone, <b class="cita">Testar avisos</b> e <b class="cita">Testar avisos fora do expediente</b> (com os rótulos curtos, <b class="cita">Testar</b> e <b class="cita">Silencioso</b>), o <b class="cita">Só para administrador</b> do atalho fixado que fica desligado e os seis avisos rápidos (toast) do teste.</label><a class="ver" href="#t-atalhos">Ver</a></li>
       <li><input type="checkbox" id="ok-visual"><label for="ok-visual">O visual: os diálogos seguem o tema claro ou escuro do aparelho, e os botões usam a cor de destaque padrão do Android (verde-azulado), porque a casca não define uma cor própria.</label></li>
     </ul>
   </section>
@@ -596,7 +596,7 @@
             </div>
           </div>
         </div>
-        <figcaption><strong>Emergência no expediente, novo.</strong> Chega em até 10 minutos depois de a OS emergencial (religamento ou corretiva emergencial) ser aberta no Fracttal para o técnico. Canal: <span class="notificacao-canal">Emergências</span> (aparece por cima da tela, toca o alarme padrão do aparelho e vibra três vezes). A mesma OS chegando de novo substitui a primeira, sem tocar outra vez. O texto é do servidor (exemplo do servidor no ar, com a OS 12345, que é fictícia). Tocar abre o Nexus Field na aba Tarefas com o número da OS na busca. Se o técnico estiver no meio de uma OS, de uma ronda ou com qualquer outra tela aberta por cima, o Nexus Field não o interrompe: a OS fica pendente e abre sozinha quando ele fechar o que está fazendo (vale até o fim do dia, e se perde se o Nexus Field for fechado antes). Nenhuma tela nova aparece.</figcaption>
+        <figcaption><strong>Emergência no expediente, novo.</strong> Chega em até 10 minutos depois de a OS emergencial (religamento ou corretiva emergencial) ser aberta no Fracttal para o técnico. Canal: <span class="notificacao-canal">Emergências</span> (aparece por cima da tela, toca o alarme padrão do aparelho no volume das notificações e vibra três vezes; não toca no silencioso nem no Não perturbe). A mesma OS chegando de novo substitui a primeira, sem tocar outra vez. A hora na barra é a do envio. O texto é do servidor (exemplo do servidor no ar, com a OS 12345, que é fictícia). Tocar abre o Nexus Field na aba Tarefas com o número da OS na busca. Se o técnico estiver no meio de uma OS, de uma ronda ou com qualquer outra tela aberta por cima, o Nexus Field não o interrompe: a OS fica pendente e abre sozinha quando ele fechar o que está fazendo (vale até o fim do dia). Nenhuma tela nova aparece. A emergência fica na barra até a OS abrir no Nexus Field: se ele for fechado antes, é só tocar nela de novo.</figcaption>
       </figure>
 
       <figure class="item" id="t-notif-silenciosa">
@@ -610,7 +610,7 @@
             </div>
           </div>
         </div>
-        <figcaption><strong>Emergência fora do expediente, novo.</strong> A emergência que surge fora do dia útil e do expediente não se perde: chega num canal silencioso. Quem decide é o servidor (dia útil, das 7h às 17h; feriado conta como dia útil). Canal: <span class="notificacao-canal">Emergências fora do expediente</span> (sem som, sem vibração e sem aparecer por cima da tela; o G fica na barra de cima). O texto é do servidor (exemplo do servidor no ar, com a OS 12345, que é fictícia), aqui um religamento. O toque faz o mesmo da emergência de cima: abre a OS, ou a deixa pendente se o técnico estiver no meio de uma OS ou de uma ronda.</figcaption>
+        <figcaption><strong>Emergência fora do expediente, novo.</strong> A emergência que surge fora do dia útil e do expediente não se perde: chega num canal silencioso. Quem decide é o servidor (dia útil, das 7h às 17h; feriado conta como dia útil), e o Nexus Field manda para cá também a emergência que CHEGA fora do expediente: a enviada às 16h50 de uma sexta para um celular sem sinal, e recebida às 19h40, chega aqui, sem tocar (a hora na barra é a do envio). Canal: <span class="notificacao-canal">Emergências fora do expediente</span> (sem som, sem vibração e sem aparecer por cima da tela; o G fica na barra de cima). O texto é do servidor (exemplo do servidor no ar, com a OS 12345, que é fictícia), aqui um religamento. O toque faz o mesmo da emergência de cima: abre a OS, ou a deixa pendente se o técnico estiver no meio de uma OS ou de uma ronda.</figcaption>
       </figure>
 
       <figure class="item" id="t-canais">
@@ -625,7 +625,7 @@
             <li class="canal"><span class="canal-nome">Resumo do dia</span><span class="chave" aria-hidden="true"></span></li>
           </ul>
         </div>
-        <figcaption><strong>Os canais das notificações, novo.</strong> Aparecem nos ajustes do Android (Apps, Nexus Field, Notificações) e quando o técnico toca e segura uma notificação. Ele pode desligar ou mudar cada um, e o Nexus Field não desfaz o que ele ajustou. Emergências: toca, vibra três vezes e aparece por cima da tela. Emergências fora do expediente: a emergência que surge fora do dia útil e do expediente chega na barra sem som nem vibração. Resumo do dia: os avisos das 7h e das 13h com as tarefas do dia, com o som padrão e sem aparecer por cima da tela. O desenho da tela de ajustes é uma aproximação: a ordem e o visual mudam com a versão do Android.</figcaption>
+        <figcaption><strong>Os canais das notificações, novo.</strong> Aparecem nos ajustes do Android (Apps, Nexus Field, Notificações) e quando o técnico toca e segura uma notificação. Ele pode desligar ou mudar cada um, e o Nexus Field não desfaz o que ele ajustou. Nenhum toca no silencioso nem no Não perturbe. Emergências: toca, vibra três vezes e aparece por cima da tela. Emergências fora do expediente: a emergência que surge fora do dia útil e do expediente chega na barra sem som nem vibração. Resumo do dia: os avisos das 7h e das 13h com as tarefas do dia, com o som padrão e sem aparecer por cima da tela. O desenho da tela de ajustes é uma aproximação: a ordem e o visual mudam com a versão do Android.</figcaption>
       </figure>
 
       <figure class="item" id="t-atalhos">
@@ -635,12 +635,12 @@
           <div class="inicio-pilha">
             <ul class="menu-atalhos" aria-label="Atalhos do Nexus Field">
               <li class="atalho-item"><svg class="icone icone-redondo atalho-icone" viewBox="18 18 72 72" aria-hidden="true" focusable="false"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><span class="atalho-rotulo">Testar avisos</span></li>
-              <li class="atalho-item"><svg class="icone icone-redondo atalho-icone" viewBox="18 18 72 72" aria-hidden="true" focusable="false"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><span class="atalho-rotulo">Testar fora do expediente</span></li>
+              <li class="atalho-item"><svg class="icone icone-redondo atalho-icone" viewBox="18 18 72 72" aria-hidden="true" focusable="false"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><span class="atalho-rotulo">Testar avisos fora do expediente</span></li>
             </ul>
             <div class="inicio-app"><svg class="icone icone-redondo icone-real" viewBox="18 18 72 72" role="img" aria-label="Ícone do Nexus Field"><rect class="icone-fundo" width="108" height="108"/><use href="#g-nexus-field"/></svg><span class="inicio-rotulo">Nexus Field</span></div>
           </div>
         </div>
-        <figcaption><strong>Os atalhos de teste, novo, só para administrador.</strong> Aparecem ao tocar e segurar o ícone do Nexus Field, só depois que uma conta Admin do App de Campo entrou no aparelho; com a conta de um técnico, ou depois do Sair, eles saem. Cada toque pede ao servidor um resumo e uma emergência de mentira (OS 12345) para os aparelhos da conta, sem nada no Fracttal: Testar avisos no canal Emergências (toca alto) e Testar fora do expediente no canal silencioso. Dois toques seguidos em menos de 10 segundos mandam um teste só. Quando o rótulo longo não cabe, o Android mostra o curto: <span class="atalho-curto">Testar avisos</span> e <span class="atalho-curto">Testar sem som</span>.</figcaption>
+        <figcaption><strong>Os atalhos de teste, novo, só para administrador.</strong> Aparecem ao tocar e segurar o ícone do Nexus Field, só depois que uma conta Admin do App de Campo entrou no aparelho; com a conta de um técnico, ou depois do Sair, eles saem. Cada toque pede ao servidor um resumo e uma emergência de mentira (OS 12345) para os aparelhos da conta, sem nada no Fracttal: Testar avisos com a emergência no canal Emergências (toca alto) e Testar avisos fora do expediente com ela no canal silencioso; nos dois o resumo de teste chega no Resumo do dia, que toca. Dois toques seguidos em menos de 10 segundos mandam um teste só. Quando o rótulo longo não cabe, o Android mostra o curto (é o que fica embaixo do atalho fixado na tela inicial): <span class="atalho-curto">Testar</span> e <span class="atalho-curto">Silencioso</span>. O atalho que o administrador fixou na tela inicial fica desligado com outra conta e depois do Sair: tocado, o Android mostra <span class="atalho-desligado">Só para administrador</span> e não abre o Nexus Field; volta a valer quando um Admin entrar.</figcaption>
       </figure>
 
       <figure class="item" id="t-teste-enviado">
@@ -651,12 +651,20 @@
         <figcaption><strong id="teste-enviado-nome">Aviso rápido (toast) do teste enviado, novo.</strong> Logo depois do toque no atalho: o servidor aceitou e mandou o teste. O número é quantos aparelhos da conta o receberam (aqui, 2 de exemplo); zero quer dizer que nenhum aparelho da conta está registrado.</figcaption>
       </figure>
 
+      <figure class="item" id="t-teste-enviado-sem-contagem">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o aviso rápido do teste enviado, sem a contagem">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="toast" role="status" aria-labelledby="teste-enviado-sem-contagem-nome">Aviso de teste enviado</div>
+        </div>
+        <figcaption><strong id="teste-enviado-sem-contagem-nome">Aviso rápido (toast) do teste enviado sem a contagem, novo.</strong> O servidor aceitou o teste, mas a resposta não disse quantos aparelhos o receberam (uma resposta fora do combinado). O teste saiu: não é preciso tocar de novo.</figcaption>
+      </figure>
+
       <figure class="item" id="t-teste-admin">
         <div class="celular" role="group" aria-label="Tela do aparelho com o aviso rápido de que só o administrador testa">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="toast" role="status" aria-labelledby="teste-admin-nome">Só administrador pode testar</div>
         </div>
-        <figcaption><strong id="teste-admin-nome">Aviso rápido (toast) da conta que não é Admin, novo.</strong> O servidor recusou o teste porque a conta não é Admin (por exemplo, um atalho que ficou fixado na tela inicial). Os atalhos saem na hora.</figcaption>
+        <figcaption><strong id="teste-admin-nome">Aviso rápido (toast) da conta que não é Admin, novo.</strong> O servidor recusou o teste porque a conta não é Admin (por exemplo, o papel da conta mudou desde a última abertura do Nexus Field). Os atalhos saem na hora, e o fixado na tela inicial fica desligado.</figcaption>
       </figure>
 
       <figure class="item" id="t-teste-entrar">
@@ -672,7 +680,15 @@
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="toast" role="status" aria-labelledby="teste-falhou-nome">Não consegui enviar o teste agora</div>
         </div>
-        <figcaption><strong id="teste-falhou-nome">Aviso rápido (toast) do teste que não saiu, novo.</strong> Sem internet, o servidor sem responder em 20 segundos ou com erro. Dá para tocar de novo no atalho depois.</figcaption>
+        <figcaption><strong id="teste-falhou-nome">Aviso rápido (toast) do teste que não saiu, novo.</strong> Sem internet, o servidor sem responder em 20 segundos ou com erro, o Nexus Field que não ficou pronto em 60 segundos depois do toque, ou a tela que saiu antes da resposta (o Entrar da tela de login). Dá para tocar de novo no atalho depois.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-teste-ja-pedido">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o aviso rápido do segundo toque no atalho">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="toast" role="status" aria-labelledby="teste-ja-pedido-nome">Teste já pedido. Espere alguns segundos para pedir outro</div>
+        </div>
+        <figcaption><strong id="teste-ja-pedido-nome">Aviso rápido (toast) do segundo toque, novo.</strong> Um toque no atalho em menos de 10 segundos depois de outro: o primeiro teste já foi pedido, e este não sai (dois toques mandariam dois pares de avisos a cada aparelho da conta).</figcaption>
       </figure>
 
     </div>

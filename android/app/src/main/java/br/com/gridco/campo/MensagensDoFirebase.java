@@ -12,37 +12,59 @@ import com.google.firebase.messaging.RemoteMessage;
 /**
  * Onde o Firebase Cloud Messaging entrega ao app (spec 2026-10-18), com o app aberto, no fundo ou fechado. O servidor
  * do App de Campo manda só dados; este serviço confere a mensagem e mostra a notificação (Notificacoes), no canal que o
- * servidor escolheu. Não exportado (AndroidManifest): só o Firebase, por dentro do app, chega aqui.
+ * servidor escolheu (ou no silencioso, se ela chegou fora do expediente). Não exportado (AndroidManifest): só o Firebase,
+ * por dentro do app, chega aqui. Nada de token, título, texto ou OS no log.
  *
- * O último token que o Firebase deu fica no SharedPreferences "push" (fora do backup, como tudo: regras_dados.xml).
- * Quem registra o aparelho no servidor é o script de início, a cada carga da página, com o Bearer dela (o nativo nunca
- * vê token da Microsoft) e o token que o Firebase dá na hora (CascaPlugin.tokenDoFirebase): o registro não depende do
- * que fica guardado aqui, e o nativo não guarda nada do registro (Ruling N3). Nada de token, título ou texto no log.
+ * O SharedPreferences "push" (fora do backup, como tudo: regras_dados.xml; ninguém dá clear() nele, porque a marca
+ * jaPediuNotificacao da MainActivity mora ali) guarda:
+ * <ul>
+ *   <li>{@value #CHAVE_TOKEN}: o último token que o Firebase deu (o onNewToken e o getToken do pedido da página). Quem
+ *       registra o aparelho no servidor é a página, com o Bearer dela (o nativo nunca vê token da Microsoft); a chave
+ *       serve para COMPARAR: na volta ao app, o token guardado que não é o que a página recebeu nesta carga vai a ela de
+ *       novo ({@link PushNaCasca#voltouAoApp}), e ela registra o novo;</li>
+ *   <li>{@value #CHAVE_SEM_CONTA}: a marca do Sair. O esquecer do Sair é um pedido só, e sem rede, com o servidor fora ou
+ *       com a sessão vencida ele não chega: o servidor seguia mandando os avisos de quem saiu ao aparelho, que muitas
+ *       vezes passa à mão de outro técnico. Com a marca, nada é mostrado até o registro seguinte (o pushRegistrado da
+ *       página a solta). Ela não pula registro nenhum: só cala a exibição entre o Sair e a próxima conta.</li>
+ * </ul>
  */
 public class MensagensDoFirebase extends FirebaseMessagingService {
 
     static final String PREFERENCIAS = "push";
     static final String CHAVE_TOKEN = "token";
+    static final String CHAVE_SEM_CONTA = "semConta";
 
     @Override
     public void onMessageReceived(@NonNull RemoteMessage mensagem) {
+        if (semConta(this)) {
+            Log.i(CascaPlugin.TAG, "mensagem do Firebase depois do Sair, antes de uma conta entrar: não mostrada");
+            return;
+        }
         // Os canais aqui também: a primeira mensagem pode chegar antes de o técnico abrir o app depois da atualização,
         // e a notificação num canal que não existe não aparece no Android 8+.
         CanaisDeNotificacao.criar(this);
-        Notificacoes.Montada m = Notificacoes.montar(mensagem.getData());
+        long chegouEm = agora();
+        Notificacoes.Montada m = Notificacoes.montar(mensagem.getData(), mensagem.getSentTime(), chegouEm);
         if (m == null) {
             Log.w(CascaPlugin.TAG, "mensagem do Firebase com o tipo fora do contrato: não mostrada");
             return;
         }
         // Só o motivo, um texto nosso: nada do título, do texto nem da OS.
         if (m.aviso != null) Log.w(CascaPlugin.TAG, "mensagem do Firebase: " + m.aviso);
-        Notificacoes.mostrar(this, m);
+        Notificacoes.mostrar(this, m, chegouEm);
+    }
+
+    /** O relógio de parede da chegada (o teste o para num instante). */
+    long agora() {
+        return System.currentTimeMillis();
     }
 
     /**
-     * O Firebase deu um token novo (a primeira abertura, o app reinstalado, o token renovado). O servidor só conhece o
-     * velho: o novo é guardado, e a próxima carga da página com alguém logado o registra (toda carga registra o token de
-     * agora).
+     * O Firebase deu um token novo (a primeira abertura, o app reinstalado, o token renovado, o que vem depois do
+     * deleteToken do Sair). O novo é guardado e vai à página do App que estiver viva ({@link CascaPlugin#tokenNovo}), que
+     * o registra uma vez; sem página viva, a próxima carga pede o token e registra. Caso: a primeira abertura sem sinal dá
+     * token null à página, e o SDK do Firebase só obtém o token quando a rede volta, por aqui; o aparelho ficava sem aviso
+     * até a próxima carga, que pode ser dias depois num app que o Android mantém vivo no fundo.
      *
      * No firebase-messaging 25.1 (BOM 34.19.0) este método está marcado como obsoleto em favor do onRegistered, que é de
      * outro fluxo de registro, ligado só pelo meta-data firebase_messaging_installation_id_enabled. Sem ele (o caso
@@ -52,13 +74,51 @@ public class MensagensDoFirebase extends FirebaseMessagingService {
     @SuppressWarnings("deprecation")
     public void onNewToken(@NonNull String token) {
         guardarTokenNovo(this, token);
+        CascaPlugin.tokenNovo(token);
     }
 
+    private static SharedPreferences push(Context contexto) {
+        return contexto.getApplicationContext().getSharedPreferences(PREFERENCIAS, Context.MODE_PRIVATE);
+    }
+
+    // As gravações abaixo vão por commit, e não apply: o serviço do Firebase pode ser encerrado logo depois, e a marca do
+    // Sair tem de estar no disco antes de a próxima mensagem chegar. Rodam fora da thread de UI (a do Firebase e a do
+    // espelho). Cada uma mexe só na sua chave: o resto do arquivo fica.
+
     static void guardarTokenNovo(Context contexto, String token) {
-        SharedPreferences push = contexto.getSharedPreferences(PREFERENCIAS, Context.MODE_PRIVATE);
-        // commit, e não apply: o serviço do Firebase pode ser encerrado logo depois. Roda na thread do Firebase, não na de
-        // UI. Só a chave do token: o resto do arquivo (a marca jaPediuNotificacao da MainActivity) fica.
-        boolean gravou = push.edit().putString(CHAVE_TOKEN, token).commit();
+        boolean gravou = push(contexto).edit().putString(CHAVE_TOKEN, token).commit();
         if (!gravou) Log.w(CascaPlugin.TAG, "o token novo do Firebase não foi gravado");
+    }
+
+    /** O último token que o Firebase deu, ou null. */
+    static String tokenGuardado(Context contexto) {
+        try {
+            return push(contexto).getString(CHAVE_TOKEN, null);
+        } catch (ClassCastException e) {
+            return null;
+        }
+    }
+
+    /** O aparelho está sem conta: o Sair veio e o registro seguinte ainda não. */
+    static boolean semConta(Context contexto) {
+        try {
+            return push(contexto).getBoolean(CHAVE_SEM_CONTA, false);
+        } catch (ClassCastException e) {
+            return false;
+        }
+    }
+
+    /** O Sair: nada é mostrado até o próximo registro. Devolve false se não gravou. */
+    static boolean marcarSemConta(Context contexto) {
+        boolean gravou = push(contexto).edit().putBoolean(CHAVE_SEM_CONTA, true).commit();
+        if (!gravou) Log.w(CascaPlugin.TAG, "a marca do Sair não foi gravada");
+        return gravou;
+    }
+
+    /** O registro de uma conta deu certo: as notificações voltam. Devolve false se não gravou. */
+    static boolean soltarSemConta(Context contexto) {
+        boolean gravou = push(contexto).edit().remove(CHAVE_SEM_CONTA).commit();
+        if (!gravou) Log.w(CascaPlugin.TAG, "a marca do Sair não foi solta");
+        return gravou;
     }
 }

@@ -31,6 +31,18 @@
         </activity>
 
         <!--
+          A porta interna da MainActivity (MainActivity.PORTA_INTERNA): por ela chegam o toque na notificação (o
+          PendingIntent é do próprio app) e o atalho de teste dos avisos (o launcher abre o atalho em nome do app), e só
+          o Intent que chega por ela leva a OS (gc_os) ou o teste (gc_teste) à página. NÃO exportada e sem filtro:
+          nenhum outro app a alcança. A MainActivity, exportada pelo ícone, ignora esses extras. Vem depois da activity
+          (a alias exige o alvo declarado antes) e herda dela o singleTask.
+        -->
+        <activity-alias
+            android:name=".PortaInterna"
+            android:targetActivity=".MainActivity"
+            android:exported="false" />
+
+        <!--
           Este é o provider do template do Capacitor, e fica: o BridgeWebChromeClient procura exatamente
           "<pacote>.fileprovider" para entregar à câmera o arquivo da foto do <input capture>, a reserva da câmera
           interna do App. Sem ele, essa reserva quebra.
