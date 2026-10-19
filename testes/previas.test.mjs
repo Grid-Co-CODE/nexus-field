@@ -341,6 +341,11 @@ test('os rótulos dos atalhos de teste estão no quadro do toque longo: os que o
   assert.deepEqual(ler(quadro, '.menu-atalhos .atalho-rotulo'), longos.map(textoDe), 'o menu mostra os rótulos longos, na ordem do código');
   assert.deepEqual(ler(figura, '.atalho-curto'), curtos.map(textoDe), 'e a legenda diz os curtos, na mesma ordem');
   assert.deepEqual(ler(figura, '.atalho-desligado'), desligado.map(textoDe), 'e o texto do atalho fixado desligado');
+  // A legenda diz o que cada atalho faz tocar: o teste manda também o resumo, que toca com o som normal, e a emergência
+  // de teste do segundo vem sem alarme (nenhum rótulo promete "sem som").
+  const legenda = compactar(figura.querySelector('figcaption').textContent);
+  assert.match(legenda, /o teste manda também o resumo, que toca com o som normal/, 'o resumo do teste toca');
+  assert.match(legenda, /no canal silencioso, sem alarme/, 'a emergência do segundo atalho vem sem alarme');
   // O ícone embaixo do menu é o do aplicativo, com o rótulo dele.
   assert.ok(quadro.querySelector('svg.icone use[href="#g-nexus-field"]'), 'o ícone do Nexus Field embaixo do menu');
   assert.equal(compactar(quadro.querySelector('.inicio-rotulo').textContent), stringDoApp('title_activity_main'));
@@ -402,6 +407,16 @@ test('o aviso de versão nova mostra as novidades de verdade da próxima Release
     .find((li) => compactar(li.querySelector('label')?.textContent ?? '').includes(`as novidades da ${versao}`));
   assert.ok(item, `a lista "O que aprovar" pede as novidades da ${versao}`);
   assert.equal(item.querySelector('a.ver')?.getAttribute('href'), '#t-nova-com');
+
+  // O item e a legenda do quadro citam só a versão que o teste segue, e nem a da versão anterior nem quantas linhas são
+  // ("quem tem a versão anterior", "as linhas"): uma versão nova no novidades/ não deixa nos dois um texto da de antes.
+  // Caso que criou a regra: a legenda e o item diziam "as duas linhas" e "quem tem a 1.0.0", certos só para a 1.1.0.
+  for (const [onde, texto] of [['o item', compactar(item.querySelector('label').textContent)],
+    ['a legenda', compactar(d.querySelector('#t-nova-com figcaption').textContent)]]) {
+    const versoes = [...new Set(texto.match(/\b\d+\.\d+\.\d+\b/g) || [])];
+    assert.deepEqual(versoes, [versao], `${onde} do aviso de versão nova cita só a ${versao}: ${versoes.join(', ')}`);
+    assert.doesNotMatch(texto, /\b(?:uma|duas|três|quatro|cinco|\d+) linhas?\b/, `${onde}: a contagem das linhas muda com a versão`);
+  }
 });
 
 test('o que a casca promete da emergência é o que a spec garante: em poucos minutos, e sem som fora do expediente', () => {
@@ -745,13 +760,15 @@ test('o quadro da tela Sem internet tem o fundo do Nexus Field (o do ícone), n�
 
 // O texto das notificações é do SERVIDOR do App de Campo: a mensagem do Firebase traz {titulo, texto} e a casca só os
 // mostra (Notificacoes.montar), sem acrescentar nada. Por isso estes textos não estão no strings.xml: são os exemplos
-// do servidor no ar (v286, lido em 18/10/2026), com a OS fictícia 12345, e a prévia diz de onde vêm. A hora é a do
-// cartão: 07:00 e 13:00 são os horários dos resumos; a emergência chega "agora".
+// do servidor no ar (os resumos da v286, lidos em 18/10/2026, e a emergência do teste dos avisos da v287, de 19/10/2026),
+// com a OS 999999999, a de mentira que o /push/teste manda (fora da faixa das OS reais), e a prévia diz de onde vêm. A
+// hora é a do cartão: 07:00 e 13:00 são os horários dos resumos; a emergência chega "agora".
+const OS_DO_TESTE = '999999999';
 const NOTIFICACOES = [
   { id: 't-notif-manha', canal: 'resumo', titulo: 'Bom dia!', texto: 'Hoje: 4 tarefas, 1 corretiva e 3 preventivas.', hora: '07:00' },
   { id: 't-notif-tarde', canal: 'resumo', titulo: 'Boa tarde!', texto: 'Faltam 2 tarefas de hoje: 1 corretiva e 1 preventiva.', hora: '13:00' },
-  { id: 't-notif-emergencia', canal: 'emergencia', titulo: 'Emergência', texto: 'Corretiva emergencial: OS 12345', hora: 'agora' },
-  { id: 't-notif-silenciosa', canal: 'emergencia_silenciosa', titulo: 'Emergência', texto: 'Religamento: OS 12345', hora: 'agora' },
+  { id: 't-notif-emergencia', canal: 'emergencia', titulo: 'Emergência', texto: `Corretiva emergencial: OS ${OS_DO_TESTE}`, hora: 'agora' },
+  { id: 't-notif-silenciosa', canal: 'emergencia_silenciosa', titulo: 'Emergência', texto: `Religamento: OS ${OS_DO_TESTE}`, hora: 'agora' },
 ];
 
 const secaoDeNotificacoes = (d) => [...d.querySelectorAll('section.grupo')]
@@ -810,13 +827,14 @@ test('as notificações de exemplo: uma por quadro, no canal e na importância q
   }
 });
 
-test('o toque na emergência, na legenda: abre a OS e, com o técnico ocupado, a OS fica pendente (sem tela nova)', () => {
+test('o toque na emergência, na legenda: põe o número na busca e, com o técnico ocupado, a OS fica pendente (sem tela nova)', () => {
   const d = doc();
   for (const id of ['t-notif-emergencia', 't-notif-silenciosa']) {
     const legenda = compactar(d.querySelector(`#${id} figcaption`).textContent);
-    assert.match(legenda, /OS 12345/);
+    assert.match(legenda, new RegExp(`OS ${OS_DO_TESTE}`), `${id}: a OS do teste do servidor (v287)`);
+    assert.doesNotMatch(legenda, /12345/, `${id}: a OS de antes da v287`);
     assert.match(legenda, /pendente/, `${id}: a OS que espera o técnico fechar o que está fazendo`);
-    assert.match(legenda, /ronda/, `${id}: a ronda em andamento também segura a OS`);
+    assert.match(legenda, /ronda/, `${id}: a ronda começada também segura a OS`);
     assert.match(legenda, /põe o número da OS na busca da aba Tarefas/, `${id}: o que o toque faz`);
     assert.doesNotMatch(legenda, /abre a OS/, `${id}: o toque não "abre a OS": põe o número na busca`);
     assert.match(legenda, /fica na barra até a OS ser mostrada/, `${id}: a emergência fica na barra até a OS ser mostrada`);
@@ -930,7 +948,7 @@ test('o roteiro da prova das notificações só cita textos do aplicativo e cobr
     [/\(a ronda não começou\): tocar troca para a aba Tarefas/, 'a Ronda aberta sem começar não segura a OS'],
     [/\(a ronda começou\): tocar traz o Nexus Field para a frente sem sair da Ronda, a OS fica pendente/,
       'a ronda começada segura a OS'],
-    [/^No fundo, em outra aba sem nada aberto .*tocar troca para a aba Tarefas e põe 12345 na busca/,
+    [/^No fundo, em outra aba sem nada aberto .*tocar troca para a aba Tarefas e põe 999999999 na busca/,
       'o toque com outra aba aberta troca para Tarefas e põe o número na busca'],
     [/^Com um serviço da Zeladoria aberto \(preenchendo\): igual, a OS fica pendente/, 'o serviço aberto da Zeladoria segura a OS'],
     [/^Com a câmera interna, uma folha ou a APR abertas por cima da OS: o toque não fecha nenhuma delas/,
@@ -941,11 +959,23 @@ test('o roteiro da prova das notificações só cita textos do aplicativo e cobr
       'a conta sem Admin não vê os atalhos'],
     [/^Nexus Field fechado \(tirado dos recentes\): tocar abre o Nexus Field na tela de entrada do App de Campo, e a OS espera\. Tocar em "Entrar"/,
       'o toque com o Nexus Field fechado cai na tela de entrada, e a OS espera o Entrar'],
-    [/^Com uma OS pendente, tirar o Nexus Field dos recentes e abrir pelo ícone: a OS não abre sozinha/,
-      'a pendência não atravessa o Nexus Field fechado, e a emergência na barra sim'],
-    [/^A emergência com o Nexus Field fechado: .*a emergência chega ao de prova, por cima da tela e tocando/,
-      'o aviso com o Nexus Field fechado'],
-    [/a emergência \(título Emergência, OS 12345\) no canal Emergências/, 'a OS dos avisos de teste'],
+    [/^Com uma OS pendente, tirar o Nexus Field dos recentes e abrir pelo ícone\. Se o processo morreu, a OS não abre sozinha .*Se o processo sobreviveu, a OS abre sozinha depois do "Entrar"/,
+      'a pendência não atravessa o processo morto (a emergência na barra sim); com ele vivo, a OS abre depois do Entrar'],
+    [/^A emergência com o Nexus Field fechado: .*com a tela apagada, a emergência chega ao de prova tocando o alarme e vibrando \(com a tela apagada não há aviso por cima\)/,
+      'o aviso com o Nexus Field fechado e a tela apagada: o som e a vibração, sem aviso por cima'],
+    [/a emergência \(título Emergência, OS 999999999\) no canal Emergências/, 'a OS dos avisos de teste (a da v287)'],
+    [/^A OS que abre depois da fila: .*quando a fila chega, o App de Campo reabre o Concluir em que ele estava .*e a OS espera, sem ir à busca por baixo dele/,
+      'a OS da entrada espera a fila e a tela que o site restaura (o Concluir reaberto), sem ir por baixo dela'],
+    [/^Nexus Field fechado \(tirado dos recentes\): .*Vale com o processo morto ou vivo/,
+      'tirar dos recentes pode não matar o processo: o toque com o app fechado vale nos dois casos'],
+    [/\(No Android 12 ou mais velho não há aviso nem pedido .*pule só os dois itens seguintes, o de negar e o da reabertura; no da conta Admin/,
+      'no Android 12 ou mais velho, a ordem não pula o item da conta Admin'],
+    [/Este é o primeiro token do Firebase do aparelho \(a 1\.0\.0 não tinha Firebase\): é ele que confere a restrição da chave da Release/,
+      'a restrição da chave da Release conferida no primeiro token (a 1.1.0 por cima da 1.0.0)'],
+    [/^Com a rede cortada, o toque no atalho mostra Não consegui enviar o teste agora \(em até 20 s\), um aviso só/,
+      'o teste sem rede dá um aviso de falha só'],
+    [/o resumo de um dia que já acabou \(o sinal que só volta no dia seguinte\) não aparece/,
+      'o resumo de um dia que já acabou não aparece'],
     [/^Dispensar da barra \(arrastar para o lado\) os avisos do Nexus Field/,
       'dispensar da barra os avisos antes de cada teste (o de mesma OS substitui sem tocar)'],
     [/com o volume de notificação ligado: o alarme das emergências toca no volume das notificações/,
@@ -963,11 +993,12 @@ test('o roteiro da prova das notificações só cita textos do aplicativo e cobr
       'a enviada no expediente e recebida fora vai ao silencioso, com a hora do envio'],
     [/^Na véspera, entrar no aparelho de prova com o usuário de teste e deixar assim/,
       'o resumo das 7h vai à última conta que abriu o Nexus Field'],
-    [/^A busca ao vivo com uma OS que existe: o PCM atribui a OS de teste ao usuário de teste DEPOIS/,
-      'a OS de teste do PCM, fora da lista do dia, achada pela busca'],
+    [/^A busca ao vivo com uma OS que existe: o PCM atribui uma OS ABERTA, fora da lista do dia, à conta que está no Nexus Field DEPOIS de ele abrir/,
+      'a busca ao vivo com uma OS aberta atribuída depois da abertura (a da lista não prova a busca ao vivo)'],
     [/^Com a câmera do sistema aberta pela reserva .*a câmera fecha/, 'o toque fecha a câmera da reserva (o singleTask)'],
     [/o som de Emergências é um som de alarme do aparelho/, 'conferir nos ajustes que o som de Emergências é o alarme'],
-    [/^As marcas da frota: num aparelho de cada marca \(Xiaomi ou Redmi, Samsung e Motorola\)/, 'o início automático nas marcas da frota'],
+    [/^As marcas da frota: num aparelho de prova de cada marca \(Xiaomi ou Redmi, Samsung e Motorola; nunca o aparelho de um técnico\).*No fim, Sair da conta Admin em cada um/,
+      'o início automático nas marcas da frota, em aparelhos de prova, com o Sair no fim'],
     [/apagar a tela por 30 min ou mais/, 'a tela apagada por 30 min'],
     [/aí sai antes o pré-lançamento \(v1\.1\.0-rc\.\d+\)/, 'o pré-lançamento quando outro aparelho tem a versão anterior'],
   ];
@@ -976,6 +1007,13 @@ test('o roteiro da prova das notificações só cita textos do aplicativo e cobr
     assert.equal(casam.length, 1,
       `o roteiro das notificações não prova: ${caso} (a frase do item casa com ${casam.length} itens, e tem de ser um só)`);
   }
+
+  // O "Antes de começar" do roteiro diz o trabalho de prova que a conta Admin precisa ter (o toque é provado nela, que é a
+  // que recebe o teste dos avisos) e a OS aberta da busca ao vivo, atribuída só depois de o Nexus Field abrir.
+  const antes = roteiro.split(/^## /m).find((parte) => parte.startsWith('Antes de começar'));
+  assert.ok(antes, 'a seção "## Antes de começar" do roteiro');
+  assert.match(compactar(antes), /A conta Admin de prova com trabalho de prova na lista dela/);
+  assert.match(compactar(antes), /outra OS de prova, ABERTA no Fracttal e ainda fora da lista/);
 
   // A ordem, num aparelho só: a 1.0.0 recebe o aviso da versão nova, a 1.1.0 abre com os Avisos, o técnico nega, a
   // reabertura não pergunta, o teste do Admin não mostra nada, e só nos ajustes do Android a notificação liga. Fora dessa

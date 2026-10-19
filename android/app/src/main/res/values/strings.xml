@@ -84,18 +84,19 @@
     <!--
       O atalho de teste dos avisos, só para administrador (decisão do dono, 18/10/2026): o toque longo no ícone do Nexus
       Field mostra estes dois atalhos só na conta que o servidor diz Admin, e cada um pede ao servidor um aviso de teste
-      no canal dele (o alto e o silencioso), junto com um resumo de teste, que toca no canal do resumo: por isso nenhum
-      rótulo promete "sem som". O launcher mostra o rótulo longo quando cabe e o curto quando não cabe (o do atalho fixado
-      na tela inicial), cortado a uns 10 caracteres. O "_desligado" é o que o launcher mostra no toque do atalho fixado
-      que ficou desligado (a conta não é Admin, ou saiu). Textos de 19/10/2026 (os rótulos de 18/10 diziam "Testar sem
-      som" e "Testar fora do expediente"), PENDENTES de aprovação do dono da casca na prévia (o quadro #t-atalhos).
-      Prefixo próprio, não casca_: não são diálogo nem toast. O testes/previas.test.mjs confere que são os do
-      AtalhosDeTeste.
+      no canal dele (o alto e o silencioso), junto com um resumo de teste, que toca com o som normal no canal do resumo:
+      por isso nenhum rótulo promete "sem som", e o "sem alarme" é o da emergência de teste, que vem no canal silencioso.
+      O launcher mostra o rótulo longo quando cabe (até uns 25 caracteres) e o curto quando não cabe (o do atalho fixado
+      na tela inicial), cortado a uns 10. O "_desligado" é o que o launcher mostra no toque do atalho fixado que ficou
+      desligado (a conta não é Admin, ou saiu). Rótulos de 19/10/2026 ("Testar" e "Testar avisos"; "Sem alarme" e "Testar
+      sem alarme", no lugar de "Silencioso" e "Testar avisos fora do expediente", que passava dos 25), PENDENTES de
+      aprovação do dono da casca na prévia (o quadro #t-atalhos). Prefixo próprio, não casca_: não são diálogo nem toast.
+      O testes/previas.test.mjs confere que são os do AtalhosDeTeste, e o AtalhosDeTesteTest, o tamanho.
     -->
     <string name="atalho_teste_avisos_curto">Testar</string>
     <string name="atalho_teste_avisos_longo">Testar avisos</string>
-    <string name="atalho_teste_fora_curto">Silencioso</string>
-    <string name="atalho_teste_fora_longo">Testar avisos fora do expediente</string>
+    <string name="atalho_teste_fora_curto">Sem alarme</string>
+    <string name="atalho_teste_fora_longo">Testar sem alarme</string>
     <string name="atalho_teste_desligado">Só para administrador</string>
 
     <!-- O resultado do teste pedido pelo atalho (toast). Sem dado da conta: só a contagem de aparelhos. O "(s)" fica, e

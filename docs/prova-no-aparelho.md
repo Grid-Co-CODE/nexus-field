@@ -16,6 +16,12 @@ neste arquivo. Anote numa cópia fora do git.
   teste (sem Admin). Nunca a conta de um técnico real: o aparelho de prova passaria a receber os avisos dele. A conta
   Admin entra só no aparelho de prova (e no segundo aparelho, quando a prova pedir): o aviso rápido do teste conta os
   aparelhos da conta, e o "1 aparelho(s)" só quer dizer "este aparelho" assim.
+- A conta Admin de prova com trabalho de prova na lista dela, combinado com o PCM: uma tarefa (uma OS de prova) no dia,
+  para abrir a OS e o Concluir, a ronda de uma usina de prova e um serviço da Zeladoria. O toque na emergência é provado
+  na conta que recebe o teste dos avisos, que é a Admin; sem esse trabalho, os itens da OS aberta, da ronda começada e
+  do serviço da Zeladoria não têm como ser feitos.
+- Para a busca ao vivo, outra OS de prova, ABERTA no Fracttal e ainda fora da lista: o PCM a atribui à conta que estiver
+  no Nexus Field só depois de ele abrir (a OS que já está na lista do dia não prova a busca ao vivo).
 - Aparelho: `________________` (modelo e versão do Android)
 - APK: `________________` (depuração ou Release, e o commit ou a versão)
 
@@ -107,10 +113,14 @@ O servidor do App de Campo escreve o título e o texto de cada notificação (o 
 confere que os avisos chegam, no canal certo, com o som certo e com o toque certo, e não o texto exato: o texto muda no
 servidor sem o Nexus Field mudar. Os avisos de teste saem do atalho **Testar avisos**, que só a conta Admin vê no toque
 longo do ícone: o servidor manda um resumo e uma emergência de mentira aos aparelhos da conta, sem criar nada no
-Fracttal, e a emergência traz sempre a mesma OS, a `12345` (no toque, o que se confere é o número na busca da aba
-Tarefas; o que a busca encontra para ele não faz parte desta prova). As telas e os textos de cada aviso estão na prévia
-(`docs/previas/telas.html`, seção Notificações). Siga as subseções na ordem: num aparelho só, a atualização e a permissão
-vêm primeiro, e cada subseção deixa o aparelho pronto para a seguinte.
+Fracttal, e a emergência traz sempre a mesma OS, a `999999999` (fora da faixa das OS reais; no toque, o que se confere é
+o número na busca da aba Tarefas, e o que a busca encontra para ele não faz parte desta prova). As telas e os textos de
+cada aviso estão na prévia (`docs/previas/telas.html`, seção Notificações). Siga as subseções na ordem: num aparelho só,
+a atualização e a permissão vêm primeiro, e cada subseção deixa o aparelho pronto para a seguinte.
+
+"Tirar dos recentes" fecha a tela do Nexus Field, mas alguns aparelhos mantêm o processo dele vivo por um tempo. Os itens
+que dependem disso dizem o que se espera nos dois casos; se der para saber (com o cabo, o logcat do app mostra a partida
+do processo), anotar qual foi.
 
 ### Antes de tocar em qualquer aviso
 
@@ -118,8 +128,8 @@ vêm primeiro, e cada subseção deixa o aparelho pronto para a seguinte.
       Configurações > Apps > Nexus Field > Permissões, a Câmera permitida e a Localização permitida com "Usar localização
       precisa" ligado. Com a aproximada, a 1.1.0 abre com o **Antes de começar** (que pede tudo de novo) no lugar do
       **Avisos do Nexus Field**, e a prova da atualização não acontece.
-- [ ] As rotas do servidor estão no ar (v286 ou mais nova): `/me`, `/push/registrar`, `/push/esquecer` e `/push/teste`.
-      Conferir com a sessão "App de campo".
+- [ ] As rotas do servidor estão no ar (v286 ou mais nova; a OS `999999999` do teste é da v287): `/me`,
+      `/push/registrar`, `/push/esquecer` e `/push/teste`. Conferir com a sessão "App de campo".
 - [ ] A Release 1.1.0 está publicada. A tag `v1.1.0` sai depois dos textos da prévia aprovados pelo dono da casca, do
       `google-services.json` no repositório (com a chave restrita: ver o `CLAUDE.md`, "A ordem de dependência") e das
       rotas no ar. Se outro aparelho além do de prova tiver a 1.0.0, a Release final chegaria a ele também, antes da
@@ -138,14 +148,18 @@ vêm primeiro, e cada subseção deixa o aparelho pronto para a seguinte.
 - [ ] Abrir o Nexus Field 1.0.0 com internet: aparece **Nova versão do Nexus Field**, com a versão 1.1.0 e as duas
       novidades da prévia. (A 1.0.0 confere a cada 6 h: se não aparecer, abrir de novo mais tarde.)
 - [ ] **Atualizar agora**: o aviso rápido **Baixando a versão nova…** e, depois, o instalador do Android (antes dele,
-      **Permitir a atualização**, se for a primeira vez). Atualizar e abrir.
+      **Permitir a atualização**, se for a primeira vez). Atualizar e abrir. Este é o primeiro token do Firebase do
+      aparelho (a 1.0.0 não tinha Firebase): é ele que confere a restrição da chave da Release (`CLAUDE.md`, "A chave de API
+      do google-services.json").
 - [ ] Na primeira abertura da 1.1.0 (Android 13 ou mais novo) aparece **Avisos do Nexus Field**, uma vez só; tocar fora
       e o Voltar não o fecham, e **Continuar** leva ao pedido do Android. (No Android 12 ou mais velho não há aviso nem
-      pedido, e as notificações já vêm ligadas: passe ao item dos ajustes, mais abaixo.)
+      pedido e as notificações já vêm ligadas: pule só os dois itens seguintes, o de negar e o da reabertura; no da conta
+      Admin, o teste já diz **Aviso de teste enviado para 1 aparelho(s)** e os avisos chegam; o dos ajustes vale para ver os
+      três canais.)
 - [ ] No pedido do Android, negar ("Não permitir").
 - [ ] Tirar o Nexus Field dos recentes e abrir de novo: nada é perguntado, nem o aviso nem o pedido.
 - [ ] Entrar com a conta Admin (pelo "Entrar" da página, se ela pedir). Em alguns segundos, o toque longo no ícone mostra
-      **Testar avisos** e **Testar avisos fora do expediente**. **Testar avisos**: o aviso rápido diz **Aviso de teste
+      **Testar avisos** e **Testar sem alarme**. **Testar avisos**: o aviso rápido diz **Aviso de teste
       enviado para 0 aparelho(s)** (ou o número de outros aparelhos em que a conta Admin entrou), e nada aparece neste:
       com a notificação negada, o Nexus Field nem se registra no servidor.
 - [ ] Ligar a notificação em Configurações > Apps > Nexus Field > Notificações e voltar ao Nexus Field: ele se registra
@@ -184,15 +198,15 @@ Vale para todo item das subseções abaixo.
       abertura registra o aparelho de novo, com a conta de agora). Se disser 0 com a notificação ligada, o aparelho não
       ficou registrado: anotar a hora e o que se fez antes.
 - [ ] Num dia útil, das 7h às 17h (hora de Brasília), **Testar avisos**: o resumo chega no canal **Resumo do dia** (com o
-      som padrão), e a emergência (título **Emergência**, OS 12345) no canal **Emergências**: aparece por cima da tela,
-      toca o alarme do aparelho e vibra três vezes. Fora desse horário ela chega em silêncio (ver "A emergência fora do
-      expediente", abaixo).
-- [ ] **Testar avisos fora do expediente**: a emergência de teste chega no canal **Emergências fora do expediente**, na
-      barra, sem som, sem vibração e sem aparecer por cima da tela. O resumo de teste que vem junto TOCA, no **Resumo do
-      dia**: o "sem som" é só da emergência.
+      som padrão), e a emergência (título **Emergência**, OS 999999999) no canal **Emergências**: aparece por cima da
+      tela, toca o alarme do aparelho e vibra três vezes. Fora desse horário ela chega em silêncio (ver "A emergência fora
+      do expediente", abaixo).
+- [ ] **Testar sem alarme**: a emergência de teste chega no canal **Emergências fora do expediente**, na barra, sem som,
+      sem vibração e sem aparecer por cima da tela. O resumo de teste que vem junto TOCA, com o som normal, no **Resumo do
+      dia**: o "sem alarme" é só da emergência.
 - [ ] Dois toques seguidos num atalho, em menos de 10 s: o segundo mostra **Teste já pedido. Espere alguns segundos para
       pedir outro**, e chega um par de avisos só.
-- [ ] Com a rede cortada, o toque no atalho mostra **Não consegui enviar o teste agora** (em até 20 s).
+- [ ] Com a rede cortada, o toque no atalho mostra **Não consegui enviar o teste agora** (em até 20 s), um aviso só.
 - [ ] Com a conta Admin no aparelho (sem o Sair), tirar o Nexus Field dos recentes, tocar no atalho e não entrar: em uns
       20 s, **Entre no Nexus Field para testar**.
 - [ ] (opcional) Fixar um atalho na tela inicial (arrastar do menu do toque longo). Depois do Sair, tocar nele: o Android
@@ -226,38 +240,47 @@ Vale para todo item das subseções abaixo.
 
 ### O toque na emergência
 
-Use **Testar avisos** no expediente. A regra é que o toque nunca interrompe o técnico: ocupado, a OS fica pendente e vai
-à busca sozinha quando ele ficar livre, e a emergência fica na barra até a OS ser mostrada. A emergência de teste traz
-sempre a mesma OS, e cada toque vale como um pedido novo, mesmo com ela já mostrada num item anterior (é o caso de quem
-toca de novo numa OS que já viu): não é preciso recarregar o Nexus Field entre os itens.
+Use **Testar avisos** no expediente, com a conta Admin (que tem o trabalho de prova: ver "Antes de começar"). A regra é que
+o toque nunca interrompe o técnico: ocupado, a OS fica pendente e vai à busca sozinha quando ele ficar livre, e a
+emergência fica na barra até a OS ser mostrada. A emergência de teste traz sempre a mesma OS, e cada toque vale como um
+pedido novo, mesmo com ela já mostrada num item anterior (é o caso de quem toca de novo numa OS que já viu): não é preciso
+recarregar o Nexus Field entre os itens. A emergência sai da barra um pouco depois de a OS aparecer na busca (o Nexus
+Field confere, cerca de 1,5 s depois, que ela ficou à vista).
 
 - [ ] Antes de cada item desta subseção: a barra sem avisos do Nexus Field (como em "Antes de cada teste") e a busca da
       aba Tarefas vazia (o × ao lado do campo de busca). Com o número de um item anterior ainda na busca, não se vê se
       foi este toque que o pôs lá.
-- [ ] No fundo, na aba Tarefas, sem nada aberto: tocar abre já, com `12345` na busca, e a emergência sai da barra.
+- [ ] No fundo, na aba Tarefas, sem nada aberto: tocar abre já, com `999999999` na busca, e a emergência sai da barra.
 - [ ] No fundo, em outra aba sem nada aberto (a lista da Zeladoria, por exemplo): tocar troca para a aba Tarefas e põe
-      `12345` na busca.
+      `999999999` na busca.
 - [ ] Na aba Ronda, na primeira etapa, sem escolher a usina nem responder nada (a ronda não começou): tocar troca para a
-      aba Tarefas e põe `12345` na busca.
+      aba Tarefas e põe `999999999` na busca.
 - [ ] Na aba Ronda, com a usina escolhida ou uma resposta dada (a ronda começou): tocar traz o Nexus Field para a frente
       sem sair da Ronda, a OS fica pendente e a emergência continua na barra. Ao sair da Ronda (para outra aba) ou ao
-      finalizá-la, em até uns 2 s a aba Tarefas abre com `12345` na busca.
+      finalizá-la, em até uns 2 s a aba Tarefas abre com `999999999` na busca.
 - [ ] Com uma OS aberta (preenchendo): tocar traz o Nexus Field para a frente sem fechar a OS nem trocar de aba, e a OS
-      fica pendente. Ao fechar a OS, em até uns 2 s a aba Tarefas abre com `12345` na busca.
+      fica pendente. Ao fechar a OS, em até uns 2 s a aba Tarefas abre com `999999999` na busca.
 - [ ] Com um serviço da Zeladoria aberto (preenchendo): igual, a OS fica pendente até ele voltar à lista.
 - [ ] Com a câmera interna, uma folha ou a APR abertas por cima da OS: o toque não fecha nenhuma delas, e a OS fica
       pendente até ele fechar tudo.
 - [ ] Nexus Field fechado (tirado dos recentes): tocar abre o Nexus Field na tela de entrada do App de Campo, e a OS
-      espera. Tocar em "Entrar": depois da entrada, a aba Tarefas abre com `12345` na busca, e a emergência sai da barra.
-- [ ] Com uma OS pendente, tirar o Nexus Field dos recentes e abrir pelo ícone: a OS não abre sozinha (a pendência era
-      daquela partida), e a emergência continua na barra; tocar nela de novo leva à OS (depois do "Entrar"), e aí ela sai
-      da barra.
+      espera. Tocar em "Entrar": depois da entrada e de a fila carregar, a aba Tarefas abre com `999999999` na busca, e a
+      emergência sai da barra. Vale com o processo morto ou vivo.
+- [ ] A OS que abre depois da fila: com o Concluir de uma tarefa aberto (preenchendo), tirar o Nexus Field dos recentes,
+      tocar na emergência e "Entrar". A tela do App aparece antes da fila; quando a fila chega, o App de Campo reabre o
+      Concluir em que ele estava ("Você estava aqui"), e a OS espera, sem ir à busca por baixo dele. Ao fechar o Concluir,
+      em até uns 2 s a aba Tarefas abre com `999999999` na busca. Se a fila demorar mais de uns 20 s depois da entrada, a
+      OS vai à busca assim mesmo; anotar se o Concluir foi reaberto por cima dela.
+- [ ] Com uma OS pendente, tirar o Nexus Field dos recentes e abrir pelo ícone. Se o processo morreu, a OS não abre
+      sozinha (a pendência era daquela partida) e a emergência continua na barra; tocar nela de novo leva à OS (depois do
+      "Entrar"), e aí ela sai da barra. Se o processo sobreviveu, a OS abre sozinha depois do "Entrar" (o Nexus Field a
+      guardou), e a emergência sai da barra.
 - [ ] Com a câmera do sistema aberta pela reserva (a foto pela reserva do `<input capture>`, de "O roteiro da spec"),
       tocar na emergência: a câmera fecha e a foto que estava sendo tirada se perde. É limite conhecido (o Android fecha o
       que está por cima do Nexus Field quando o traz para a frente): a foto se tira de novo. Anotar se foi assim.
-- [ ] A busca ao vivo com uma OS que existe: o PCM atribui a OS de teste ao usuário de teste DEPOIS de o Nexus Field abrir
-      com ele (para ela não estar na lista do dia); digitar o número dela na busca da aba Tarefas, que é o que o toque
-      faz: o cartão dela aparece, trazido do Fracttal.
+- [ ] A busca ao vivo com uma OS que existe: o PCM atribui uma OS ABERTA, fora da lista do dia, à conta que está no Nexus
+      Field DEPOIS de ele abrir (ver "Antes de começar"); digitar o número dela na busca da aba Tarefas, que é o que o
+      toque faz: o cartão dela aparece, trazido do Fracttal.
 - [ ] Tocar no resumo abre o Nexus Field onde ele estava, sem mexer na tela, e o resumo sai da barra.
 
 ### O app fechado, o Sair e quem recebe (com o segundo aparelho)
@@ -266,17 +289,19 @@ Com o segundo aparelho na mesma conta Admin, ou com o envio de teste pedido à s
 nos dois aparelhos, o aviso rápido do teste conta os dois.
 
 - [ ] A emergência com o Nexus Field fechado: no aparelho de prova, tirar o Nexus Field dos recentes e apagar a tela; no
-      outro, **Testar avisos** (no expediente): a emergência chega ao de prova, por cima da tela e tocando.
+      outro, **Testar avisos** (no expediente): com a tela apagada, a emergência chega ao de prova tocando o alarme e
+      vibrando (com a tela apagada não há aviso por cima); ao acender a tela, ela está na barra.
 - [ ] O esquecer do Sair: no aparelho de prova, com internet, Sair (os avisos do Nexus Field saem da barra dele); no
       outro, **Testar avisos**: o aviso rápido conta um aparelho a menos, e nada chega ao de prova.
 - [ ] O Sair sem rede: entrar de novo no de prova com a conta Admin, pôr o modo avião, Sair e tirar o modo avião sem
       entrar com conta nenhuma; no outro, **Testar avisos**: nada aparece no de prova (o aviso rápido pode ainda contá-lo:
       o servidor não soube do Sair, mas o Nexus Field fica calado até alguém entrar). Entrar de novo no de prova: os
       avisos voltam.
-- [ ] As marcas da frota: num aparelho de cada marca (Xiaomi ou Redmi, Samsung e Motorola), com a conta Admin, tirar o
-      Nexus Field dos recentes e apagar a tela por 30 min ou mais; de outro aparelho, **Testar avisos**: o aviso chega. Se
-      não chegar, anotar a marca, o modelo e a versão do Android: o técnico dessa marca vai precisar de uma orientação de
-      uma vez só (o "Início automático" do Xiaomi, a economia de bateria), a preparar antes do piloto.
+- [ ] As marcas da frota: num aparelho de prova de cada marca (Xiaomi ou Redmi, Samsung e Motorola; nunca o aparelho de
+      um técnico), com a conta Admin, tirar o Nexus Field dos recentes e apagar a tela por 30 min ou mais; de outro
+      aparelho, **Testar avisos**: o aviso chega. Se não chegar, anotar a marca, o modelo e a versão do Android: o técnico
+      dessa marca vai precisar de uma orientação de uma vez só (o "Início automático" do Xiaomi, a economia de bateria), a
+      preparar antes do piloto. No fim, Sair da conta Admin em cada um.
 
 ### O resumo das 7h e das 13h
 
@@ -290,7 +315,8 @@ o Nexus Field no aparelho (o servidor guarda cada aparelho numa conta só), e n�
 - [ ] Num dia sem tarefa para o usuário de teste, nenhum dos dois chega.
 - [ ] Com o Nexus Field fechado (tirado dos recentes) e a tela apagada, os dois chegam do mesmo jeito. Se a economia de
       bateria do fabricante segurar o aviso, anotar o modelo e a hora.
-- [ ] Sem sinal na hora do envio, o aviso chega quando o sinal voltar (risco aceito na spec).
+- [ ] Sem sinal na hora do envio, o aviso chega quando o sinal voltar (risco aceito na spec), se for no mesmo dia: o
+      resumo de um dia que já acabou (o sinal que só volta no dia seguinte) não aparece.
 - [ ] (com o cabo) O logcat do app mostra `notificação mostrada (resumo)` ou `(emergencia)` e `atalhos de teste dos avisos
       publicados`, sem título, texto nem número de OS.
 

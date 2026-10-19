@@ -160,17 +160,27 @@ public class AtalhosDeTesteTest {
     }
 
     @Test
-    public void osRotulosCurtosCabemNoAtalhoFixado() {
-        // O launcher corta o rótulo curto a uns 10 caracteres (é o que aparece embaixo do atalho fixado). E nenhum promete
-        // "sem som": o teste manda também um resumo, que toca no canal dele.
+    public void osRotulosCabemNoMenuENoAtalhoFixado() {
+        // O launcher corta o rótulo curto a uns 10 caracteres (é o que aparece embaixo do atalho fixado) e o longo a uns 25
+        // (o do menu do toque longo; "Testar avisos fora do expediente" não cabia). E nenhum promete "sem som": o teste
+        // manda também um resumo, que toca com o som normal no canal dele (o "sem alarme" é o da emergência de teste).
         for (int id : new int[] {R.string.atalho_teste_avisos_curto, R.string.atalho_teste_fora_curto}) {
             String curto = app.getString(id);
             assertTrue(curto + " tem " + curto.length() + " caracteres", curto.length() <= 10);
+        }
+        for (int id : new int[] {R.string.atalho_teste_avisos_longo, R.string.atalho_teste_fora_longo}) {
+            String longo = app.getString(id);
+            assertTrue(longo + " tem " + longo.length() + " caracteres", longo.length() <= 25);
         }
         for (int id : new int[] {R.string.atalho_teste_avisos_curto, R.string.atalho_teste_avisos_longo,
                 R.string.atalho_teste_fora_curto, R.string.atalho_teste_fora_longo}) {
             assertFalse(app.getString(id), app.getString(id).toLowerCase(java.util.Locale.ROOT).contains("sem som"));
         }
+        // Os rótulos de 19/10/2026 (PENDENTES de aprovação na prévia).
+        assertEquals("Testar", app.getString(R.string.atalho_teste_avisos_curto));
+        assertEquals("Testar avisos", app.getString(R.string.atalho_teste_avisos_longo));
+        assertEquals("Sem alarme", app.getString(R.string.atalho_teste_fora_curto));
+        assertEquals("Testar sem alarme", app.getString(R.string.atalho_teste_fora_longo));
     }
 
     @Test

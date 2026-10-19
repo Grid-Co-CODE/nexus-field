@@ -20,8 +20,13 @@
 
 ## Global Constraints
 
-- O site não muda. A página é usada só pelo que ela já tem: `getTokenMW()`, `MIDDLEWARE_URL`, `async function sair()`,
-  `setBusca()` e `#busca-os`. O contrato com o site passa a exigir esses nomes.
+- O site não muda. A página é usada só pelo que ela já tem (os nomes da página de hoje, a v287, que o contrato com o site
+  exige: o `PUSH` e o `ABRIR_OS` do `www/casca/inicio.js`):
+  - o registro e o Sair: `getTokenMW()` (sem abrir o login), a `const MIDDLEWARE_URL` de topo, a `async function sair()`
+    (com o único logout da página, chamada pelo menu) e a tela do App, `#s-app` com o `.on` (o "logado" da casca);
+  - o toque na emergência: `setBusca()` e `#busca-os`, `setTab('tarefas')`, o `let RONDA` de topo e o `rdVoltar` (a
+    expressão do `comecou`), as camadas do `VOLTAR` e a entrada do site (o `let _telaRestaurada` com o `_telaRestaurar`
+    chamado no `renderTudo`, e o `let pollTimer`, que o `entrarComIdentidade` só liga depois do `await carregarDados()`).
 - Mensagem do FCM: só dados, no formato
   `{tipo:'resumo'|'emergencia', canal:'resumo'|'emergencia'|'emergencia_silenciosa', titulo, texto, os?}`.
 - Os canais têm os ids `resumo`, `emergencia` e `emergencia_silenciosa`:
@@ -31,7 +36,9 @@
 - Rotas do servidor:
   - `POST {MIDDLEWARE_URL}/push/registrar` com `{token, aparelho:'android', app:'NexusField/<versionName>'}`;
   - `POST {MIDDLEWARE_URL}/push/esquecer` com `{token}`;
-  - as duas com o Bearer da página.
+  - `GET {MIDDLEWARE_URL}/me` (o papel `Admin`) e `POST {MIDDLEWARE_URL}/push/teste` com `{canal}` (só Admin; a emergência
+    de teste traz a OS `999999999` desde a v287);
+  - todas com o Bearer da página, no endereço sem a barra do fim.
 - Nada de token Microsoft no nativo nem no espelho, e nada de nome de usina ou de pessoa em log ou notificação montada
   pela casca.
 - `google-services.json` não é segredo e entra no repositório quando o dono o baixar. Sem ele, o build de PR passa sem
@@ -291,7 +298,8 @@ Decisão do dono: testar as notificações no celular por um botão no Nexus Fie
   administrador (a página usa a mesma rota em `resolverViaMe`). Nada do que vem do /me vai ao nativo além de `admin`
   true/false: nem e-mail nem nome (regra: nada de dado pessoal no nativo, no log ou no espelho).
 - `POST {MIDDLEWARE_URL}/push/teste {canal?: 'emergencia'|'emergencia_silenciosa'}` com o Bearer, só Admin (403 para
-  os outros). Manda um resumo e uma emergência de mentira (OS 12345) para os aparelhos de quem chamou; nada no Fracttal.
+  os outros). Manda um resumo e uma emergência de mentira (desde a v287, a OS 999999999, fora da faixa das OS reais)
+  para os aparelhos de quem chamou; nada no Fracttal.
   Resposta 200 `{aparelhos, resumo:[...], emergencia:[...]}`.
 
 **Files:**
