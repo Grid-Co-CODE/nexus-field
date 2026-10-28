@@ -57,7 +57,13 @@
         // (o reparo do estado órfão) toma por lixo o estado local sem item na fila, e o estado restaurado some.
         'gc_campo_status_meta',
       ],
-      prefixos: ['gc_ronda_', 'gc_apr_rasc_', 'gc_ext_rasc_'],
+      prefixos: [
+        'gc_ronda_', 'gc_apr_rasc_', 'gc_ext_rasc_',
+        // v309 (28/10/2026): o rascunho do inventário do almoxarifado, a contagem feita sem sinal até o servidor aceitar
+        // (o site o protege do despejo dele, no _LS_TRABALHO). Começa como o gc_inv_ do cache, e é trabalho porque o
+        // `classificar` confere o trabalho antes.
+        'gc_inv_rasc_',
+      ],
       excecoes: ['gc_ronda_ctx'],
     },
     cache: {
@@ -65,7 +71,15 @@
         'gc_campo_apr', 'gc_campo_aprdia_f', 'gc_v1_pt_def', 'gc_ronda_ctx', 'gc_ext_ctx', 'gc_zl_modelos',
         'gc_zl_serv', 'gc_v1_minhas_prev',
       ],
-      prefixos: ['gc_subs_', 'gc_v1_almox_'],
+      prefixos: [
+        'gc_subs_', 'gc_v1_almox_',
+        // v309 (28/10/2026): a lista do inventário de cada usina e o catálogo (valem 12 h: é com eles que o técnico conta
+        // sem sinal), que o servidor manda de novo, e a marca da contagem enviada, que só muda o cartão da Ronda.
+        'gc_inv_',
+        // v301 (26/10/2026): a última lista boa das OSs pausadas (vale 3 dias), que o servidor manda de novo. Sem sinal,
+        // é ela que mostra as pausadas que saíram da programação.
+        'gc_pausadas_',
+      ],
     },
   };
 

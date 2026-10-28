@@ -83,13 +83,17 @@ function temLiteral(html, texto) {
 // O prefixo no começo de um texto entre aspas que continua além dele ('gc_ronda_'+email, 'gc_subs_'+os), ou que é o
 // próprio prefixo ('gc_apr_rasc_'), ou de um template com interpolação (`gc_subs_${os}`). Um texto que é OUTRA chave
 // exata conhecida ('gc_ronda_ctx' começa com 'gc_ronda_') não conta: o prefixo de verdade (a chave da ronda montada com o
-// e-mail) é que a classificação da casca espera achar no site.
+// e-mail) é que a classificação da casca espera achar no site. Nem o texto de OUTRO prefixo conhecido, mais longo, que
+// começa com este ('gc_inv_rasc_', o rascunho do inventário, que é trabalho, começa com 'gc_inv_', a lista e o catálogo,
+// que são cache; v309, 28/10/2026): ele é a outra classe e não prova que o site ainda usa o prefixo curto.
 // Limite conhecido: um comentário que cita a chave entre aspas simples ainda conta. O contrato avisa quando a chave some
 // do site, não prova que o código a usa.
-function temPrefixo(html, prefixo, chavesExatas) {
+function temPrefixo(html, prefixo, chavesExatas, prefixos = []) {
+  const maiores = prefixos.filter((p) => p.length > prefixo.length && p.startsWith(prefixo));
   const re = new RegExp(`(['"\`])${escapar(prefixo)}([^'"\`\\n]*)`, 'g');
   for (const m of html.matchAll(re)) {
     if (chavesExatas.has(prefixo + m[2])) continue;
+    if (maiores.some((p) => (prefixo + m[2]).startsWith(p))) continue;
     if (m[1] === '`' && !m[2].includes('${')) continue;
     return true;
   }
@@ -587,8 +591,9 @@ export function conferirContrato(html) {
   const exatas = [...new Set([CHAVE_FILA, ...CLASSES.trabalho.exatas, ...CLASSES.trabalho.excecoes, ...CLASSES.cache.exatas])];
   const conhecidas = new Set(exatas);
   for (const chave of exatas) if (!temLiteral(html, chave)) falta(`'${chave}'`);
-  for (const prefixo of [...CLASSES.trabalho.prefixos, ...CLASSES.cache.prefixos]) {
-    if (!temPrefixo(html, prefixo, conhecidas)) falta(`prefixo '${prefixo}'`);
+  const prefixos = [...CLASSES.trabalho.prefixos, ...CLASSES.cache.prefixos];
+  for (const prefixo of prefixos) {
+    if (!temPrefixo(html, prefixo, conhecidas, prefixos)) falta(`prefixo '${prefixo}'`);
   }
   // E o contrário: chave gc_ do site que a casca não classifica nem ignora de propósito.
   for (const nome of chavesNovas(html)) falta(`chave nova sem classe: '${curto(nome)}'`);

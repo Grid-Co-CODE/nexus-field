@@ -179,6 +179,13 @@ test('uma chave exata que começa com o prefixo não conta como o prefixo', () =
   assert.deepEqual(conferirContrato(html), ["prefixo 'gc_ronda_'"]);
 });
 
+test('um prefixo mais longo que começa com o prefixo não conta como ele', () => {
+  // 'gc_inv_rasc_' (o rascunho do inventário, trabalho) começa com 'gc_inv_' (a lista e o catálogo, cache). Sem o
+  // 'gc_inv_' de verdade no site, a classe do cache ficaria sem par, e o rascunho não pode tapar o buraco.
+  const html = htmlFicticio({ prefixos: PREFIXOS.filter((x) => x !== 'gc_inv_').map((x) => `const a='${x}'+id;`).join('\n') });
+  assert.deepEqual(conferirContrato(html), ["prefixo 'gc_inv_'"]);
+});
+
 test('a chave entre crases (como nos comentários do site) não vale, e o template com interpolação vale para o prefixo', () => {
   const semAChave = EXATAS.filter((k) => k !== 'gc_fech_draft').map((k) => `'${k}'`).join(', ');
   assert.deepEqual(conferirContrato(htmlFicticio({ chaves: semAChave, resto: '// a chave `gc_fech_draft` guarda o rascunho' })), ["'gc_fech_draft'"]);

@@ -132,7 +132,7 @@ function recarregar(anterior, opcoes = {}, antes) {
 // mesmos literais: quando a fila não cabe, derruba da maior chave para a menor tudo que não é msal nem começa com um
 // dos prefixos protegidos, tentando gravar a fila depois de cada remoção. A sentinela da casca não está protegida.
 const LS_TRABALHO_DA_PAGINA = ['gc_campo_queue', 'gc_campo_status', 'gc_fech_draft', 'gc_apr_rasc_',
-  'gc_v1_os_chamado', 'gc_ronda', 'gc_v1_os_voltou', 'gc_vivo', 'gc_campo_aprdia', 'gc_ext_rasc_'];
+  'gc_v1_os_chamado', 'gc_ronda', 'gc_v1_os_voltou', 'gc_vivo', 'gc_campo_aprdia', 'gc_ext_rasc_', 'gc_inv_rasc_'];
 function gravarFilaComoAPagina(ls, valor) {
   try { ls.setItem(CHAVE_FILA, valor); return true; } catch (_) { /* cota: o recuo abaixo */ }
   const chaves = [];

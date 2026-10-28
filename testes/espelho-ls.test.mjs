@@ -48,9 +48,11 @@ test('classificar segue a lista da spec', () => {
   assert.equal(classificar('gc_campo_queue'), 'fila');
   for (const k of ['gc_fech_draft', 'gc_ronda_x@y_2026-10-16_U1', 'gc_apr_rasc_9', 'gc_campo_aprdia', 'gc_ext_rasc_3',
     'gc_zl_pend', 'gc_zl_draft', 'gc_v1_os_chamado', 'gc_campo_status', 'gc_v1_os_voltou', 'gc_fb_draft',
-    'gc_v1_fora_local', 'gc_v1_pt_st', 'gc_campo_geo_ini', 'gc_campo_ident']) assert.equal(classificar(k), 'trabalho', k);
+    'gc_v1_fora_local', 'gc_v1_pt_st', 'gc_campo_geo_ini', 'gc_campo_ident', 'gc_inv_rasc_usina_1_126557'])
+    assert.equal(classificar(k), 'trabalho', k);
   for (const k of ['gc_subs_1', 'gc_campo_apr', 'gc_campo_aprdia_f', 'gc_v1_pt_def', 'gc_ronda_ctx', 'gc_ext_ctx',
-    'gc_zl_modelos', 'gc_zl_serv', 'gc_v1_almox_2', 'gc_v1_minhas_prev']) assert.equal(classificar(k), 'cache', k);
+    'gc_zl_modelos', 'gc_zl_serv', 'gc_v1_almox_2', 'gc_v1_minhas_prev', 'gc_inv_lista_usina_1', 'gc_inv_catalogo',
+    'gc_inv_env_usina_1', 'gc_pausadas_eu']) assert.equal(classificar(k), 'cache', k);
   for (const k of ['msal.token.keys.x', 'gc_erros_js', 'gc_vivo', 'gc_tela', 'gc_campo_tema', 'gc_casca_sentinela'])
     assert.equal(classificar(k), null, k);
 });

@@ -990,6 +990,14 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
     TRABALHO, ao lado do `gc_campo_status`: sem ele, depois de uma restauração, o `reconciliar` do site (o reparo do
     estado órfão) descarta os estados locais sem item na fila. Que o "limpar só o login" do site o apague não muda nada:
     a exclusão vai ao espelho como qualquer outra (conferido no `campo.html` v282, 18/10/2026; o contrato passa nele).
+    Em 28/10/2026 o contrato estava quebrado desde 26/10 por três chaves novas do site, e a issue ficou 3 dias aberta
+    sem ninguém classificar. As três foram classificadas assim:
+    - `gc_pausadas_` (v301, a última lista das OSs pausadas, 3 dias): CACHE;
+    - `gc_inv_` (v309, a lista e o catálogo do inventário do almoxarifado, 12 h, e a marca do enviado): CACHE;
+    - `gc_inv_rasc_` (v309, o rascunho da contagem): TRABALHO. Ganha do `gc_inv_` porque o `classificar` confere o
+      trabalho antes.
+    Regra: quem cria a chave no site classifica aqui no mesmo trabalho. Para isso, roda o `conferirContrato` contra o
+    `campo.html` do build antes de publicar.
   - **A issue diária (`contrato`, `ferramentas/issue-do-contrato.mjs`):** uma issue por TIPO, com rótulo e título
     próprios: `contrato` (o site mudou; não fecha sozinha, ganha um comentário quando a saída muda e outro, uma vez, quando
     volta a passar), `contrato-leitura` (não deu para ler o site; fecha sozinha quando o site for lido de novo) e
