@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Nexus Field: instalar (1 de 2)</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Cartão para o WhatsApp, 540 x 960 (sai em 1080 x 1920 com a escala 2): a instalação, com o código QR. */
+  :root { --fundo:#090d18; --cartao:#161d30; --texto:#f2f4f8; --suave:#a9b3c6; --verde:#a3d900; --sobre-verde:#090d18; --atencao:#ffb020;
+          --fonte-titulo:"Barlow Condensed","Arial Narrow",sans-serif; --fonte-texto:"Barlow",system-ui,sans-serif; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; width:540px; height:960px; overflow:hidden; background:var(--fundo); color:var(--texto); font:17px/1.4 var(--fonte-texto); }
+  .cartao { height:960px; padding:30px 28px 24px; display:flex; flex-direction:column; gap:18px; }
+  .topo { display:flex; gap:14px; align-items:center; }
+  .icone { width:64px; height:64px; border-radius:17px; }
+  h1 { margin:0; font:700 36px/1.05 var(--fonte-titulo); }
+  .sub { margin:4px 0 0; color:var(--suave); font-size:16px; }
+  .atencao { border-left:5px solid var(--atencao); background:var(--cartao); border-radius:10px; padding:12px 14px; display:grid; gap:6px; font-size:15.5px; }
+  .atencao b.t { color:var(--atencao); font:700 19px/1 var(--fonte-titulo); letter-spacing:.02em; }
+  .codigo { display:flex; gap:18px; align-items:center; background:var(--cartao); border-radius:14px; padding:16px; }
+  .qr { width:170px; height:170px; background:#ffffff; border-radius:10px; padding:10px; flex:none; }
+  .codigo h2 { margin:0 0 6px; font:700 25px/1.1 var(--fonte-titulo); }
+  .codigo p { margin:0; color:var(--suave); font-size:15.5px; }
+  ol { list-style:none; margin:0; padding:0; display:grid; gap:11px; counter-reset:p; }
+  li { counter-increment:p; display:grid; grid-template-columns:38px 1fr; gap:12px; align-items:start; }
+  li::before { content:counter(p); width:38px; height:38px; border-radius:50%; background:var(--verde); color:var(--sobre-verde); font:700 23px/38px var(--fonte-titulo); text-align:center; }
+  li > div > b { display:block; font-size:17px; }
+  li span { color:var(--suave); font-size:15px; }
+  .rodape { margin-top:auto; color:var(--suave); font-size:14px; display:flex; justify-content:space-between; }
+</style>
+</head>
+<body>
+<div class="cartao">
+  <div class="topo">
+    <img class="icone" src="__ICONE__" alt="">
+    <div><h1>Instalar o Nexus Field</h1><p class="sub">O App de Campo como aplicativo, para Android. Uns 5 minutos, com internet.</p></div>
+  </div>
+  <div class="atencao">
+    <b class="t">ANTES DE INSTALAR</b>
+    <div>Usa o App de Campo no navegador? Confira em <b>Sincronização</b> que não ficou nada pendente: o que está no navegador não passa para o aplicativo.</div>
+    <div>Precisa de Android 7 ou mais novo. iPhone continua no navegador.</div>
+  </div>
+  <div class="codigo">
+    <img class="qr" src="__QR__" alt="">
+    <div><h2>Aponte a câmera para o código</h2><p>Ou toque no link da mensagem, no próprio celular.</p></div>
+  </div>
+  <ol>
+    <li><div><b>Baixe o arquivo</b><span>Se o navegador avisar, toque em "Baixar mesmo assim".</span></div></li>
+    <li><div><b>Abra o arquivo baixado</b><span>No aviso de download, ou em Arquivos, Downloads.</span></div></li>
+    <li><div><b>Libere a instalação</b><span>Toque em Configurações, ligue "Permitir desta fonte" e volte.</span></div></li>
+    <li><div><b>Instale</b><span>Se o Play Protect avisar: "Mais detalhes" e "Instalar mesmo assim".</span></div></li>
+    <li><div><b>Abra o Nexus Field</b><span>Daqui para a frente, use o ícone do G branco.</span></div></li>
+  </ol>
+  <div class="rodape"><span>Continua no cartão 2</span><span>1 de 2</span></div>
+</div>
+</body>
+</html>

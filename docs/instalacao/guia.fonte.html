@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instalar o Nexus Field</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* O guia de instalação do Nexus Field para os técnicos, no mundo do próprio app: o navy do ícone com o verde Grid.
+     Um tema só, de propósito: é a cara do aplicativo que eles vão abrir. Coluna única, lida no celular, de cima para
+     baixo: antes de instalar, o código, os passos, a primeira abertura, o que muda por marca e os problemas comuns. */
+  :root {
+    color-scheme: dark;
+    --fundo: #090d18;
+    --cartao: #161d30;
+    --linha: #2a3350;
+    --texto: #f2f4f8;
+    --suave: #a9b3c6;
+    --verde: #a3d900;
+    --sobre-verde: #090d18;
+    --atencao: #ffb020;
+    --fonte-titulo: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+    --fonte-texto: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--fundo); }
+  body { margin: 0; background: var(--fundo); color: var(--texto); font: 18px/1.5 var(--fonte-texto); }
+  .pagina { max-width: 720px; margin: 0 auto; padding: 28px 16px 56px; display: grid; gap: 28px; }
+  h1, h2 { font-family: var(--fonte-titulo); font-weight: 700; line-height: 1.1; margin: 0; text-wrap: balance; }
+  h1 { font-size: 44px; }
+  h2 { font-size: 30px; }
+  p { margin: 0; }
+  .suave { color: var(--suave); }
+  a { color: var(--verde); }
+  a:focus-visible, button:focus-visible { outline: 3px solid var(--verde); outline-offset: 3px; }
+
+  .topo { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; }
+  .icone { width: 84px; height: 84px; border-radius: 22px; display: block; }
+  .topo p { margin-top: 6px; font-size: 19px; }
+
+  .atencao { border-left: 6px solid var(--atencao); background: var(--cartao); border-radius: 12px; padding: 16px 18px; display: grid; gap: 10px; }
+  .atencao h2 { font-size: 24px; color: var(--atencao); }
+  .atencao ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+
+  .codigo { background: var(--cartao); border-radius: 16px; padding: 20px; display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; }
+  .qr { width: 196px; height: 196px; background: #ffffff; border-radius: 12px; padding: 12px; display: block; }
+  .codigo p + p { margin-top: 8px; }
+  .link { font-size: 15px; word-break: break-all; }
+  .copiar { margin-top: 12px; font: 600 16px/1 var(--fonte-texto); color: var(--sobre-verde); background: var(--verde); border: 0; border-radius: 10px; padding: 12px 16px; cursor: pointer; }
+
+  ol.passos { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: passo var(--inicio, 0); }
+  ol.passos > li { counter-increment: passo; display: grid; grid-template-columns: 48px 1fr; gap: 14px; align-items: start; }
+  ol.passos > li::before { content: counter(passo); font: 700 28px/48px var(--fonte-titulo); text-align: center; width: 48px; height: 48px; border-radius: 50%; background: var(--verde); color: var(--sobre-verde); }
+  ol.passos > li > div { display: grid; gap: 4px; padding-top: 8px; }
+  .botao { font-weight: 600; white-space: nowrap; border: 1px solid var(--linha); border-radius: 6px; padding: 0 6px; }
+  .secao { display: grid; gap: 16px; }
+
+  .marcas { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); }
+  .marca { background: var(--cartao); border-radius: 12px; padding: 16px; display: grid; gap: 8px; align-content: start; }
+  .marca h3 { margin: 0; font: 700 22px/1.1 var(--fonte-titulo); color: var(--verde); }
+  .marca p { font-size: 16px; }
+
+  dl.problemas { margin: 0; display: grid; gap: 12px; }
+  dl.problemas > div { background: var(--cartao); border-radius: 12px; padding: 14px 16px; }
+  dt { font-weight: 600; }
+  dd { margin: 4px 0 0; color: var(--suave); }
+
+  .rodape { border-top: 1px solid var(--linha); padding-top: 16px; font-size: 16px; }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 36px; }
+    .codigo { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main class="pagina">
+  <header class="topo">
+    <img class="icone" src="__ICONE__" alt="Ícone do Nexus Field">
+    <div>
+      <h1>Instalar o Nexus Field</h1>
+      <p class="suave">O aplicativo do App de Campo para Android. Leva uns 5 minutos, com internet.</p>
+    </div>
+  </header>
+
+  <section class="atencao" aria-labelledby="t-antes">
+    <h2 id="t-antes">Antes de instalar</h2>
+    <ul>
+      <li><strong>Usa o App de Campo no navegador?</strong> Abra e confira em <strong>Sincronização</strong> que não ficou nada pendente. O que está no navegador não passa para o aplicativo.</li>
+      <li>Precisa de <strong>Android 7 ou mais novo</strong>. No iPhone, continue usando o App de Campo pelo navegador.</li>
+    </ul>
+  </section>
+
+  <section class="codigo" aria-labelledby="t-codigo">
+    <img class="qr" src="__QR__" alt="Código QR com o link de download do Nexus Field">
+    <div>
+      <h2 id="t-codigo">Baixe pelo código ou pelo link</h2>
+      <p>Aponte a câmera do celular para o código, ou toque no link abaixo no próprio celular.</p>
+      <p class="link"><a href="__LINK__">__LINK__</a></p>
+      <button class="copiar" id="copiar" type="button">Copiar o link</button>
+    </div>
+  </section>
+
+  <section class="secao" aria-labelledby="t-instalar">
+    <h2 id="t-instalar">Para instalar</h2>
+    <ol class="passos">
+      <li><div><strong>Baixe o arquivo</strong><span class="suave">Começa a baixar o <em>nexus-field.apk</em>. Se o navegador avisar que o arquivo pode ser perigoso, toque em <span class="botao">Baixar mesmo assim</span>.</span></div></li>
+      <li><div><strong>Abra o arquivo baixado</strong><span class="suave">Toque em <span class="botao">Abrir</span> no aviso de download, ou procure em Arquivos, na pasta Downloads.</span></div></li>
+      <li><div><strong>Libere a instalação</strong><span class="suave">O celular avisa que não instala apps desta fonte. Toque em <span class="botao">Configurações</span>, ligue <span class="botao">Permitir desta fonte</span> e volte.</span></div></li>
+      <li><div><strong>Instale</strong><span class="suave">Toque em <span class="botao">Instalar</span>. Se o Play Protect avisar, toque em <span class="botao">Mais detalhes</span> e depois em <span class="botao">Instalar mesmo assim</span>.</span></div></li>
+      <li><div><strong>Abra o Nexus Field</strong><span class="suave">Toque em <span class="botao">Abrir</span>. Daqui para a frente, use o ícone do G branco no fundo azul.</span></div></li>
+    </ol>
+  </section>
+
+  <section class="secao" aria-labelledby="t-abertura">
+    <h2 id="t-abertura">Na primeira abertura</h2>
+    <ol class="passos" style="--inicio: 5">
+      <li><div><strong>Permita câmera, localização e notificações</strong><span class="suave">Toque em <span class="botao">Continuar</span>. Na localização, escolha <strong>Precisa</strong> e <strong>Durante o uso do app</strong>. Nas notificações, <span class="botao">Permitir</span>: é por elas que chegam o resumo das 7h e das 13h e as emergências.</span></div></li>
+      <li><div><strong>Entre com a sua conta Microsoft da Grid</strong><span class="suave">A mesma que você usa no App de Campo.</span></div></li>
+      <li><div><strong>Pronto</strong><span class="suave">Use sempre o Nexus Field, não o navegador, para os registros ficarem num lugar só.</span></div></li>
+    </ol>
+  </section>
+
+  <section class="secao" aria-labelledby="t-marcas">
+    <h2 id="t-marcas">O que muda em cada marca</h2>
+    <div class="marcas">
+      <article class="marca">
+        <h3>Xiaomi, Redmi e POCO</h3>
+        <p>Antes de instalar, a Xiaomi pode verificar o arquivo: espere e toque em <span class="botao">Instalar</span>.</p>
+        <p>Para os avisos chegarem com o app fechado: Configurações, Apps, Gerenciar apps, Nexus Field. Ligue <strong>Início automático</strong> e, em Economia de bateria, escolha <strong>Sem restrições</strong>.</p>
+      </article>
+      <article class="marca">
+        <h3>Samsung</h3>
+        <p>Se o <strong>Bloqueador automático</strong> estiver ligado, ele impede a instalação e as atualizações: Configurações, Segurança e privacidade, Bloqueador automático, desligar.</p>
+        <p>Para os avisos: Configurações, Apps, Nexus Field, Bateria, <strong>Sem restrições</strong>.</p>
+      </article>
+      <article class="marca">
+        <h3>Motorola e outras</h3>
+        <p>Siga o passo a passo acima, sem diferença.</p>
+        <p>Para os avisos: Configurações, Apps, Nexus Field, Bateria, <strong>Sem restrições</strong>.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="secao" aria-labelledby="t-versao">
+    <h2 id="t-versao">Versão nova</h2>
+    <p>O próprio Nexus Field avisa quando sair versão nova. Toque em <span class="botao">Atualizar agora</span>. Na primeira vez, o celular pede para liberar a instalação para o Nexus Field: libere e volte para o app.</p>
+  </section>
+
+  <section class="secao" aria-labelledby="t-problemas">
+    <h2 id="t-problemas">Se der problema</h2>
+    <dl class="problemas">
+      <div><dt>Aparece "Sem internet" na primeira abertura</dt><dd>Abra uma vez com internet. Depois ele funciona sem sinal e envia quando o sinal voltar.</dd></div>
+      <div><dt>Pede para atualizar o "Android System WebView"</dt><dd>Toque em Abrir a Play Store, atualize e abra o Nexus Field de novo.</dd></div>
+      <div><dt>"App não instalado"</dt><dd>Libere espaço no celular e tente de novo. Se continuar, fale com o seu supervisor.</dd></div>
+      <div><dt>Os avisos das 7h e das 13h não chegam</dt><dd>Confira se as notificações do Nexus Field estão permitidas e faça o ajuste de bateria da sua marca, acima.</dd></div>
+    </dl>
+  </section>
+
+  <footer class="rodape suave">
+    <p>Dúvidas: fale com o seu supervisor. Guia de 06/11/2026.</p>
+  </footer>
+</main>
+<script>
+  // Copiar o link para mandar no WhatsApp; se o navegador recusar, o link continua visível para copiar à mão.
+  document.getElementById('copiar').addEventListener('click', function () {
+    var botao = this;
+    try {
+      navigator.clipboard.writeText('__LINK__').then(function () {
+        botao.textContent = 'Link copiado';
+      }, function () {
+        botao.textContent = 'Copie o link acima';
+      });
+    } catch (e) {
+      botao.textContent = 'Copie o link acima';
+    }
+  });
+</script>
+</body>
+</html>

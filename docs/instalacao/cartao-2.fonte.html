@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Nexus Field: primeira abertura (2 de 2)</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Cartão para o WhatsApp, 540 x 960 (sai em 1080 x 1920 com a escala 2): a primeira abertura, as marcas e os problemas. */
+  :root { --fundo:#090d18; --cartao:#161d30; --texto:#f2f4f8; --suave:#a9b3c6; --verde:#a3d900; --sobre-verde:#090d18;
+          --fonte-titulo:"Barlow Condensed","Arial Narrow",sans-serif; --fonte-texto:"Barlow",system-ui,sans-serif; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; width:540px; height:960px; overflow:hidden; background:var(--fundo); color:var(--texto); font:17px/1.4 var(--fonte-texto); }
+  .cartao { height:960px; padding:30px 28px 24px; display:flex; flex-direction:column; gap:18px; }
+  h2 { margin:0; font:700 30px/1.05 var(--fonte-titulo); }
+  ol { list-style:none; margin:0; padding:0; display:grid; gap:11px; counter-reset:p 5; }
+  li { counter-increment:p; display:grid; grid-template-columns:38px 1fr; gap:12px; align-items:start; }
+  li::before { content:counter(p); width:38px; height:38px; border-radius:50%; background:var(--verde); color:var(--sobre-verde); font:700 23px/38px var(--fonte-titulo); text-align:center; }
+  li > div > b { display:block; font-size:17px; }
+  li span { color:var(--suave); font-size:15px; }
+  li span b { color:var(--texto); font-weight:600; }
+  .bloco { background:var(--cartao); border-radius:12px; padding:14px 16px; display:grid; gap:8px; }
+  .bloco h3 { margin:0; font:700 21px/1.1 var(--fonte-titulo); color:var(--verde); }
+  .bloco p { margin:0; font-size:15px; color:var(--suave); }
+  .bloco p b { color:var(--texto); font-weight:600; }
+  .rodape { margin-top:auto; color:var(--suave); font-size:14px; display:flex; justify-content:space-between; }
+</style>
+</head>
+<body>
+<div class="cartao">
+  <h2>Na primeira abertura</h2>
+  <ol>
+    <li><div><b>Toque em Continuar e permita tudo</b><span>Câmera; localização <b>Precisa</b>, durante o uso do app; e as notificações, que trazem o resumo das 7h e das 13h e as emergências.</span></div></li>
+    <li><div><b>Entre com a conta Microsoft da Grid</b><span>A mesma do App de Campo.</span></div></li>
+    <li><div><b>Use sempre o Nexus Field</b><span>Não o navegador, para os registros ficarem num lugar só.</span></div></li>
+  </ol>
+  <div class="bloco">
+    <h3>Para os avisos chegarem com o app fechado</h3>
+    <p><b>Xiaomi, Redmi, POCO:</b> Configurações, Apps, Gerenciar apps, Nexus Field. Ligue Início automático e, em Economia de bateria, Sem restrições.</p>
+    <p><b>Samsung:</b> Configurações, Apps, Nexus Field, Bateria, Sem restrições. Se o Bloqueador automático estiver ligado, ele impede instalar e atualizar.</p>
+    <p><b>Motorola e outras:</b> Configurações, Apps, Nexus Field, Bateria, Sem restrições.</p>
+  </div>
+  <div class="bloco">
+    <h3>Versão nova</h3>
+    <p>O Nexus Field avisa sozinho: toque em <b>Atualizar agora</b>. Na primeira vez, libere a instalação para o Nexus Field e volte.</p>
+  </div>
+  <div class="bloco">
+    <h3>Se der problema</h3>
+    <p><b>"Sem internet" na primeira abertura:</b> abra uma vez com internet; depois funciona sem sinal.</p>
+    <p><b>Pede para atualizar o WebView:</b> toque em Abrir a Play Store e atualize.</p>
+    <p><b>"App não instalado":</b> libere espaço e tente de novo.</p>
+  </div>
+  <div class="rodape"><span>Dúvidas: fale com o seu supervisor</span><span>2 de 2</span></div>
+</div>
+</body>
+</html>

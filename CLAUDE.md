@@ -1021,6 +1021,12 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
 - **Primeira instalação:** o link fixo `https://github.com/Grid-Co-CODE/nexus-field/releases/latest/download/nexus-field.apk`,
   mandado pelo supervisor (mensagem ou QR). Na primeira vez o técnico autoriza "instalar apps desconhecidos" para o
   navegador. Depois, o próprio app se atualiza pelo `versao.json` (seção "A atualização da casca").
+- **O guia de instalação** (`docs/instalacao/`, 06/11/2026): a página `guia.html` e os dois cartões do WhatsApp
+  (`nexus-field-instalar-1.png` e `-2.png`, 1080 x 1920), com o QR do link fixo e o que muda por marca (o início
+  automático da Xiaomi, o Bloqueador automático da Samsung, a bateria sem restrições). Texto mudou: edite os
+  `*.fonte.html` e rode `python docs/instalacao/montar.py` (embute o QR e o ícone e fotografa os cartões pelo Chrome sem
+  janela). O primeiro aviso do guia é o que mais pesa: o que está pendente no App pelo navegador NÃO passa para o
+  Nexus Field (o armazenamento da WebView é outro), e o técnico sincroniza antes de trocar.
 - **Verificação de desenvolvedor do Android:** no Brasil, desde 30/09/2026, vale para instalações vindas das lojas; o
   APK baixado por fora passa a ser cobrado na expansão global de 2027 (ainda sem mês). Antes disso, a Grid registra o
   pacote como organização no Android Developer Console: US$ 25 uma vez só, D-U-N-S, e-mail e site da empresa, e o
