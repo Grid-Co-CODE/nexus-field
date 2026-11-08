@@ -64,21 +64,33 @@ public class EquipeNaCascaTest {
     private static final int ANDROID_11 = Build.VERSION_CODES.R;
     private static final long MINUTO = 60_000L;
 
-    /** O ServicoDaEquipe de mentira: conta os pedidos e está rodando quando o teste diz. */
+    /** O ServicoDaEquipe de mentira: conta e guarda, na ordem, os pedidos, e está rodando quando o teste diz. */
     private static final class ServicoFalso implements EquipeNaCasca.Servico {
         int iniciados;
         int parados;
         boolean rodando;
+        /** Os pedidos na ordem em que valeram: o último diz como a coleta ficou. */
+        final List<String> chamadas = new ArrayList<>();
+        /** Roda uma vez dentro do iniciar, antes de ele valer: o que outra thread faz no meio da decisão da casca. */
+        Runnable noMeioDoIniciar;
+        /** Roda a cada parar, quando ele vale. */
+        Runnable aoParar;
 
         @Override
         public void iniciar() {
+            Runnable noMeio = noMeioDoIniciar;
+            noMeioDoIniciar = null;
+            if (noMeio != null) noMeio.run();
             iniciados++;
+            chamadas.add("iniciar");
         }
 
         @Override
         public void parar() {
             parados++;
             rodando = false;
+            chamadas.add("parar");
+            if (aoParar != null) aoParar.run();
         }
 
         @Override
@@ -276,7 +288,11 @@ public class EquipeNaCascaTest {
         comChaveEAviso(CHAVE_A);
         encher(3);
         servico.rodando = true;
+        int[] filaNoParar = {-1};
+        servico.aoParar = () -> filaNoParar[0] = fila.tamanho();
         casca(ANDROID_11).receberChave(false, null);
+        assertEquals("a coleta para primeiro, e só então a fila sai: o que falhar depois não a deixa ligada", 3,
+            filaNoParar[0]);
         assertNull(chave.chave());
         assertFalse(chave.avisoAceito());
         assertEquals(1, servico.parados);
@@ -552,7 +568,8 @@ public class EquipeNaCascaTest {
         String aparelho = chave.aparelho();
         semRede = new IOException("sem rede");
         casca(ANDROID_11).sair();
-        assertEquals(1, servico.parados);
+        assertEquals("na hora e de novo na thread do envio, sem nunca ligar", Arrays.asList("parar", "parar"),
+            servico.chamadas);
         assertNull(chave.chave());
         assertFalse(chave.avisoAceito());
         assertEquals("os pontos de quem saiu não sobem com a chave de quem entrar", 0, fila.tamanho());
@@ -569,24 +586,85 @@ public class EquipeNaCascaTest {
         comChaveEAviso(CHAVE_A);
         cifra.keystoreFora = true; // o revogar não consegue ler a chave para mandá-la ao Nexus
         casca(ANDROID_11).sair();
-        assertEquals(1, servico.parados);
+        assertEquals(Arrays.asList("parar", "parar"), servico.chamadas);
         cifra.keystoreFora = false;
         assertNull("a chave de quem saiu não fica no aparelho", chave.chave());
         assertTrue(pedidosAoNexus.isEmpty());
+    }
+
+    /** A casca com a thread do envio em fila: o que entra nela só roda no {@link #soltar}. */
+    private EquipeNaCasca cascaComAThreadEmFila(Deque<Runnable> threadDoEnvio) {
+        return new EquipeNaCasca(app, chave, fila, envio(), servico, tela, threadDoEnvio::add, Runnable::run,
+            () -> agora, ANDROID_11, "1.2.0");
+    }
+
+    /** A thread do envio solta (o envio pendurado respondeu): roda o que estava nela e o que entrar no caminho. */
+    private static void soltar(Deque<Runnable> threadDoEnvio) {
+        while (!threadDoEnvio.isEmpty()) threadDoEnvio.poll().run();
+    }
+
+    @Test
+    public void aVoltaAoAppQueEsperavaNaThreadNaoReligaAColetaDepoisDoSair() {
+        // O caso: a coleta ligada e um envio pendurado na rede fraca segurando a thread do envio (15 s de conexão e
+        // 15 s de leitura); o técnico volta ao app (o reavaliar entra na fila, atrás do envio) e toca em Sair.
+        comChaveEAviso(CHAVE_A);
+        encher(3);
+        servico.rodando = true;
+        Deque<Runnable> threadDoEnvio = new ArrayDeque<>();
+        EquipeNaCasca c = cascaComAThreadEmFila(threadDoEnvio);
+        c.reavaliar();
+        c.sair();
+        assertEquals("a coleta para na hora", Collections.singletonList("parar"), servico.chamadas);
+
+        soltar(threadDoEnvio);
+        assertEquals("a volta ao app que esperava não liga a coleta de quem saiu", 0, servico.iniciados);
+        assertEquals("parar", servico.chamadas.get(servico.chamadas.size() - 1));
+        assertEquals("nem mostra o aviso ou a permissão", 0, tela.avisos + tela.explicacoes + tela.pedidos.size());
+        assertNull(chave.chave());
+        assertEquals("os pontos de quem saiu não ficam para a chave seguinte", 0, fila.tamanho());
+
+        // A conta seguinte no aparelho: a chave nova, o aviso e o Continuar ligam a coleta dela (a marca do Sair saiu
+        // com a chave de quem saiu).
+        c.receberChave(true, CHAVE_B);
+        soltar(threadDoEnvio);
+        assertEquals(1, tela.avisos);
+        tela.continuarDoAviso.run();
+        soltar(threadDoEnvio);
+        assertEquals(1, servico.iniciados);
+    }
+
+    @Test
+    public void oSairNoMeioDaDecisaoDaThreadTerminaComAColetaParadaAntesDaRede() {
+        // O Sair (na thread do espelho) que chega quando a decisão da thread do envio já passou pela marca do Sair: o
+        // iniciar dela vale depois do parar do Sair, e é a tarefa do Sair, atrás dela na thread, que para de novo.
+        comChaveEAviso(CHAVE_A);
+        encher(2);
+        Deque<Runnable> threadDoEnvio = new ArrayDeque<>();
+        EquipeNaCasca c = cascaComAThreadEmFila(threadDoEnvio);
+        List<String> noParar = new ArrayList<>();
+        servico.aoParar = () -> noParar.add("fila " + fila.tamanho() + ", Nexus " + pedidosAoNexus.size());
+        servico.noMeioDoIniciar = c::sair;
+        c.reavaliar();
+        soltar(threadDoEnvio);
+        assertEquals(Arrays.asList("parar", "iniciar", "parar"), servico.chamadas);
+        assertEquals("a tarefa do Sair para antes de apagar a fila e antes da rede do revogar (30 s no sinal fraco)",
+            Arrays.asList("fila 2, Nexus 0", "fila 2, Nexus 0"), noParar);
+        assertNull(chave.chave());
+        assertEquals(0, fila.tamanho());
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
     }
 
     @Test
     public void oAparelhoPedidoDepoisDoSairJaVemSemAChave() throws Exception {
         comChaveEAviso(CHAVE_A);
         Deque<Runnable> threadDoEnvio = new ArrayDeque<>();
-        EquipeNaCasca c = new EquipeNaCasca(app, chave, fila, envio(), servico, tela, threadDoEnvio::add, Runnable::run,
-            () -> agora, ANDROID_11, "1.2.0");
+        EquipeNaCasca c = cascaComAThreadEmFila(threadDoEnvio);
         c.sair();
         assertEquals("a coleta para na hora, sem esperar a rede", 1, servico.parados);
         List<String> respostas = new ArrayList<>();
         c.pedirAparelho(json -> respostas.add(json));
         assertTrue("o disco e a rede só na thread do envio", respostas.isEmpty() && pedidosAoNexus.isEmpty());
-        while (!threadDoEnvio.isEmpty()) threadDoEnvio.poll().run();
+        soltar(threadDoEnvio);
         assertEquals(1, respostas.size());
         JSONObject r = new JSONObject(respostas.get(0));
         assertEquals("equipeAparelho", r.getString("t"));

@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -41,7 +42,9 @@ import java.util.function.LongSupplier;
  *       no máximo um a cada 30 minutos no aparelho (a marca atravessa a tela recriada), para o mapa separar quem negou de
  *       quem não abriu o app. O aviso que não chegou ao Nexus (sem rede) não conta: a próxima volta ao app tenta.</li>
  *   <li><b>O Sair</b> para a coleta na hora, apaga a fila (os pontos de quem saiu não podem subir com a chave de quem
- *       entrar depois) e revoga e apaga a chave, mesmo sem rede.</li>
+ *       entrar depois) e revoga e apaga a chave, mesmo sem rede. Até a chave sair, a decisão que já esperava na
+ *       thread (a volta ao app atrás de um envio pendurado na rede fraca) não liga a coleta nem mostra nada, e a
+ *       tarefa do Sair para de novo antes da rede: senão a coleta de quem saiu seguiria até as 22h.</li>
  *   <li><b>Uma thread só</b> para o disco, a cifra e a rede: a do serviço ({@link ServicoDaEquipe.Pecas#execucao}), na
  *       ordem em que tudo chegou. O pedido do aparelho que vem depois de um Sair só é respondido depois de a chave sair (e
  *       a página pede outra), e a chave que chega enquanto um envio leva o 401 não é apagada por ele. O que mexe na tela
@@ -124,6 +127,11 @@ final class EquipeNaCasca {
     private boolean esperandoOTecnico = false;
     // A explicação (ou o pedido do Android 10) já apareceu nesta tela.
     private boolean jaPediu = false;
+    // Os Sair pedidos cuja chave ainda não saiu do aparelho. A decisão que já esperava na thread antes do Sair (a volta
+    // ao app atrás de um envio pendurado na rede fraca, com 15 s de conexão e 15 s de leitura) rodaria depois do parar
+    // do Sair, ainda com a chave de quem saiu, e ligaria a coleta dele até as 22h. Se a tarefa do Sair nem entrar na
+    // thread (nunca: ela não é desligada), a marca fica, e a coleta não liga com a chave que não saiu.
+    private final AtomicInteger saidasPendentes = new AtomicInteger();
 
     /**
      * @param trabalho a thread do disco, da cifra e da rede (a do serviço, {@link ServicoDaEquipe.Pecas#execucao})
@@ -193,12 +201,13 @@ final class EquipeNaCasca {
     void receberChave(boolean coleta, String nova) {
         trabalhar(() -> {
             if (!coleta || nova == null) {
-                // A coleta não vale para esta conta: sem a chave, sem a fila (os pontos que sobraram não têm um dono que se
-                // saiba) e sem a coleta; o diálogo da equipe aberto sai da frente.
+                // A coleta não vale para esta conta: primeiro ela para (o que falhar depois não a deixa ligada), e
+                // então sem a chave e sem a fila (os pontos que sobraram não têm um dono que se saiba); o diálogo da
+                // equipe aberto sai da frente.
+                servico.parar();
                 chave.apagar();
                 limparAFila();
                 pararDeEsperar();
-                servico.parar();
                 Log.i(TAG, "o Nexus: a coleta da equipe não vale para esta conta");
                 return;
             }
@@ -217,10 +226,18 @@ final class EquipeNaCasca {
         trabalhar(this::reavaliarAgora);
     }
 
-    /** O Sair da página: a coleta para já, e a chave (com a fila) é revogada e apagada na thread do envio, mesmo sem rede. */
+    /**
+     * O Sair da página: a coleta para já, e a chave (com a fila) é revogada e apagada na thread do envio, mesmo sem
+     * rede. Até a chave sair, nada se decide com ela ({@link #reavaliarAgora}), e a tarefa do Sair para a coleta de
+     * novo, antes da fila e da rede.
+     */
     void sair() {
+        saidasPendentes.incrementAndGet(); // antes do parar: a decisão que vier depois dele já vê a marca
         servico.parar();
         trabalhar(() -> {
+            // A decisão que corria na thread quando o Sair chegou já tinha passado pela marca, e o iniciar dela pode
+            // ter valido depois do parar de cima: para de novo, antes da rede do revogar (até 30 s com o sinal fraco).
+            servico.parar();
             pararDeEsperar();
             jaPediu = false;
             limparAFila();
@@ -228,8 +245,10 @@ final class EquipeNaCasca {
                 envio.revogar(); // pede ao Nexus para revogar e apaga a chave daqui de qualquer jeito
             } finally {
                 // Também com o cofre do aparelho que não leu a chave agora: o revogar lança antes de apagá-la, e a chave
-                // de quem saiu não pode ficar (a do Nexus vence pela troca ou pela validade).
+                // de quem saiu não pode ficar (a do Nexus vence pela troca ou pela validade). A marca do Sair sai com
+                // ela.
                 chave.apagar();
+                saidasPendentes.decrementAndGet();
             }
             Log.i(TAG, "o Sair: a coleta da equipe parou, e a chave do aparelho foi revogada e apagada");
         });
@@ -267,6 +286,12 @@ final class EquipeNaCasca {
     }
 
     private void reavaliarAgora() {
+        if (saidasPendentes.get() > 0) {
+            // O Sair a caminho: esta decisão esperava na thread desde antes dele e, com a chave de quem saiu ainda
+            // guardada, ligaria a coleta dele, mostraria o aviso ou avisaria o Nexus com a chave que vai ser revogada.
+            Log.i(TAG, "o Sair a caminho: a casca não decide nada com a chave de quem saiu");
+            return;
+        }
         boolean temChave;
         try {
             temChave = chave.chave() != null;
