@@ -18,7 +18,8 @@ source ferramentas/ambiente.sh             # JAVA_HOME, ANDROID_HOME, PATH e and
 npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug lint)
 ```
 
-O `lint` sai sem erro. Os 13 avisos que restam (medido em 19/10/2026) são do template do Capacitor (`ManifestOrder`,
+O `lint` sai sem erro. Os 18 avisos que restam (13 medidos em 19/10/2026; os cinco `ApplySharedPref` da `ChaveDaEquipe` são
+de propósito, ver "Localização da equipe") são do template do Capacitor (`ManifestOrder`,
 `UnusedResources`), da versão do Gradle (`AndroidGradlePluginVersion`), dos ícones quadrados do Android 7
 (`IconLauncherShape`) e o `PluralsCandidate` do `casca_teste_enviado`, de propósito (ver "O atalho de teste dos avisos").
 O `ambiente.sh` escreve o `sdk.dir` com o `:` escapado (`C\:/Users/...`): sem o escape o lint falha com PropertyEscape,
@@ -263,7 +264,8 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
   lote de 400 ms); (4) a sentinela, as versões da fila e a restauração do localStorage; (5) o espelho e a restauração do
   IndexedDB das fotos (`gc_campo_fotos`, store `fotos`); (6) o `window.open` do login e do Fracttal; (7) o voltar; (8) o
   registro do aparelho para as notificações, com o papel de Admin do atalho de teste; (9) a abertura da OS pelo toque na
-  emergência (as seções 8 e 9 estão no bullet "As notificações do Nexus Field" e nos dois seguintes).
+  emergência (as seções 8 e 9 estão no bullet "As notificações do Nexus Field" e nos dois seguintes); (10) a chave da
+  equipe, o registro do aparelho da localização da equipe no Nexus (a seção "Localização da equipe").
   - **As marcas no localStorage**, gravadas pelo `setItem` original (fora do espelho; o `classificar` as deixa de fora):
     `gc_casca_sentinela` (presente = o armazenamento não foi perdido) e `gc_casca_perda_pendente` (a perda começou e
     ainda não terminou). **O banco `gc_casca`** no IndexedDB: "a última restauração do IndexedDB terminou".
@@ -1015,6 +1017,83 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
     atividade" não: o projeto mais usado que fazia isso foi desativado pelo GitHub por violar os termos. A primeira prova
     de que o PUT segura é nossa: conferir na aba Actions, uns 70 dias depois do último commit, que o contrato ainda roda
     (e não ignorar o e-mail "The workflow will be disabled soon", se ele vier).
+
+## Localização da equipe (1.2.0, spec `docs/superpowers/specs/2026-11-08-mapa-de-equipe-design.md`)
+
+O Nexus Field coleta a posição do celular do técnico de campo para o mapa da equipe do Nexus. Os textos são PENDENTES até o
+dono da casca, o RH e o jurídico aprovarem na prévia (a seção Localização da equipe de `docs/previas/telas.html`); a tag
+`v1.2.0` só sai depois disso, com as três rotas do Nexus no ar (chat "Nexus (Usinas 360)") e o piloto com 1 ou 2 técnicos.
+O site (App de Campo) e o Fracttal não mudam.
+
+- **A regra.** Liga na primeira abertura (ou na volta ao app) entre 6h e 22h na hora do celular, e para às 22h; 6:00:00
+  vale e 22:00:00 não (`JanelaDaEquipe`). Sem botão de pausa (decisão do dono). Só vale para quem o Nexus diz
+  `coleta: true` ao dar a chave: supervisor, administrador, aparelho de prova e quem está fora do piloto não veem aviso
+  nem coleta, e por isso a 1.2.0 pode ir a todos os aparelhos. `coleta: false` ou 401 param o serviço e apagam a chave.
+  Ritmo (`RitmoDaColeta`, instância com estado: 3 leituras paradas seguidas): 2 min em deslocamento, 10 min parado.
+  Envio em lotes de até 200 pontos (64 KB) a cada 120 000 ms em deslocamento e 600 000 ms parado.
+- **O porquê de cada peça.**
+  - `ServicoDaEquipe`: serviço em primeiro plano do tipo localização, com a notificação fixa no canal "Localização da
+    equipe" (o quarto canal do `CanaisDeNotificacao`, `equipe_localizacao`, só nasce no aparelho em que a coleta ligou;
+    sem som, sem vibração, sem ponto no ícone). O Handler não conta o sono do celular: com a tela apagada o envio sai
+    pela posição que chega com o envio vencido no `elapsedRealtime`, com um `WAKE_LOCK` parcial até a resposta (o mapa
+    dizia "sem sinal" com o técnico trabalhando). O fim das 22h é conferido a cada posição e a cada envio, e o prazo do
+    dia vai ao disco antes do pedido: o religamento do sistema (`START_STICKY`) não coleta no dia seguinte sem o técnico
+    abrir o app. O `mov` do ponto é o da própria leitura (1 m/s ou 150 m acima da precisão), não o do ritmo: senão as
+    primeiras leituras em casa iam como deslocamento e o mapa mostraria a posição exata de quem está fora de usina.
+  - Sem a notificação fixa à vista não há coleta (Android 13+ com a notificação negada, ou o canal ou as notificações do
+    Nexus Field desligados): `notificacaoAVista` confere ao ligar, a cada posição e a cada envio. A notificação arrastada
+    (Android 14+) volta na hora, pelo `deleteIntent` (`REPOR`).
+  - `EquipeNaCasca`: a regra (`decidir`, pura) e quem a executa: o aviso antes de ligar (uma vez por chave do aparelho,
+    não fecha tocando fora nem pelo Voltar, sem botão de recusar), a explicação da localização o tempo todo (Android 11+; no
+    10 o pedido do Android já oferece), o `permissao: "sem"` ao Nexus no máximo a cada 30 min (o mapa separa quem negou de
+    quem não abriu o app), a volta ao app e o Sair. Fora da janela nada aparece ao técnico. Uma thread só para disco,
+    cifra e rede (a do serviço).
+  - O Sair para a coleta na hora, apaga a fila, revoga e apaga a chave (mesmo sem rede) e deixa uma marca
+    (`saidasPendentes`) até a chave sair: a decisão que já esperava na thread (a volta ao app atrás de um envio pendurado)
+    não religa a coleta de quem saiu, e a tarefa do Sair para de novo antes da rede.
+  - `ChaveDaEquipe` (cifrada pela `Cifra`/Keystore; o `commit()` do `apagarAChave` e dos outros é de propósito, no
+    lugar do `apply()`, porque a gravação tem de chegar ao disco antes de o envio seguir, na thread dele), `FilaDePontos`
+    (SQLite: no máximo 1000 pontos e nada com mais de 24 h; passou, sai o mais velho) e `EnvioDePontos` (todo 5xx e a
+    falta de rede deixam fila e chave intactas; só o 401 apaga a chave).
+  - A seção 10 do `inicio.js` (a chave da equipe) pede a chave ao Nexus mostrando o login Microsoft da página: o token
+    nunca chega ao nativo, ao espelho nem ao log. Só pede sem chave guardada, ou depois do 401 (cada pedido gera uma chave
+    nova e revoga a anterior do par). Os endereços são `https://app.gridco.com.br` + `/t/campo/equipe/aparelho`,
+    `/t/campo/equipe/posicoes` e `/t/campo/equipe/aparelho/revogar` (seção 8 do desenho: o chat do Nexus pode trocar, e avisa).
+- **A chave é da conta, e a fila também (R5, R6).** A página manda ao nativo a `conta` (SHA-256 de uma frase fixa mais o
+  `oid`, ou o `sub`, do token, calculado na página; não sai do aparelho). O nativo guarda a conta com a chave e só diz
+  `temChave: true` com a chave da mesma conta. Outra conta guardada, a chave de antes da conta ou a fila sem conta
+  guardada recebem o trabalho do Sair da anterior (sem a revogação quando não há chave) antes da resposta, na thread do
+  envio; a mesma conta fica com a fila, que sobe com a chave nova. O 401 apaga só a chave: a conta guardada é a dona da
+  fila. Caso que criou a regra: a conta A sem sinal o dia todo, a chave vence, o 401; a conta B entra no dia seguinte sem
+  o Sair de A e herdaria o dia de A. A conta ilegível (Keystore invalidado, backup restaurado) conta como fila sem dona,
+  e a fila é apagada.
+- **O envio espera a conta conferida nesta partida (R8).** `ChaveDaEquipe.conferida`, só na memória, começa "não
+  conferida"; confere o pedido do aparelho da mesma conta ou a chave nova guardada; desfazem o Sair, a troca de conta, o
+  `coleta:false`, o 401, a conferência de outra conta e o cofre fora. Enquanto não conferida, `EnvioDePontos.enviar` e o
+  `avisarSemPermissao` devolvem NADA sem rede (a coleta segue e guarda; a revogação do Sair não espera). Caso: a partida a
+  frio com a chave de outra conta, que enviaria o primeiro lote uns 1 min 45 s depois do `onResume`, antes de o login da
+  nova conta chegar. O custo aceito: o app aberto sem token coleta e só envia depois que a página confere a conta (a fila
+  guarda 24 h e 1000 pontos). E o cofre que não lê a conta na conferência responde `temChave: true` (para não pedir uma
+  chave que o cofre fora não guarda), e nada sai até a próxima conferência, que é a próxima carga da página (a R7 conta
+  o `temChave: true` como terminada). A R9 (o nativo reconferir a conta antes de cada envio) fica para a onda final de
+  correção, que a documenta.
+- **A nova tentativa da página (R7).** Terminou: `temChave: true`, ou o `equipeChave` com a chave ou com o `coleta:false`
+  entregue ao nativo. A falha antes do nativo (sem login, token sem id, sem `crypto`) tenta na hora no online e na volta
+  ao app; a que chegou ao nativo ou ao Nexus tenta no máximo uma vez a cada 10 min, contados do pedido ao nativo (o
+  `criarEspera`, que a seção 8 também usa, cada uma com a sua espera). Com o POST no ar nada começa outro; depois do Sair,
+  nada. Os testes da página são `testes/equipe.test.mjs` (e o `canal.test.mjs` compara as `onde` com a lista do
+  `Mensageiro`); os outros (`push`, `atalho-teste`) filtram os avisos `equipe` pelo `onde`.
+- **Os avisos `equipe` do log** (`{t:'erro', onde:'equipe'}`, com texto nosso, sem coordenada, chave, e-mail ou id): o
+  token sem id e a página sem `crypto.subtle` ou com o resumo da conta falho, uma vez por carga cada; as falhas do nativo
+  e do Nexus, uma por tentativa (até as rotas do Nexus entrarem no ar, cada carga logada manda o 404); o Bearer `null`
+  (sem login) não avisa. São o que deixa o piloto diagnosticável.
+- **O que não se faz.** Coordenada, chave, e-mail ou id de aparelho no log (`Log`) ou nos `erro` da página; o token
+  Microsoft no nativo; botão de pausa; coletar fora da janela, sem a notificação fixa à vista ou com `coleta: false`;
+  texto novo de interface sem o `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do
+  "O que aprovar", com o texto inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega).
+  Xiaomi e afins: a coleta com o app fechado depende do Início automático e da bateria sem restrições, que o guia de
+  instalação (`docs/instalacao/`) manda ligar. O roteiro do piloto é a seção "A localização da equipe" do
+  `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às 22h, a tela apagada, as marcas).
 
 ## Distribuição
 

@@ -78,9 +78,26 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   mais espaçado parado. Sem sinal, os pontos esperam no celular e saem quando o sinal voltar.
 - **A identidade do aparelho.** Com o app fechado não há o login da página para mandar as posições. Na carga com o
   técnico logado, a casca pede ao Nexus uma chave própria do aparelho, mostrando o login Microsoft da página; o Nexus
-  confere esse login, sabe quem é a pessoa, diz se a coleta vale para ela e devolve a chave. A casca a guarda cifrada
-  (como a identidade do espelho) e a usa em cada envio. O Sair apaga a chave no celular e pede ao Nexus para revogá-la.
-  Outra conta no mesmo aparelho recebe outra chave.
+  confere esse login, sabe quem é a pessoa, diz se a coleta vale para ela e devolve a chave. O token Microsoft não sai da
+  página. A casca guarda a chave cifrada (como a identidade do espelho) e a usa em cada envio. O Sair apaga a chave no
+  celular e pede ao Nexus para revogá-la.
+- **A chave é da conta.** A página calcula a conta (o SHA-256 de uma frase fixa mais o `oid`, ou o `sub`, do token
+  Microsoft) e a manda ao nativo junto com o pedido e com a chave; o hash não sai do aparelho. O nativo guarda a conta com
+  a chave e só diz que há chave quando é a da mesma conta. Outra conta no mesmo celular, sem o Sair da anterior, faz o
+  trabalho do Sair da anterior (para a coleta, apaga a fila, revoga e apaga a chave, esquece o aviso aceito) e pede o aviso
+  de novo: a conta B nunca herda a chave, o aviso nem a fila da A. A conta guardada é a dona da fila e sobrevive ao 401
+  (que apaga só a chave): a mesma conta sobe a fila com a chave nova, e outra conta não a herda. O Sair, a troca de conta e
+  o `coleta:false` apagam tudo. Uma conta ilegível (Keystore invalidado, backup restaurado) conta como fila sem dona, e a
+  fila é apagada.
+- **O envio espera a conta conferida.** A coleta liga com a chave guardada e guarda os pontos, mas nada sai (nem o aviso
+  de que falta a permissão) até esta partida do app conferir a conta: o pedido do aparelho da mesma conta, ou a chave nova
+  guardada. O custo: o app aberto sem token (sem sinal, sessão vencida) coleta e só envia depois da conferência; a fila
+  guarda 24 h e no máximo 1000 pontos. A revogação do Sair não espera.
+- **A nova tentativa da página.** O que não terminou (o token ainda sem login, a falha do nativo ou do Nexus) tenta de novo
+  no online e na volta ao app, no máximo a cada 10 min contados do pedido ao nativo; com o pedido no ar nada começa outro,
+  e depois do Sair nada. Terminou: há chave (`temChave`), ou a chave ou o `coleta:false` foi entregue ao nativo. As falhas
+  que só aparecem no aparelho (o token sem id, a página sem `crypto.subtle`) e as do nativo e do Nexus saem como aviso
+  `equipe` no log, sem coordenada nem chave.
 - **Xiaomi e afins.** A coleta com o app fechado depende do "Início automático" e da bateria sem restrições, que o guia
   de instalação já manda ligar para os avisos (`docs/instalacao/`). O guia ganha a linha da localização.
 
@@ -127,6 +144,9 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 - O técnico que não abre o app no dia não aparece no mapa naquele dia.
 - Abrir rota manda ao Google a posição do técnico e a da usina, no clique de quem pediu.
 - Entre os 7 dias e a limpeza da T.I., o ponto velho continua no banco, cifrado, sem uso.
+- Sem a notificação fixa à vista não há coleta: no Android 13 ou mais novo com a notificação do Nexus Field negada, ou com
+  as notificações ou o canal da localização da equipe desligados nos ajustes, a coleta não liga (e para, se estava ligada).
+  O mapa mostra esse aparelho como sem sinal.
 - O técnico pode negar a localização "o tempo todo" nos ajustes do Android: o mapa mostra quem está sem permissão, e
   resolver isso é com o supervisor.
 

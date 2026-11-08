@@ -411,6 +411,36 @@ test('a notificação fixa da localização da equipe tem quadro: o título e o 
     'a legenda diz o canal, com o nome do strings.xml');
 });
 
+// A lista "O que aprovar" e a localização da equipe (spec 2026-11-08, seção 4.1): cada texto novo é aprovado pelo texto
+// inteiro (o dono da casca, o RH e o jurídico leem as palavras, e não um resumo), e o aviso tem o item do que ele promete.
+test('a lista "O que aprovar" cita cada texto da localização da equipe, inteiro, e o que o aviso promete', () => {
+  const d = doc();
+  const citados = [...d.querySelectorAll('#o-que-aprovar .cita')].map((e) => compactar(e.textContent));
+  const daEquipe = [...stringsDe('casca_equipe_'), ...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_canal_equipe_')];
+  assert.ok(daEquipe.length >= 9, 'o teste leu os textos da localização da equipe');
+  for (const s of daEquipe) {
+    assert.ok(citados.some((t) => t === s.texto), `a lista "O que aprovar" não cita o ${s.nome}: "${s.texto}"`);
+  }
+  // Cada item leva ao quadro certo, que existe.
+  for (const [item, quadro] of [['ok-equipe-aviso', 't-equipe-aviso'], ['ok-equipe-permissao', 't-equipe-permissao'],
+    ['ok-equipe-notificacao', 't-equipe-notificacao']]) {
+    const li = d.getElementById(item)?.closest('li');
+    assert.ok(li, `o item ${item} da lista "O que aprovar"`);
+    assert.equal(li.querySelector('a.ver')?.getAttribute('href'), `#${quadro}`);
+    assert.ok(d.getElementById(quadro), `o quadro ${quadro}`);
+  }
+  // O que o aviso promete: quando, por quê, quem vê e por quanto tempo (seção 4.1), no item e no texto do aviso.
+  const promessa = d.getElementById('ok-equipe-promessa')?.closest('li');
+  assert.ok(promessa, 'o item ok-equipe-promessa: o que o aviso promete');
+  const dito = compactar(promessa.querySelector('label').textContent);
+  const aviso = daEquipe.find((s) => s.nome === 'casca_equipe_aviso_texto').texto;
+  for (const [pergunta, trecho] of [['quando', /6h.*22h/], ['por quê', /ver onde a equipe está/], ['quem vê', /PCM/],
+    ['por quanto tempo', /7 dias.*1 ano/]]) {
+    assert.match(aviso, trecho, `o aviso diz ${pergunta}`);
+    assert.ok(new RegExp(pergunta).test(dito), `o item do que o aviso promete cobre: ${pergunta}`);
+  }
+});
+
 test('os botões de cada quadro são os que o código Java monta, e todo diálogo do Java tem quadro', () => {
   const doJava = paresDeBotoesDoJava();
   assert.ok(doJava.length >= 5, 'o teste achou os diálogos da MainActivity, do CascaPlugin e do Atualizador');
@@ -503,7 +533,8 @@ test('os links "Ver" da lista têm alvo de toque de pelo menos 44 px', () => {
 
 test('os nomes entre aspas da lista "O que aprovar" são textos de verdade do aplicativo', () => {
   // A lista é uma terceira cópia dos títulos e dos botões; sem esta conferência ela envelhece sozinha.
-  const permitidos = new Set([...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos()].map((s) => s.texto));
+  const daEquipe = [...stringsDe('notificacao_equipe_')];
+  const permitidos = new Set([...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos(), ...daEquipe].map((s) => s.texto));
   for (const nome of ['app_name', 'title_activity_main']) permitidos.add(stringDoApp(nome)); // o nome, Nexus Field
   const erro = new JSDOM(ERRO_HTML).window.document;
   for (const el of erro.querySelectorAll('h1, p, button')) permitidos.add(compactar(el.textContent));
