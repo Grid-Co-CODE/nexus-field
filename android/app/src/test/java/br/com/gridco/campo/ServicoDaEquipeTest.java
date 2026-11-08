@@ -113,8 +113,8 @@ public class ServicoDaEquipeTest {
             return resposta;
         }, () -> agora);
         // O disco e a rede na thread do teste: a fila e o envio rodam na hora, sem outra thread para esperar.
-        ServicoDaEquipe.pecasDeTeste = new ServicoDaEquipe.Pecas(() -> agora, () -> desdeOBoot, fila, envio, fonte,
-            Runnable::run);
+        ServicoDaEquipe.pecasDeTeste = new ServicoDaEquipe.Pecas(() -> agora, () -> desdeOBoot, chave, fila, envio,
+            fonte, Runnable::run);
         ShadowLog.clear();
     }
 
@@ -524,8 +524,8 @@ public class ServicoDaEquipeTest {
     public void oCelularAcordadoSoltaSozinhoSeARespostaNaoVolta() {
         // A rede pendurada: o envio não volta (a thread não roda aqui), e o prazo solta o celular acordado sozinho.
         List<Runnable> naThread = new ArrayList<>();
-        ServicoDaEquipe.pecasDeTeste = new ServicoDaEquipe.Pecas(() -> agora, () -> desdeOBoot, fila, envio, fonte,
-            naThread::add);
+        ServicoDaEquipe.pecasDeTeste = new ServicoDaEquipe.Pecas(() -> agora, () -> desdeOBoot, chave, fila, envio,
+            fonte, naThread::add);
         agora = em(10, 0);
         chave.guardar("chave-ficticia");
         ligar();

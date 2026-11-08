@@ -99,6 +99,11 @@ const DIALOGOS = [
   { titulo: 'casca_atualizacao_titulo', textos: ['casca_atualizacao_texto', 'casca_atualizacao_texto_simples'],
     botoes: ['casca_atualizacao_depois', 'casca_atualizacao_atualizar'] },
   { titulo: 'casca_instalar_titulo', textos: ['casca_instalar_texto'], botoes: ['casca_abrir_ajustes'] },
+  // A localização da equipe (1.2.0, pendentes; o EquipeNaCasca): o aviso antes de ligar a coleta e a explicação da
+  // localização o tempo todo, antes de o Android 11 ou mais novo levar aos ajustes. Os quadros estão na seção da equipe.
+  { titulo: 'casca_equipe_aviso_titulo', textos: ['casca_equipe_aviso_texto'], botoes: ['casca_equipe_aviso_continuar'] },
+  { titulo: 'casca_equipe_permissao_titulo', textos: ['casca_equipe_permissao_texto'],
+    botoes: ['casca_equipe_permissao_continuar'] },
 ];
 // Os toasts, na ordem da prévia: o do download que começou e o da atualização que não deu certo; depois, os do resultado
 // do teste dos avisos pelo atalho do ícone (só para administrador): enviado (com e sem a contagem), só administrador, sem

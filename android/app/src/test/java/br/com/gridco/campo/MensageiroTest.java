@@ -849,7 +849,129 @@ public class MensageiroTest {
         semDadosDoTecnico();
     }
 
+    // --- a chave da equipe (spec 2026-11-08) -------------------------------------------------------------------------
+
+    // Fictícia, no formato do contrato (32 bytes em base64url, 43 caracteres): como o token, nunca vai ao log.
+    private static final String CHAVE_DA_EQUIPE = "chaveFicticiaDaEquipe_0123456789-abcdefghij";
+
+    private ChaveDaEquipe chaveDaEquipe(CifraFalsa cifra) {
+        Context ctx = RuntimeEnvironment.getApplication();
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().clear().commit();
+        return new ChaveDaEquipe(ctx, cifra);
+    }
+
+    @Test
+    public void equipePedirAparelhoChegaAoPlugin() {
+        // Só o tipo: o que vier junto (a conta, um aparelho) não é lido nem vai ao log.
+        assertTrue(m.tratar("{\"t\":\"equipePedirAparelho\",\"email\":\"" + EMAIL + "\"}"));
+        assertEquals(1, acoes.equipePedidos);
+        assertTrue(acoes.erros.isEmpty());
+        semDadosDoTecnico();
+    }
+
+    @Test
+    public void aRespostaDoAparelhoLevaOAparelhoDaChaveDaEquipeAVersaoESeTemChave() throws JSONException {
+        CifraFalsa cifra = new CifraFalsa();
+        ChaveDaEquipe chave = chaveDaEquipe(cifra);
+        JSONObject sem = objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0"));
+        assertEquals("equipeAparelho", sem.getString("t"));
+        assertEquals(chave.aparelho(), sem.getString("aparelho"));
+        assertEquals("1.2.0", sem.getString("versao"));
+        assertFalse("o aparelho sem chave: a página pede uma ao Nexus", sem.getBoolean("temChave"));
+
+        chave.guardar(CHAVE_DA_EQUIPE);
+        String com = Mensageiro.respostaDaEquipe(chave, "1.2.0");
+        assertTrue("com chave a página não pede outra (cada pedido revoga a anterior)", objeto(com).getBoolean("temChave"));
+        assertFalse("a chave nunca vai à página", com.contains(CHAVE_DA_EQUIPE));
+        // O cofre do aparelho que não respondeu agora: a chave guardada continua lá, e a página não pede outra.
+        cifra.keystoreFora = true;
+        assertTrue(objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0")).getBoolean("temChave"));
+        cifra.keystoreFora = false;
+        // A chave que a cifra de agora nunca vai ler vale como sem chave.
+        cifra.falharAoDecifrar = true;
+        assertFalse(objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0")).getBoolean("temChave"));
+        cifra.falharAoDecifrar = false;
+        chave.apagar();
+        JSONObject apagada = objeto(Mensageiro.respostaDaEquipe(chave, null));
+        assertFalse(apagada.getBoolean("temChave"));
+        assertEquals("o aparelho fica depois do apagar", chave.aparelho(), apagada.getString("aparelho"));
+        assertEquals("", apagada.getString("versao"));
+    }
+
+    @Test
+    public void equipeChaveComOQueONexusRespondeuChegaAoPlugin() {
+        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}"));
+        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":false}"));
+        // Com o coleta:false, a chave que vier junto não vale.
+        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":false,\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}"));
+        assertEquals(Arrays.asList("true:" + CHAVE_DA_EQUIPE, "false:null", "false:null"), acoes.equipe);
+        assertTrue(acoes.erros.isEmpty());
+        semAChaveDaEquipe();
+    }
+
+    @Test
+    public void equipeChaveComColetaESemAChaveERecusadaComUmErroSemConteudo() {
+        for (String torta : new String[] {
+                "{\"t\":\"equipeChave\",\"coleta\":true}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":null}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":12345678901234567890}",
+                // A chave vai no Authorization (Bearer): só o alfabeto do RFC 6750, sem espaço, '@' nem quebra de linha.
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + EMAIL + "\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + " x\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\\r\\nX-Outro: 1\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"curta\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + new String(new char[600]).replace('\0', 'a') + "\"}",
+                "{\"t\":\"equipeChave\",\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":\"true\",\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":1,\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}"}) {
+            assertFalse(torta, m.tratar(torta));
+        }
+        assertTrue("nenhuma torta chegou ao plugin", acoes.equipe.isEmpty());
+        assertEquals(12, acoes.erros.size());
+        for (String erro : acoes.erros) assertEquals("equipeChave: mensagem com campo que falta ou torto", erro);
+        semDadosDoTecnico();
+        semAChaveDaEquipe();
+    }
+
+    @Test
+    public void oErroDaPaginaNaChaveDaEquipeVaiAoLogSoComORotulo() {
+        assertTrue(m.tratar("{\"t\":\"erro\",\"onde\":\"equipe\",\"msg\":\"401 " + CHAVE_DA_EQUIPE + " " + EMAIL + "\"}"));
+        assertEquals(Arrays.asList("equipe: erro da página (1 nesta partida)"), acoes.erros);
+        semDadosDoTecnico();
+        semAChaveDaEquipe();
+    }
+
+    @Test
+    public void nenhumaMensagemDaEquipeLevaAChaveOuOAparelhoAoLog() {
+        ChaveDaEquipe chave = chaveDaEquipe(new CifraFalsa());
+        String aparelho = chave.aparelho();
+        assertTrue(m.tratar("{\"t\":\"equipePedirAparelho\",\"aparelho\":\"" + aparelho + "\"}"));
+        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\",\"aparelho\":\""
+            + aparelho + "\"}"));
+        assertFalse(m.tratar("{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + aparelho + " " + CHAVE_DA_EQUIPE
+            + "\"}"));
+        assertFalse(m.tratar("{\"t\":\"equipeChave\",\"coleta\":\"" + CHAVE_DA_EQUIPE + "\"}"));
+        chave.guardar(CHAVE_DA_EQUIPE);
+        Mensageiro.respostaDaEquipe(chave, "1.2.0");
+        List<String> tudo = new ArrayList<>(acoes.erros);
+        for (ShadowLog.LogItem item : ShadowLog.getLogs()) tudo.add(item.tag + " " + item.msg);
+        for (String linha : tudo) {
+            assertFalse("o log levou a chave da equipe: " + linha, linha.contains(CHAVE_DA_EQUIPE));
+            assertFalse("o log levou o id do aparelho: " + linha, linha.contains(aparelho));
+        }
+    }
+
     // --- ajudantes ---------------------------------------------------------------------------------------------------
+
+    /** A chave da equipe também não vai ao log (nem pelas ações, nem pelo android.util.Log). */
+    private void semAChaveDaEquipe() {
+        List<String> tudo = new ArrayList<>(acoes.erros);
+        for (ShadowLog.LogItem item : ShadowLog.getLogs()) tudo.add(item.tag + " " + item.msg);
+        for (String linha : tudo) {
+            if (linha.contains(CHAVE_DA_EQUIPE) || linha.contains("chaveFicticia")) fail("o log levou a chave: " + linha);
+        }
+    }
 
     /** O token do Firebase também não vai ao log (nem pelas ações, nem pelo android.util.Log). */
     private void semOToken() {
@@ -980,7 +1102,11 @@ public class MensageiroTest {
         final List<Boolean> admins = new ArrayList<>();
         final List<String> testes = new ArrayList<>();
         final List<String> push = new ArrayList<>();
+        int equipePedidos;
+        final List<String> equipe = new ArrayList<>();
 
+        @Override public void equipePedirAparelho() { equipePedidos++; }
+        @Override public void equipeChave(boolean coleta, String chave) { equipe.add(coleta + ":" + chave); }
         @Override public void pushSaiu() { push.add("saiu"); }
         @Override public void pushRegistrado() { push.add("registrado"); }
         @Override public void osAberta(String os) { push.add("aberta:" + os); }

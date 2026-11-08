@@ -702,8 +702,36 @@
 
   <section class="grupo" aria-labelledby="g-equipe">
     <h2 id="g-equipe">Localização da equipe</h2>
-    <p class="suave">Novo na 1.2.0, com os textos pendentes de aprovação (do dono da casca, do RH e do jurídico): a coleta da posição dos técnicos de campo para o mapa da equipe no Nexus, da primeira abertura do Nexus Field no dia até as 22h, na hora do celular, só para quem o Nexus diz que a coleta vale. Enquanto ela está ligada, a notificação fixa fica na barra; às 22h ela sai sozinha. O título e o texto são do Nexus Field (o strings.xml), e não do servidor.</p>
+    <p class="suave">Novo na 1.2.0, com os textos pendentes de aprovação (do dono da casca, do RH e do jurídico): a coleta da posição dos técnicos de campo para o mapa da equipe no Nexus, da primeira abertura do Nexus Field no dia até as 22h, na hora do celular, só para quem o Nexus diz que a coleta vale. Antes de ligar, o aviso e, no Android 11 ou mais novo, a explicação da localização o tempo todo. Enquanto ela está ligada, a notificação fixa fica na barra; às 22h ela sai sozinha. Os textos são do Nexus Field (o strings.xml), e não do servidor.</p>
     <div class="galeria">
+
+      <figure class="item" id="t-equipe-aviso">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Localização da equipe">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="veu">
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-equipe-aviso" aria-describedby="dx-equipe-aviso">
+              <div class="dialogo-titulo" id="dt-equipe-aviso">Localização da equipe</div>
+              <p class="dialogo-texto" id="dx-equipe-aviso">O Nexus Field vai enviar ao Nexus a posição deste celular da primeira abertura do dia, a partir das 6h, até as 22h, sem pausa, também com o aplicativo fechado. Serve para ver onde a equipe está e abrir rotas até as usinas. Quem vê o mapa: PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus. As posições ficam guardadas por 7 dias, e o resumo dos deslocamentos entre usinas, por 1 ano. Enquanto a coleta estiver ligada, uma notificação fica na barra.</p>
+              <div class="dialogo-botoes"><span class="dialogo-botao">Continuar</span></div>
+            </div>
+          </div>
+        </div>
+        <figcaption><strong>O aviso antes de ligar a coleta, novo e pendente.</strong> Aparece uma vez para cada chave do aparelho (outra conta no mesmo celular o vê de novo), só para quem o Nexus diz que a coleta vale e só entre as 6h e as 22h. Não fecha tocando fora nem pelo botão Voltar, e não tem botão de recusar: o Continuar segue para a permissão da localização o tempo todo. Se a coleta já estava ligada para outra conta, ela para até o Continuar.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-equipe-permissao">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Localização o tempo todo">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="veu">
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-equipe-permissao" aria-describedby="dx-equipe-permissao">
+              <div class="dialogo-titulo" id="dt-equipe-permissao">Localização o tempo todo</div>
+              <p class="dialogo-texto" id="dx-equipe-permissao">Para enviar a posição com o aplicativo fechado, o Nexus Field precisa da localização liberada o tempo todo. Na próxima tela, toque em Permitir o tempo todo.</p>
+              <div class="dialogo-botoes"><span class="dialogo-botao">Continuar</span></div>
+            </div>
+          </div>
+        </div>
+        <figcaption><strong>A localização o tempo todo, nova e pendente.</strong> No Android 11 ou mais novo, logo depois do aviso: o Continuar leva aos ajustes da localização do Nexus Field, onde o técnico escolhe Permitir o tempo todo. No Android 10 esta tela não aparece: o próprio pedido do Android oferece o Permitir o tempo todo. Não fecha tocando fora nem pelo botão Voltar. Pergunta uma vez por abertura do Nexus Field; sem a permissão, ele funciona como antes, sem coletar, e o mapa da equipe mostra que falta a permissão (o Nexus Field avisa o Nexus no máximo a cada 30 minutos).</figcaption>
+      </figure>
 
       <figure class="item" id="t-equipe-notificacao">
         <div class="celular gaveta" data-canal="equipe_localizacao" role="group" aria-label="Barra do Android com a notificação fixa da localização da equipe do Nexus Field">

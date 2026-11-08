@@ -23,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.LongSupplier;
+import java.util.regex.Pattern;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -37,12 +38,14 @@ import org.json.JSONObject;
  *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila}
  *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken · pushSaiu · pushRegistrado
  *   pushAdmin {admin} · pushTeste {ok, status, aparelhos, pedido} · osAberta {os}
+ *   equipePedirAparelho · equipeChave {coleta, chave}
  * </pre>
  *
  * E a resposta do idbPedir, pela ponte da mesma mensagem: idbItem, idbPedaco e idbFim ({@link #enviarIdb}), ou
  * idbRecusado ({@link #recusarIdb}) quando o disjuntor do dia não deixa. A do pushPedirToken, também pela ponte dela, é
  * o pushToken {token, versao, avisos} ({@link #respostaDoPush}), que também vai sozinho à página que pediu
- * ({@link PushNaCasca}).
+ * ({@link PushNaCasca}). A do equipePedirAparelho é o equipeAparelho {aparelho, versao, temChave}
+ * ({@link #respostaDaEquipe}), mandado pela {@link EquipeNaCasca}.
  *
  * Regras que o código não mostra sozinho:
  * <ul>
@@ -96,7 +99,17 @@ public final class Mensageiro {
         "location.href", "document.open", "document.write", "document.writeln", "document.close",
         "voltar",
         "push",
-        "abrirOS")));
+        "abrirOS",
+        "equipe")));
+
+    /**
+     * A chave da equipe que o Nexus deu (o equipeChave): vai no Authorization dos envios ("Bearer &lt;chave&gt;"), então
+     * só o que o RFC 6750 aceita num Bearer (o b64token: letras, dígitos, "-._~+/" e o "=" no fim), entre 16 e 512
+     * caracteres. O contrato é de 32 bytes em base64url (43 caracteres). O que vier com espaço ou quebra de linha seria
+     * recusado pelo HttpURLConnection a cada envio, e o serviço ficaria coletando sem nunca conseguir mandar.
+     */
+    private static final Pattern CHAVE_DA_EQUIPE = Pattern.compile("[A-Za-z0-9._~+/-]{16,}=*");
+    private static final int CHAVE_DA_EQUIPE_NO_MAXIMO = 512;
 
     /** O que o canal pede ao plugin. Todas chegam na thread do espelho; quem mexe na WebView passa para a de UI. */
     public interface Acoes {
@@ -148,6 +161,19 @@ public final class Mensageiro {
          * toast dele ({@link AtalhosDeTeste#avisar}), se o pedido ainda não teve o seu (CascaPlugin.TesteDosAvisos).
          */
         void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos, int pedido);
+
+        /**
+         * A página quer o id do aparelho e saber se ele já tem a chave da equipe, para só pedir uma ao Nexus quando não
+         * tem (cada pedido gera chave nova e revoga a anterior): responda pela ponte da própria mensagem com o
+         * {@link Mensageiro#respostaDaEquipe}, pela {@link EquipeNaCasca} (depois de um Sair que ainda revoga a chave).
+         */
+        void equipePedirAparelho();
+
+        /**
+         * O que o Nexus respondeu ao registro do aparelho, repassado pela página: a coleta vale para a conta (com a
+         * chave, já conferida) ou não (a chave null). Vai à {@link EquipeNaCasca#receberChave}.
+         */
+        void equipeChave(boolean coleta, String chave);
 
         /** Um aviso para o log. Nunca traz nome de chave, valor, URL com parâmetros nem e-mail. */
         void erro(String onde, String msg);
@@ -363,6 +389,31 @@ public final class Mensageiro {
             "versao", versao == null ? "" : versao, "avisos", avisos);
     }
 
+    /**
+     * O id do aparelho para a página registrá-lo no Nexus (spec 2026-11-08, seção 8):
+     * {@code {t:'equipeAparelho', aparelho, versao, temChave}}, a resposta ao equipePedirAparelho. A página manda o
+     * {@code aparelho} e o "NexusField/&lt;versao&gt;" ao Nexus com o Bearer dela (o token da Microsoft nunca chega ao
+     * nativo), e só quando {@code temChave} é false: cada pedido gera chave nova e revoga a anterior do par. A chave em si
+     * nunca vai à página. O cofre do aparelho que não respondeu agora (a chave guardada, que a cifra não leu neste
+     * instante) conta como "tem": a chave continua lá, e pedir outra a revogaria à toa; a que a cifra de agora nunca vai
+     * ler conta como "não tem" ({@link ChaveDaEquipe#chave}). Lê o disco e a cifra: só na thread do envio da equipe.
+     */
+    static String respostaDaEquipe(ChaveDaEquipe chave, String versao) {
+        boolean temChave;
+        try {
+            temChave = chave.chave() != null;
+        } catch (RuntimeException e) {
+            temChave = true;
+        }
+        return json("t", "equipeAparelho", "aparelho", chave.aparelho(), "versao", versao == null ? "" : versao,
+            "temChave", temChave);
+    }
+
+    /** A chave da equipe que pode ir num "Authorization: Bearer" ({@link #CHAVE_DA_EQUIPE}). */
+    static boolean chaveDaEquipeValida(String chave) {
+        return chave != null && chave.length() <= CHAVE_DA_EQUIPE_NO_MAXIMO && CHAVE_DA_EQUIPE.matcher(chave).matches();
+    }
+
     private final ArmazemEspelho armazem;
     private final Acoes acoes;
     private final Disjuntor disjuntor;
@@ -511,6 +562,25 @@ public final class Mensageiro {
                     // O 403 é o servidor dizendo que a conta não é Admin (o papel mudou, ou o atalho ficou de antes): os
                     // atalhos saem já, sem esperar a próxima carga.
                     if (resultado == AtalhosDeTeste.Resultado.SO_ADMIN) acoes.pushAdmin(false);
+                    return true;
+                }
+                case "equipePedirAparelho":
+                    // Só o tipo: o que vier junto não é lido.
+                    acoes.equipePedirAparelho();
+                    return true;
+                case "equipeChave": {
+                    // A coleta só vale com o coleta:true do Nexus e uma chave que pode ir no Authorization; o que falta
+                    // ou vem torto é recusado sem citar o que veio (a chave é segredo). Com o coleta:false, a chave
+                    // que viesse junto não vale.
+                    Object coleta = m.opt("coleta");
+                    if (!(coleta instanceof Boolean)) return recusar(t);
+                    if (!(Boolean) coleta) {
+                        acoes.equipeChave(false, null);
+                        return true;
+                    }
+                    String chave = texto(m, "chave");
+                    if (!chaveDaEquipeValida(chave)) return recusar(t);
+                    acoes.equipeChave(true, chave);
                     return true;
                 }
                 case "erro": {

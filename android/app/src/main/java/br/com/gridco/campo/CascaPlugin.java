@@ -18,6 +18,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.webkit.JavaScriptReplyProxy;
@@ -58,7 +60,9 @@ import org.json.JSONObject;
  * trata o voltar do Android ({@link Voltar}), conversa com a página sobre as notificações ({@link PushNaCasca}: o token
  * do Firebase para ela registrar o aparelho, o Sair, a OS aberta), leva à página a OS do toque na emergência
  * ({@link #abrirOS}) e o teste dos avisos do atalho do ícone, só para administrador ({@link #testarAvisos},
- * {@link AtalhosDeTeste}) e, uma vez por processo, apaga as fotos velhas da reserva da câmera ({@link FaxinaDaCamera}).
+ * {@link AtalhosDeTeste}), liga e desliga a coleta da posição da equipe pela chave que o Nexus deu ao aparelho, na volta
+ * ao app e no Sair ({@link EquipeNaCasca}) e, uma vez por processo, apaga as fotos velhas da reserva da câmera
+ * ({@link FaxinaDaCamera}).
  *
  * Ordem no Capacitor 8.5.3 (conferida no código dele): o construtor do Bridge roda initWebView, registerAllPlugins (o
  * PluginHandle chama o load() de cada plugin) e só então loadWebView, que faz o primeiro webView.loadUrl(appUrl). Por
@@ -124,6 +128,7 @@ public class CascaPlugin extends Plugin {
     private AberturaDaOS aberturaDaOS;            // idem; só na thread de UI
     private TesteDosAvisos testeDosAvisos;        // idem
     private PushNaCasca push;                     // idem; só na thread do espelho
+    private EquipeNaCasca equipe;                 // idem
     private ScriptHandler script;                 // só na thread de UI
     private JavaScriptReplyProxy ponteDaMensagem; // só na thread do espelho, durante a mensagem que a trouxe
 
@@ -204,6 +209,23 @@ public class CascaPlugin extends Plugin {
         push = new PushNaCasca(getContext(), PushNaCasca.FIREBASE_DO_APP, OS_DO_TOQUE_DO_PROCESSO,
             BuildConfig.VERSION_NAME);
         VIVO.set(this);
+        // A coleta da posição da equipe (spec 2026-11-08): liga e desliga pelo que o Nexus disse da chave do aparelho (o
+        // equipeChave da página), pelo aviso, pela permissão o tempo todo e pela janela das 6h às 22h, na volta ao app e
+        // no Sair. O pedido da permissão vai pelo registro da AndroidX, que só aceita registrar antes de a tela começar (o
+        // load() roda dentro do onCreate), e a resposta volta à EquipeNaCasca. Antes do canal: a página só fala com ela
+        // depois de carregar.
+        try {
+            ActivityResultLauncher<String[]> pedidoDaEquipe = bridge.registerForActivityResult(
+                new ActivityResultContracts.RequestMultiplePermissions(), resultado -> {
+                    EquipeNaCasca daEquipe = equipe;
+                    if (daEquipe != null && !encerrado) daEquipe.aposOPedido(resultado);
+                });
+            equipe = EquipeNaCasca.daTela(getActivity(), this::naUi, pedidoDaEquipe::launch, BuildConfig.VERSION_NAME);
+        } catch (RuntimeException e) {
+            // A coleta da equipe nunca impede o App de abrir: o load() que lança derrubaria a tela inteira. Sem ela, o
+            // Nexus Field funciona como antes, e a próxima abertura tenta de novo.
+            Log.e(TAG, "a coleta da equipe ficou desligada nesta partida (" + e.getClass().getSimpleName() + ")");
+        }
 
         if (origem == null || origem.isEmpty()) {
             Log.e(TAG, "sem server.url: a casca fica sem espelho nesta partida");
@@ -863,12 +885,16 @@ public class CascaPlugin extends Plugin {
     }
 
     // A volta ao app (a câmera, os ajustes, a Custom Tab do Fracttal): a checagem das 6 h e, depois de o técnico liberar
-    // "Instalar apps desconhecidos", a retomada da instalação. E o token do aparelho de novo à página, se os avisos
-    // passaram a ligados nos ajustes ou se o Firebase deu outro token (PushNaCasca.voltouAoApp), na thread do espelho.
+    // "Instalar apps desconhecidos", a retomada da instalação. A coleta da equipe, que liga na primeira abertura do dia (o
+    // onResume vem logo depois do onCreate) ou na volta ao app, entre as 6h e as 22h (EquipeNaCasca.reavaliar, na thread
+    // do envio). E o token do aparelho de novo à página, se os avisos passaram a ligados nos ajustes ou se o Firebase deu
+    // outro token (PushNaCasca.voltouAoApp), na thread do espelho.
     @Override
     protected void handleOnResume() {
         super.handleOnResume();
         if (atualizador != null) atualizador.verificar();
+        EquipeNaCasca daEquipe = equipe;
+        if (daEquipe != null) daEquipe.reavaliar();
         PushNaCasca conversa = push;
         if (conversa == null) return;
         try {
@@ -885,6 +911,7 @@ public class CascaPlugin extends Plugin {
         encerrado = true;
         VIVO.compareAndSet(this, null);
         if (atualizador != null) atualizador.encerrar(); // fecha o diálogo aberto; o download em curso termina sozinho
+        if (equipe != null) equipe.encerrar(); // o aviso ou a explicação da equipe abertos saem com a tela
         // A thread do espelho é do processo e fica: o que já está na fila dela ainda é gravado (é o que a página
         // mandou), e o encerrado impede que algo novo desta tela entre (aoReceber) ou volte à WebView (naUi).
         super.handleOnDestroy();
@@ -935,9 +962,26 @@ public class CascaPlugin extends Plugin {
             push.pediuToken(mensagem -> responder(ponte, mensagem));
         }
 
+        // O Sair também desliga a coleta da equipe e revoga a chave do aparelho (EquipeNaCasca.sair), mesmo sem rede.
         @Override
         public void pushSaiu() {
             push.saiu();
+            if (equipe != null) equipe.sair();
+        }
+
+        // A resposta (o equipeAparelho) vai pela ponte da mensagem que pediu, da thread do envio da equipe, depois do que
+        // já estava nela: o Sair que ainda revogava a chave responde, depois, que não há chave.
+        @Override
+        public void equipePedirAparelho() {
+            JavaScriptReplyProxy ponte = ponteDaMensagem;
+            EquipeNaCasca daEquipe = equipe;
+            if (ponte == null || daEquipe == null) return;
+            daEquipe.pedirAparelho(mensagem -> responder(ponte, mensagem));
+        }
+
+        @Override
+        public void equipeChave(boolean coleta, String chave) {
+            if (equipe != null) equipe.receberChave(coleta, chave);
         }
 
         @Override

@@ -95,6 +95,23 @@
     <string name="notificacao_equipe_texto">Até as 22h, o Nexus Field envia a posição deste celular para o mapa da equipe.</string>
 
     <!--
+      Os diálogos da localização da equipe (spec 2026-11-08, seção 4.1; EquipeNaCasca). Textos novos de 08/11/2026,
+      PENDENTES: vão à prévia (docs/previas/telas.html, a seção Localização da equipe) e só valem depois de aprovados pelo
+      dono da casca e pelo RH e pelo jurídico. O aviso aparece antes de a coleta ligar, uma vez para cada chave do
+      aparelho (outra conta no mesmo aparelho o vê de novo), só entre as 6h e as 22h, e não fecha tocando fora nem pelo
+      Voltar: o Continuar segue para a permissão. Ele diz o que a seção 4.1 manda dizer: o que é coletado, quando, por
+      quê, quem vê e por quanto tempo. A explicação da localização o tempo todo vem no Android 11 ou mais novo, antes de o
+      Android levar aos ajustes (no 10, o próprio pedido do Android oferece o Permitir o tempo todo); o "Permitir o tempo
+      todo" é o nome que o Android dá à opção, em português.
+    -->
+    <string name="casca_equipe_aviso_titulo">Localização da equipe</string>
+    <string name="casca_equipe_aviso_texto">O Nexus Field vai enviar ao Nexus a posição deste celular da primeira abertura do dia, a partir das 6h, até as 22h, sem pausa, também com o aplicativo fechado. Serve para ver onde a equipe está e abrir rotas até as usinas. Quem vê o mapa: PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus. As posições ficam guardadas por 7 dias, e o resumo dos deslocamentos entre usinas, por 1 ano. Enquanto a coleta estiver ligada, uma notificação fica na barra.</string>
+    <string name="casca_equipe_aviso_continuar">Continuar</string>
+    <string name="casca_equipe_permissao_titulo">Localização o tempo todo</string>
+    <string name="casca_equipe_permissao_texto">Para enviar a posição com o aplicativo fechado, o Nexus Field precisa da localização liberada o tempo todo. Na próxima tela, toque em Permitir o tempo todo.</string>
+    <string name="casca_equipe_permissao_continuar">Continuar</string>
+
+    <!--
       O atalho de teste dos avisos, só para administrador (decisão do dono, 18/10/2026): o toque longo no ícone do Nexus
       Field mostra estes dois atalhos só na conta que o servidor diz Admin, e cada um pede ao servidor um aviso de teste
       no canal dele (o alto e o silencioso), junto com um resumo de teste, que toca com o som normal no canal do resumo:

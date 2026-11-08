@@ -55,10 +55,24 @@ test('o registro do aparelho (notificações) avisa com o rótulo push, e a list
   assert.ok(rotulosDoNativo().includes('push'), 'o Mensageiro.ONDES_DA_PAGINA tem push');
 });
 
+// A chave da equipe (spec 2026-11-08) entra pelos dois lados em tarefas seguidas do plano: o nativo primeiro (o
+// Mensageiro atende o equipePedirAparelho e o equipeChave e aceita o rótulo 'equipe') e a página depois (a seção 10 do
+// inicio.js, a que pede a chave ao Nexus). Até lá estes três existem só no nativo, cada um pelo nome. Quando o script
+// passar a usar um deles, o teste falha até ele sair daqui: a lista não guarda espera que já acabou.
+const SO_NO_NATIVO = { tipos: ['equipeChave', 'equipePedirAparelho'], rotulos: ['equipe'] };
+
+function semOsQueEsperamOScript(doNativo, esperando, doScript, oQue) {
+  for (const nome of esperando) {
+    assert.ok(doNativo.includes(nome), `o SO_NO_NATIVO cita ${oQue} ${nome}, que o nativo não tem`);
+    assert.ok(!doScript.includes(nome), `o inicio.js já usa ${oQue} ${nome}: tire-o do SO_NO_NATIVO`);
+  }
+  return doNativo.filter((nome) => !esperando.includes(nome));
+}
+
 test('a lista do nativo é a dos rótulos do inicio.js', () => {
   const doScript = rotulosDoScript();
   assert.ok(doScript.length > 20, 'a extração achou os rótulos: ' + doScript.join(', '));
-  assert.deepEqual(rotulosDoNativo(), doScript);
+  assert.deepEqual(semOsQueEsperamOScript(rotulosDoNativo(), SO_NO_NATIVO.rotulos, doScript, 'o rótulo'), doScript);
 });
 
 // Os tipos de mensagem que o script manda ao nativo (o `t` do `enviar` e do aviso de erro, que vai direto pelo canal) e
@@ -85,7 +99,7 @@ test('todo tipo de mensagem que o script manda o nativo atende, e o nativo não 
   for (const tipo of ['pushSaiu', 'pushRegistrado', 'osAberta', 'pushPedirToken', 'pushAdmin', 'pushTeste']) {
     assert.ok(doScript.includes(tipo), `o script manda ${tipo}`);
   }
-  assert.deepEqual(tiposDoNativo(), doScript);
+  assert.deepEqual(semOsQueEsperamOScript(tiposDoNativo(), SO_NO_NATIVO.tipos, doScript, 'o tipo'), doScript);
 });
 
 // O plugin e o serviço do Firebase não rodam no JVM com a WebView: a ligação deles ao PushNaCasca (a regra, que tem teste
@@ -113,4 +127,19 @@ test('a ligação nativa das notificações: o canal, o token novo e a volta ao 
   // A OS do toque e a regra dos 10 s do teste são as do processo (atravessam a tela recriada).
   assert.match(plugin, /aberturaDaOS = new AberturaDaOS\([\s\S]*?OS_DO_TOQUE_DO_PROCESSO\);/);
   assert.match(plugin, /testeDosAvisos = new TesteDosAvisos\([\s\S]*?TESTES_DO_PROCESSO,/);
+});
+
+test('a ligação nativa da equipe: a volta ao app reavalia, o Sair desliga e as mensagens da página vão à EquipeNaCasca', () => {
+  // A regra tem teste de JVM (EquipeNaCascaTest); o plugin, que só a liga, se confere no texto do Java.
+  const plugin = semComentarios(ler(JAVA + 'CascaPlugin.java'));
+  // A da tela, com o pedido da permissão registrado no load() (o registro da AndroidX só vale antes de a tela começar).
+  assert.match(plugin, /ActivityResultLauncher<String\[\]> pedidoDaEquipe = bridge\.registerForActivityResult\(\s*new ActivityResultContracts\.RequestMultiplePermissions\(\), resultado -> \{[^}]*daEquipe\.aposOPedido\(resultado\);/);
+  assert.match(plugin, /equipe = EquipeNaCasca\.daTela\(getActivity\(\), this::naUi, pedidoDaEquipe::launch, BuildConfig\.VERSION_NAME\);/);
+  // A primeira abertura e a volta ao app (o onResume), o Sair, a tela que sai.
+  assert.match(plugin, /protected void handleOnResume\(\) \{[\s\S]*?if \(daEquipe != null\) daEquipe\.reavaliar\(\);/);
+  assert.match(plugin, /public void pushSaiu\(\) \{\s*push\.saiu\(\);\s*if \(equipe != null\) equipe\.sair\(\);/);
+  assert.match(plugin, /protected void handleOnDestroy\(\) \{[^}]*if \(equipe != null\) equipe\.encerrar\(\);/);
+  // As mensagens da página: a resposta do aparelho pela ponte da mensagem que pediu, e o que o Nexus respondeu.
+  assert.match(plugin, /public void equipePedirAparelho\(\) \{[^}]*daEquipe\.pedirAparelho\(mensagem -> responder\(ponte, mensagem\)\);/);
+  assert.match(plugin, /public void equipeChave\(boolean coleta, String chave\) \{\s*if \(equipe != null\) equipe\.receberChave\(coleta, chave\);/);
 });

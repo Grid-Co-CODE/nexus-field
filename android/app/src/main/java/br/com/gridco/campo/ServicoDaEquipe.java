@@ -125,35 +125,40 @@ public class ServicoDaEquipe extends Service {
     private long ultimoEnvio;
 
     /**
-     * O relógio de parede, o relógio desde o boot (o que anda com o celular dormindo), a fila, o envio, a fonte das
-     * posições e a thread do disco e da rede: uma por processo.
+     * O relógio de parede, o relógio desde o boot (o que anda com o celular dormindo), a chave do aparelho, a fila, o
+     * envio, a fonte das posições e a thread do disco e da rede: uma por processo, para o serviço e para a casca
+     * ({@link EquipeNaCasca}, que guarda e apaga a chave e manda o Sair por esta mesma thread).
      */
     static final class Pecas {
         final LongSupplier relogio;
         final LongSupplier desdeOBoot;
+        final ChaveDaEquipe chave;
         final FilaDePontos fila;
         final EnvioDePontos envio;
         final FonteDePosicoes fonte;
         final Executor execucao;
 
-        Pecas(LongSupplier relogio, LongSupplier desdeOBoot, FilaDePontos fila, EnvioDePontos envio,
-                FonteDePosicoes fonte, Executor execucao) {
+        Pecas(LongSupplier relogio, LongSupplier desdeOBoot, ChaveDaEquipe chave, FilaDePontos fila,
+                EnvioDePontos envio, FonteDePosicoes fonte, Executor execucao) {
             this.relogio = relogio;
             this.desdeOBoot = desdeOBoot;
+            this.chave = chave;
             this.fila = fila;
             this.envio = envio;
             this.fonte = fonte;
             this.execucao = execucao;
         }
 
-        // A mesma fila para quem grava e para quem manda: duas conexões no mesmo equipe.db disputariam a escrita.
+        // A mesma fila para quem grava e para quem manda: duas conexões no mesmo equipe.db disputariam a escrita. E a mesma
+        // chave para o envio e para a casca: cada ChaveDaEquipe traz a sua CifraKeystore, que refaz uma vez por processo a
+        // chave que o Keystore passou a recusar supondo ser a única (uma segunda apagaria a que a primeira acabou de refazer).
         static Pecas deProducao(Context app) {
             LongSupplier relogio = System::currentTimeMillis;
+            ChaveDaEquipe chave = new ChaveDaEquipe(app, new CifraKeystore());
             FilaDePontos fila = new FilaDePontos(app);
-            EnvioDePontos envio = new EnvioDePontos(new ChaveDaEquipe(app, new CifraKeystore()), fila,
-                new EnvioDePontos.Http(), relogio);
+            EnvioDePontos envio = new EnvioDePontos(chave, fila, new EnvioDePontos.Http(), relogio);
             Executor thread = Executors.newSingleThreadExecutor(tarefa -> new Thread(tarefa, "GcCasca-equipe"));
-            return new Pecas(relogio, SystemClock::elapsedRealtime, fila, envio, new Fused(app), thread);
+            return new Pecas(relogio, SystemClock::elapsedRealtime, chave, fila, envio, new Fused(app), thread);
         }
     }
 
