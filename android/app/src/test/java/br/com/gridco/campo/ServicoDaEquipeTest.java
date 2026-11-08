@@ -20,6 +20,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
 import android.os.Looper;
+import android.os.PowerManager;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -39,6 +40,8 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.android.controller.ServiceController;
 import org.robolectric.shadows.ShadowLog;
+import org.robolectric.shadows.ShadowPendingIntent;
+import org.robolectric.shadows.ShadowPowerManager;
 import org.robolectric.shadows.ShadowService;
 
 /**
@@ -82,9 +85,13 @@ public class ServicoDaEquipeTest {
     private Application app;
     private TimeZone fusoDeAntes;
     private long agora;
+    // O relógio desde o boot, o que anda com o celular dormindo: o teste o avança sem rodar o laço principal (o Handler),
+    // como o celular com a tela apagada.
+    private long desdeOBoot = 50_000_000L;
     private ChaveDaEquipe chave;
     private FilaDePontos fila;
     private FonteFalsa fonte;
+    private EnvioDePontos envio;
     private final List<String> pedidosAoNexus = new ArrayList<>();
     private EnvioDePontos.Resposta resposta = new EnvioDePontos.Resposta(200, "{\"aceitos\":1,\"coleta\":true}");
     private final List<ServiceController<ServicoDaEquipe>> servicos = new ArrayList<>();
@@ -101,12 +108,13 @@ public class ServicoDaEquipeTest {
         chave = new ChaveDaEquipe(app, new CifraFalsa());
         fila = new FilaDePontos(app);
         fonte = new FonteFalsa();
-        EnvioDePontos envio = new EnvioDePontos(chave, fila, (url, k, corpo) -> {
+        envio = new EnvioDePontos(chave, fila, (url, k, corpo) -> {
             pedidosAoNexus.add(url);
             return resposta;
         }, () -> agora);
         // O disco e a rede na thread do teste: a fila e o envio rodam na hora, sem outra thread para esperar.
-        ServicoDaEquipe.pecasDeTeste = new ServicoDaEquipe.Pecas(() -> agora, fila, envio, fonte, Runnable::run);
+        ServicoDaEquipe.pecasDeTeste = new ServicoDaEquipe.Pecas(() -> agora, () -> desdeOBoot, fila, envio, fonte,
+            Runnable::run);
         ShadowLog.clear();
     }
 
@@ -165,13 +173,38 @@ public class ServicoDaEquipeTest {
     }
 
     private static Location posicao(long t, double lat, double lon, Float velocidade) {
+        return posicao(t, lat, lon, velocidade, 8f);
+    }
+
+    private static Location posicao(long t, double lat, double lon, Float velocidade, float precisao) {
         Location l = new Location("teste");
         l.setTime(t);
         l.setLatitude(lat);
         l.setLongitude(lon);
-        l.setAccuracy(8f);
+        l.setAccuracy(precisao);
         if (velocidade != null) l.setSpeed(velocidade);
         return l;
+    }
+
+    private NotificationManager notificacoes() {
+        return (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+    }
+
+    /** O técnico liga ou desliga o canal da equipe nos ajustes do Android. */
+    private void canalDaEquipe(int importancia) {
+        notificacoes().getNotificationChannel(ServicoDaEquipe.CANAL_EQUIPE).setImportance(importancia);
+    }
+
+    private void rodarOLacoPrincipal() {
+        shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    /** O mov de cada ponto da fila, na ordem em que entraram. */
+    private List<Boolean> movsDaFila() throws Exception {
+        JSONArray pontos = fila.lote(fila.idsDoLote(FilaDePontos.MAXIMO));
+        List<Boolean> movs = new ArrayList<>();
+        for (int i = 0; i < pontos.length(); i++) movs.add(pontos.getJSONObject(i).getBoolean("mov"));
+        return movs;
     }
 
     /** Algum log (de qualquer tag), na mensagem ou na exceção, tem o trecho. */
@@ -184,7 +217,7 @@ public class ServicoDaEquipeTest {
     }
 
     @Test
-    public void oManifestoDeclaraOServicoDeLocalizacaoEAsTresPermissoesNovas() throws Exception {
+    public void oManifestoDeclaraOServicoDeLocalizacaoEAsPermissoesNovas() throws Exception {
         PackageManager pm = app.getPackageManager();
         ServiceInfo servico = pm.getServiceInfo(new ComponentName(app, ServicoDaEquipe.class), 0);
         assertFalse("não exportado: só a casca o liga", servico.exported);
@@ -194,6 +227,7 @@ public class ServicoDaEquipeTest {
         assertTrue(pedidas.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION));
         assertTrue(pedidas.contains(Manifest.permission.FOREGROUND_SERVICE));
         assertTrue(pedidas.contains(Manifest.permission.FOREGROUND_SERVICE_LOCATION));
+        assertTrue("o celular acordado durante o envio", pedidas.contains(Manifest.permission.WAKE_LOCK));
     }
 
     @Test
@@ -207,7 +241,8 @@ public class ServicoDaEquipeTest {
         assertEquals(ServicoDaEquipe.ID_DA_NOTIFICACAO, sombra.getLastForegroundNotificationId());
         assertEquals("equipe_localizacao", n.getChannelId());
         assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION, s.getForegroundServiceType());
-        assertTrue("fixa (até o Android 13 o técnico não a dispensa)", (n.flags & Notification.FLAG_ONGOING_EVENT) != 0);
+        assertTrue("fixa (até o Android 13 o técnico não a dispensa; do 14 em diante, arrastada, ela volta)",
+            (n.flags & Notification.FLAG_ONGOING_EVENT) != 0);
         assertEquals(app.getString(R.string.notificacao_equipe_titulo),
             n.extras.getCharSequence(Notification.EXTRA_TITLE).toString());
         assertEquals(app.getString(R.string.notificacao_equipe_texto),
@@ -305,8 +340,9 @@ public class ServicoDaEquipeTest {
         assertEquals(LON, primeiro.getDouble("lon"), 1e-9);
         assertEquals(8.0, primeiro.getDouble("prec"), 1e-6);
         assertEquals(0.2, primeiro.getDouble("vel"), 1e-6);
-        assertTrue("em deslocamento até a terceira parada seguida", primeiro.getBoolean("mov"));
-        assertFalse("parado", pontos.getJSONObject(3).getBoolean("mov"));
+        // O mov é da própria leitura: as quatro vão paradas, também as três primeiras, que o ritmo ainda conta como
+        // deslocamento (o técnico em casa de manhã, com o app aberto antes de sair).
+        assertEquals(Arrays.asList(false, false, false, false), movsDaFila());
 
         // Uma leitura longe e a 12 m/s volta ao ritmo curto, com a alta precisão; a que vem sem velocidade vai sem o "vel".
         fonte.receptor.posicao(posicao(t0 + 10_000, LAT + 0.05, LON, 12f));
@@ -315,7 +351,8 @@ public class ServicoDaEquipeTest {
         fonte.receptor.posicao(posicao(t0 + 20_000, LAT + 0.10, LON, null));
         JSONObject ultimo = fila.lote(fila.idsDoLote(10)).getJSONObject(5);
         assertFalse(ultimo.has("vel"));
-        assertTrue(ultimo.getBoolean("mov"));
+        assertEquals("em deslocamento pela velocidade e, sem ela, pela distância",
+            Arrays.asList(false, false, false, false, true, true), movsDaFila());
 
         assertFalse("nada de coordenada no log", logou("-15.6"));
         assertFalse(logou("-56.1"));
@@ -421,5 +458,222 @@ public class ServicoDaEquipeTest {
         assertEquals("o stopSelf leva o número do último início", 1, sombra.getStopSelfId());
         assertFalse(ServicoDaEquipe.rodando());
         assertEquals("nada pedido ao GPS", 0, fonte.pedidos);
+    }
+
+    // ---- O envio com a tela apagada ------------------------------------------------------------------------------------
+
+    @Test
+    public void comATelaApagadaAPosicaoQueChegaComOEnvioVencidoMandaNaHoraComOCelularAcordado() {
+        // O celular no bolso ou no suporte do carro: a CPU dorme entre uma posição e outra, e o Handler, que conta o tempo
+        // de CPU acordada, não anda. Aqui o laço principal não roda: só o relógio desde o boot avança, e quem acorda o
+        // serviço é a posição.
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia");
+        ligar();
+        long t0 = System.currentTimeMillis() - 300_000;
+
+        desdeOBoot += 60_000;
+        fonte.receptor.posicao(posicao(t0, LAT, LON, 0.2f));
+        assertTrue("1 min depois de ligar, a posição só vai à fila", pedidosAoNexus.isEmpty());
+
+        desdeOBoot += 70_000;
+        fonte.receptor.posicao(posicao(t0 + 70_000, LAT, LON, 0.2f));
+        assertEquals("130 s depois de ligar, sem o Handler ter rodado, o pedido sai",
+            Arrays.asList(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_POSICOES), pedidosAoNexus);
+        PowerManager.WakeLock acordado = ShadowPowerManager.getLatestWakeLock();
+        assertNotNull(acordado);
+        assertTrue("o celular fica acordado até a resposta", acordado.isHeld());
+        rodarOLacoPrincipal();
+        assertFalse("e volta a dormir com ela", acordado.isHeld());
+        assertEquals("os dois pontos subiram, o de agora junto", 0, fila.tamanho());
+
+        // A posição seguinte chega 2 min depois DA ANTERIOR, um tanto antes dos 2 min contados do envio, que saiu logo
+        // depois dela: manda também (sem a folga, esperaria a outra, e o envio iria a cada 4 min).
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS - 1_000;
+        fonte.receptor.posicao(posicao(t0 + 189_000, LAT, LON, 0.2f));
+        assertEquals(2, pedidosAoNexus.size());
+        rodarOLacoPrincipal();
+        assertFalse(acordado.isHeld());
+        assertTrue(ServicoDaEquipe.rodando());
+    }
+
+    @Test
+    public void oEnvioPelaPosicaoRecomecaAContaDoHandler() {
+        // Com o app aberto o Handler também manda: o envio que a posição fez o leva a contar de novo, para não sair outro
+        // logo depois.
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia");
+        ligar();
+        long t0 = System.currentTimeMillis() - 300_000;
+        // 30 s de tela acesa, e ela apaga.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30));
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS + 10_000;
+        fonte.receptor.posicao(posicao(t0, LAT, LON, 0.2f));
+        assertEquals(1, pedidosAoNexus.size());
+        rodarOLacoPrincipal();
+
+        // A tela acende: o Handler, que mandaria aos 2 min de ligar, agora manda aos 2 min do envio pela posição.
+        fonte.receptor.posicao(posicao(t0 + 30_000, LAT, LON, 0.2f));
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS - 1_000));
+        assertEquals("nada aos 2 min de ligar", 1, pedidosAoNexus.size());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+        assertEquals("aos 2 min do último envio", 2, pedidosAoNexus.size());
+    }
+
+    @Test
+    public void oCelularAcordadoSoltaSozinhoSeARespostaNaoVolta() {
+        // A rede pendurada: o envio não volta (a thread não roda aqui), e o prazo solta o celular acordado sozinho.
+        List<Runnable> naThread = new ArrayList<>();
+        ServicoDaEquipe.pecasDeTeste = new ServicoDaEquipe.Pecas(() -> agora, () -> desdeOBoot, fila, envio, fonte,
+            naThread::add);
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia");
+        ligar();
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
+        fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
+        PowerManager.WakeLock acordado = ShadowPowerManager.getLatestWakeLock();
+        assertTrue("acordado para o envio", acordado.isHeld());
+        assertEquals("o ponto e o envio esperando a thread", 2, naThread.size());
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ACORDADO_NO_ENVIO_MS - 1_000));
+        assertTrue("ainda acordado: a resposta pode estar a caminho", acordado.isHeld());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2));
+        assertFalse("o prazo soltou sozinho", acordado.isHeld());
+    }
+
+    // ---- A notificação fixa à vista ------------------------------------------------------------------------------------
+
+    @Test
+    public void semANotificacaoAVistaOIniciarNaoPedeOServico() {
+        agora = em(10, 0);
+
+        // Android 13+ com a notificação negada: o serviço rodaria e só o gerenciador de tarefas do Android o mostraria.
+        shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS);
+        ServicoDaEquipe.iniciar(app);
+        assertNull("sem a permissão da notificação", shadowOf(app).getNextStartedService());
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS);
+
+        // As notificações do Nexus Field desligadas nos ajustes.
+        shadowOf(notificacoes()).setNotificationsEnabled(false);
+        ServicoDaEquipe.iniciar(app);
+        assertNull("com as notificações do Nexus Field desligadas", shadowOf(app).getNextStartedService());
+        shadowOf(notificacoes()).setNotificationsEnabled(true);
+
+        // O canal da equipe desligado nos ajustes (ele existe desde a primeira coleta, num dia anterior).
+        CanaisDeNotificacao.criarDaEquipe(app);
+        canalDaEquipe(NotificationManager.IMPORTANCE_NONE);
+        ServicoDaEquipe.iniciar(app);
+        assertNull("com o canal da equipe desligado", shadowOf(app).getNextStartedService());
+        assertFalse(ServicoDaEquipe.notificacaoAVista(app));
+        assertTrue(logou("a notificação fixa não ficaria à vista"));
+
+        // O técnico liga o canal de novo: a coleta liga.
+        canalDaEquipe(NotificationManager.IMPORTANCE_LOW);
+        assertTrue(ServicoDaEquipe.notificacaoAVista(app));
+        ligar();
+        assertTrue(ServicoDaEquipe.rodando());
+    }
+
+    @Test
+    public void aNotificacaoDesligadaComAColetaLigadaParaOServico() {
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia");
+        ServicoDaEquipe s = ligar();
+
+        // O técnico desliga o canal da equipe com a coleta ligada: a posição seguinte já não entra, e o serviço para.
+        canalDaEquipe(NotificationManager.IMPORTANCE_NONE);
+        fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
+        assertEquals("a posição sem a notificação à vista não vai à fila", 0, fila.tamanho());
+        assertTrue(shadowOf(s).isStoppedBySelf());
+        assertFalse(ServicoDaEquipe.rodando());
+        assertTrue("o GPS foi solto", fonte.parada);
+        assertTrue(logou("a notificação fixa não está à vista"));
+        morrerOProcesso();
+
+        // E as notificações do Nexus Field desligadas com a coleta ligada: para no envio seguinte, sem mandar.
+        canalDaEquipe(NotificationManager.IMPORTANCE_LOW);
+        ServicoDaEquipe outro = ligar();
+        fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
+        shadowOf(notificacoes()).setNotificationsEnabled(false);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
+        assertTrue("nada foi ao Nexus", pedidosAoNexus.isEmpty());
+        assertTrue(shadowOf(outro).isStoppedBySelf());
+        assertTrue(shadowOf(outro).getNotificationShouldRemoved());
+        assertFalse(ServicoDaEquipe.rodando());
+    }
+
+    @Test
+    public void oInicioQueChegaComANotificacaoJaDesligadaEntraEmPrimeiroPlanoESaiLogo() {
+        // A notificação desligada entre o iniciar e o onStartCommand: o serviço pedido em primeiro plano que para antes do
+        // startForeground derruba o app, então ele entra e sai.
+        agora = em(10, 0);
+        ServicoDaEquipe.iniciar(app);
+        Intent pedido = shadowOf(app).getNextStartedService();
+        assertNotNull(pedido);
+        shadowOf(notificacoes()).setNotificationsEnabled(false);
+
+        ServicoDaEquipe s = entregar(pedido);
+        ShadowService sombra = shadowOf(s);
+        assertEquals("entrou em primeiro plano", ServicoDaEquipe.ID_DA_NOTIFICACAO, sombra.getLastForegroundNotificationId());
+        assertTrue("e saiu", sombra.isForegroundStopped());
+        assertTrue(sombra.isStoppedBySelf());
+        assertFalse(ServicoDaEquipe.rodando());
+        assertEquals("nada pedido ao GPS", 0, fonte.pedidos);
+    }
+
+    @Test
+    public void aNotificacaoArrastadaParaOLadoVoltaNaHoraEAColetaSegue() throws Exception {
+        agora = em(10, 0);
+        ligar();
+        ServiceController<ServicoDaEquipe> controle = servicos.get(0);
+        Notification n = shadowOf(notificacoes()).getNotification(ServicoDaEquipe.ID_DA_NOTIFICACAO);
+        assertNotNull("a notificação fixa na barra", n);
+        assertNotNull("o arrastar avisa o serviço", n.deleteIntent);
+        ShadowPendingIntent aoArrastar = shadowOf(n.deleteIntent);
+        assertTrue("um início do serviço, e não do primeiro plano", aoArrastar.isService());
+        assertEquals(ServicoDaEquipe.class.getName(), aoArrastar.getSavedIntent().getComponent().getClassName());
+        assertEquals(ServicoDaEquipe.REPOR, aoArrastar.getSavedIntent().getAction());
+
+        // Android 14+: o técnico arrasta a notificação para o lado, e o Android a tira da barra e manda o deleteIntent.
+        notificacoes().cancel(ServicoDaEquipe.ID_DA_NOTIFICACAO);
+        n.deleteIntent.send();
+        Intent repor = shadowOf(app).getNextStartedService();
+        assertNotNull(repor);
+        controle.withIntent(repor).startCommand(0, 2);
+
+        assertNotNull("a notificação voltou à barra",
+            shadowOf(notificacoes()).getNotification(ServicoDaEquipe.ID_DA_NOTIFICACAO));
+        assertTrue(ServicoDaEquipe.rodando());
+        assertEquals("a coleta seguiu, sem pedir o GPS de novo", 1, fonte.pedidos);
+        assertTrue(logou("arrastada para o lado e voltou"));
+    }
+
+    // ---- O mov de cada ponto -------------------------------------------------------------------------------------------
+
+    @Test
+    public void oMovEDaPropriaLeituraENaoDoRitmo() throws Exception {
+        // O mapa mostra o ponto exato e o Abrir rota só de quem está em deslocamento: com o técnico parado em casa, o mov
+        // tem de ir false desde a primeira leitura.
+        agora = em(7, 0);
+        ligar();
+        long t0 = System.currentTimeMillis() - 60_000;
+        double norte200m = 0.0018; // uns 200 m de latitude
+        double norte600m = 0.0054;
+
+        // A primeira leitura do dia, sem velocidade: parada (o ritmo começa no curto, mas não decide o mov).
+        fonte.receptor.posicao(posicao(t0, LAT, LON, null));
+        // A velocidade decide: abaixo de 1 m/s, parada; 1 m/s, em deslocamento.
+        fonte.receptor.posicao(posicao(t0 + 1_000, LAT, LON, 0.99f));
+        fonte.receptor.posicao(posicao(t0 + 2_000, LAT, LON, 1.0f));
+        // Sem velocidade, a distância: 200 m da anterior, com 8 m de precisão nas duas, é deslocamento.
+        fonte.receptor.posicao(posicao(t0 + 3_000, LAT + norte200m, LON, null));
+        // O salto da posição de rede, com o celular parado: 600 m para uma leitura da antena (1,5 km de precisão) e de volta
+        // ao Wi-Fi (30 m). Cabe na precisão das duas: não é deslocamento.
+        fonte.receptor.posicao(posicao(t0 + 4_000, LAT + norte200m + norte600m, LON, null, 1_500f));
+        fonte.receptor.posicao(posicao(t0 + 5_000, LAT + norte200m, LON, null, 30f));
+        // Menos de 150 m, além da precisão: parada.
+        fonte.receptor.posicao(posicao(t0 + 6_000, LAT + norte200m + 0.0012, LON, null));
+
+        assertEquals(Arrays.asList(false, false, true, true, false, false, false), movsDaFila());
     }
 }

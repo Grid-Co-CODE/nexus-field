@@ -14,11 +14,15 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.app.NotificationChannelCompat;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.core.content.ContextCompat;
 
@@ -39,16 +43,27 @@ import java.util.function.LongSupplier;
  * A coleta da posição da equipe (spec 2026-11-08, seção 4.1): um serviço em primeiro plano do tipo localização, com a
  * notificação fixa no canal "Localização da equipe" (CanaisDeNotificacao.criarDaEquipe), das 6h às 22h na hora do
  * celular, também com o app fechado. Sem pausa (decisão do dono): ligado, só para às 22h, no PARAR do Nexus, no
- * {@link #parar} (o Sair) ou sem a permissão de localização.
+ * {@link #parar} (o Sair), sem a permissão de localização ou sem a notificação fixa à vista.
  *
  * <ul>
- *   <li>Liga pelo {@link #iniciar}, só dentro da janela e com a localização precisa. O prazo do dia (as 22h do dia em que
- *       o app abriu) vai ao disco antes do pedido, e o religamento do sistema ({@code START_STICKY}, o processo que o
- *       Android matou) só volta a coletar até ele: sem o prazo, um religamento no dia seguinte coletaria sem o técnico ter
- *       aberto o app, e o desenho chama isso de fracasso (a folga, as férias).</li>
+ *   <li>Liga pelo {@link #iniciar}, só dentro da janela, com a localização precisa e com a notificação fixa à vista
+ *       ({@link #notificacaoAVista}). O prazo do dia (as 22h do dia em que o app abriu) vai ao disco antes do pedido, e o
+ *       religamento do sistema ({@code START_STICKY}, o processo que o Android matou) só volta a coletar até ele: sem o
+ *       prazo, um religamento no dia seguinte coletaria sem o técnico ter aberto o app, e o desenho chama isso de fracasso
+ *       (a folga, as férias).</li>
  *   <li>Coleta no ritmo do {@link RitmoDaColeta}: 2 min com a alta precisão em deslocamento, 10 min com a precisão
- *       equilibrada parado. Cada posição vai à {@link FilaDePontos}, e a cada {@link #ENVIO_MS} o {@link EnvioDePontos}
- *       manda o lote mais antigo, numa thread só para o disco e a rede.</li>
+ *       equilibrada parado. Cada posição vai à {@link FilaDePontos} com o "mov" da própria leitura
+ *       ({@link #movDaLeitura}), e o {@link EnvioDePontos} manda o lote mais antigo a cada {@link #ENVIO_MS}, numa thread
+ *       só para o disco e a rede.</li>
+ *   <li>O envio não depende só do Handler, que conta o tempo de CPU acordada: com a tela apagada (no bolso, no suporte do
+ *       carro) o celular dorme entre uma posição e outra, e os 2 min do Handler levariam horas no relógio (o mapa diria
+ *       "sem sinal" com o técnico trabalhando). Por isso a posição que chega com o envio vencido, contado no relógio que
+ *       anda com o celular dormindo ({@link SystemClock#elapsedRealtime}), manda na hora, com o celular acordado até a
+ *       resposta ({@link #ACORDADO_NO_ENVIO_MS}). O Handler fica para o app aberto.</li>
+ *   <li>Sem a notificação fixa à vista não há coleta: o desenho chama de fracasso coletar sem ela. No Android 13+ com a
+ *       notificação negada, ou com as do Nexus Field ou o canal da equipe desligados nos ajustes, o serviço segue sem
+ *       aparecer na barra; por isso ela é conferida ao ligar, a cada posição e a cada envio, e a coleta não liga ou para.
+ *       A arrastada para o lado (Android 14+) volta na hora, pelo deleteIntent ({@link #REPOR}).</li>
  *   <li>Para às 22h: o relógio é conferido no prazo, a cada envio e a cada posição, porque o Handler não conta o tempo em
  *       que o celular dorme. O {@link EnvioDePontos.Resultado#PARAR} (o 401 ou o coleta:false do Nexus) e a permissão
  *       tirada esquecem o prazo: o religamento não volta, e a próxima abertura do app decide de novo.</li>
@@ -67,15 +82,32 @@ public class ServicoDaEquipe extends Service {
     static final int ID_DA_NOTIFICACAO = 3_000_000;
     /** O envio da fila ao Nexus: a cada 2 min, o ritmo de deslocamento (a posição nova não espera mais que um ciclo). */
     static final long ENVIO_MS = 120_000L;
+    /**
+     * A posição que chega até 15 s antes dos 2 min também manda. O envio sai logo depois de uma posição, e a seguinte chega
+     * a 2 min DELA, um tanto antes dos 2 min contados do envio: sem a folga, ela esperaria a outra, e com a tela apagada o
+     * envio iria a cada 4 min.
+     */
+    static final long FOLGA_DO_ENVIO_MS = 15_000L;
+    /**
+     * O celular acordado durante um envio: os 15 s da conexão e os 15 s da leitura do Http, mais o disco e a volta à thread
+     * principal. O prazo solta sozinho se a resposta não voltar (a rede pendurada não segura a bateria).
+     */
+    static final long ACORDADO_NO_ENVIO_MS = 2L * EnvioDePontos.PRAZO_MS + 10_000L;
+    /** O início que o deleteIntent da notificação manda: o técnico a arrastou para o lado (Android 14+), e ela volta. */
+    static final String REPOR = "br.com.gridco.campo.equipe.REPOR";
 
     private static final String TAG = CascaPlugin.TAG;
+    // O nome do celular acordado nos dados de bateria do Android, no formato "app:motivo" que o Android recomenda.
+    private static final String NOME_DO_ACORDADO = "NexusField:envio-da-equipe";
     // As 22h, ou o prazo que o parar() esqueceu: o motivo vai ao log sem dizer qual.
     private static final String FORA_DO_PRAZO = "a coleta da equipe parou: fora do prazo do dia (as 22h ou desligada)";
+    private static final String SEM_A_NOTIFICACAO = "a coleta da equipe parou: a notificação fixa não está à vista "
+        + "(as notificações do Nexus Field ou o canal da equipe desligados)";
     // O prazo do dia (as 22h do dia em que o app abriu, em epoch ms). Fora do backup, como tudo (regras_dados.xml).
     private static final String PREFERENCIAS = "equipe_servico";
     private static final String CHAVE_PRAZO = "prazo";
 
-    /** As peças que o teste troca (o relógio, a fila, o envio, as posições e a thread); null é o de produção. */
+    /** As peças que o teste troca (os dois relógios, a fila, o envio, as posições e a thread); null é o de produção. */
     static Pecas pecasDeTeste;
     private static Pecas pecasDoProcesso;
     // O serviço que está em primeiro plano agora: é por ele que o parar() desliga. Só a thread principal o muda.
@@ -83,22 +115,31 @@ public class ServicoDaEquipe extends Service {
 
     private final Handler principal = new Handler(Looper.getMainLooper());
     private Pecas pecas;
+    private PowerManager.WakeLock acordado;
     private int ultimoInicio;
     private volatile boolean coletando = false;
     private RitmoDaColeta ritmo;
     private Location ultima;
     private long intervaloPedido;
+    // Quando saiu o último envio, no relógio que anda com o celular dormindo (Pecas.desdeOBoot).
+    private long ultimoEnvio;
 
-    /** O relógio de parede, a fila, o envio, a fonte das posições e a thread do disco e da rede: uma por processo. */
+    /**
+     * O relógio de parede, o relógio desde o boot (o que anda com o celular dormindo), a fila, o envio, a fonte das
+     * posições e a thread do disco e da rede: uma por processo.
+     */
     static final class Pecas {
         final LongSupplier relogio;
+        final LongSupplier desdeOBoot;
         final FilaDePontos fila;
         final EnvioDePontos envio;
         final FonteDePosicoes fonte;
         final Executor execucao;
 
-        Pecas(LongSupplier relogio, FilaDePontos fila, EnvioDePontos envio, FonteDePosicoes fonte, Executor execucao) {
+        Pecas(LongSupplier relogio, LongSupplier desdeOBoot, FilaDePontos fila, EnvioDePontos envio,
+                FonteDePosicoes fonte, Executor execucao) {
             this.relogio = relogio;
+            this.desdeOBoot = desdeOBoot;
             this.fila = fila;
             this.envio = envio;
             this.fonte = fonte;
@@ -112,7 +153,7 @@ public class ServicoDaEquipe extends Service {
             EnvioDePontos envio = new EnvioDePontos(new ChaveDaEquipe(app, new CifraKeystore()), fila,
                 new EnvioDePontos.Http(), relogio);
             Executor thread = Executors.newSingleThreadExecutor(tarefa -> new Thread(tarefa, "GcCasca-equipe"));
-            return new Pecas(relogio, fila, envio, new Fused(app), thread);
+            return new Pecas(relogio, SystemClock::elapsedRealtime, fila, envio, new Fused(app), thread);
         }
     }
 
@@ -142,8 +183,9 @@ public class ServicoDaEquipe extends Service {
     }
 
     /**
-     * Liga a coleta, se a hora do celular está na janela e a localização precisa foi dada. Quem decide se a coleta vale
-     * para o técnico é a casca, antes (o Nexus, pela chave do aparelho). Chamar de novo com ela ligada não faz outra.
+     * Liga a coleta, se a hora do celular está na janela, a localização precisa foi dada e a notificação fixa vai ficar à
+     * vista ({@link #notificacaoAVista}). Quem decide se a coleta vale para o técnico é a casca, antes (o Nexus, pela chave
+     * do aparelho). Chamar de novo com ela ligada não faz outra.
      */
     static void iniciar(Context contexto) {
         Context app = contexto.getApplicationContext();
@@ -157,6 +199,11 @@ public class ServicoDaEquipe extends Service {
             // Do Android 14 em diante o primeiro plano de localização sem ela lança, e o serviço pedido em primeiro plano
             // que não chega a ele derruba o app.
             Log.w(TAG, "coleta da equipe não ligada: sem a permissão de localização");
+            return;
+        }
+        if (!notificacaoAVista(app)) {
+            Log.w(TAG, "coleta da equipe não ligada: a notificação fixa não ficaria à vista "
+                + "(as notificações do Nexus Field ou o canal da equipe desligados)");
             return;
         }
         preferencias(app).edit().putLong(CHAVE_PRAZO, JanelaDaEquipe.fimDaJanela(agora, fuso)).apply();
@@ -186,10 +233,34 @@ public class ServicoDaEquipe extends Service {
         return s != null && s.coletando;
     }
 
+    /**
+     * A notificação fixa fica à vista na barra: as notificações do Nexus Field ligadas (no Android 13+, a permissão dada)
+     * e o canal da equipe não desligado (antes da primeira coleta ele nem existe, e nasce na importância baixa). Sem isso o
+     * serviço em primeiro plano roda e só o gerenciador de tarefas do Android o mostra, e a coleta não liga: a casca pede
+     * ao técnico para ligá-las, como faz com a localização.
+     */
+    static boolean notificacaoAVista(Context contexto) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(contexto, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+            return false;
+        }
+        NotificationManagerCompat notificacoes = NotificationManagerCompat.from(contexto);
+        if (!notificacoes.areNotificationsEnabled()) return false;
+        NotificationChannelCompat canal = notificacoes.getNotificationChannelCompat(CANAL_EQUIPE);
+        return canal == null || canal.getImportance() != NotificationManagerCompat.IMPORTANCE_NONE;
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
         pecas = pecas(this);
+        PowerManager energia = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (energia != null) {
+            acordado = energia.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, NOME_DO_ACORDADO);
+            // Sem contagem: um release solta de vez, e o que vem depois de o prazo já ter soltado não lança.
+            acordado.setReferenceCounted(false);
+        }
     }
 
     @Override
@@ -204,6 +275,7 @@ public class ServicoDaEquipe extends Service {
             stopSelf(startId);
             return START_NOT_STICKY;
         }
+        // Também no REPOR (a notificação arrastada para o lado): o startForeground de novo a põe de volta na barra.
         if (!entrarEmPrimeiroPlano()) {
             stopSelf(startId);
             return START_NOT_STICKY;
@@ -213,7 +285,18 @@ public class ServicoDaEquipe extends Service {
             encerrar("coleta da equipe fora do prazo: não ligou");
             return START_NOT_STICKY;
         }
-        if (!coletando) ligarColeta(agora);
+        if (!notificacaoAVista(this)) {
+            // Conferida depois do startForeground, e não antes: o serviço pedido pelo startForegroundService que para
+            // antes dele derruba o app. O iniciar já conferiu; aqui é a notificação desligada entre o pedido e este
+            // início, ou no religamento do sistema.
+            encerrar(SEM_A_NOTIFICACAO);
+            return START_NOT_STICKY;
+        }
+        if (!coletando) {
+            ligarColeta(agora);
+        } else if (REPOR.equals(intent == null ? null : intent.getAction())) {
+            Log.i(TAG, "a notificação fixa da coleta da equipe foi arrastada para o lado e voltou");
+        }
         return coletando ? START_STICKY : START_NOT_STICKY;
     }
 
@@ -258,6 +341,13 @@ public class ServicoDaEquipe extends Service {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent toque = PendingIntent.getActivity(this, ID_DA_NOTIFICACAO, abrir,
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        // Do Android 14 em diante o técnico pode arrastar a notificação de primeiro plano para o lado, e a coleta seguiria
+        // sem ela à vista: o arrastar chega a este serviço como um início (o REPOR), e o startForeground a põe de volta. É
+        // o startService, e não o startForegroundService: a notificação arrastada só existe com o serviço em primeiro
+        // plano, e o Android deixa o app que tem um serviço em primeiro plano iniciar serviço.
+        PendingIntent repor = PendingIntent.getService(this, ID_DA_NOTIFICACAO,
+            new Intent(this, ServicoDaEquipe.class).setAction(REPOR),
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         String texto = getString(R.string.notificacao_equipe_texto);
         return new NotificationCompat.Builder(this, CANAL_EQUIPE)
             .setSmallIcon(R.drawable.ic_notificacao)
@@ -265,6 +355,7 @@ public class ServicoDaEquipe extends Service {
             .setContentText(texto)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(texto))
             .setContentIntent(toque)
+            .setDeleteIntent(repor)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
@@ -282,6 +373,8 @@ public class ServicoDaEquipe extends Service {
         ritmo = new RitmoDaColeta();
         ultima = null;
         intervaloPedido = RitmoDaColeta.EM_DESLOCAMENTO_MS;
+        // O primeiro envio sai 2 min depois de ligar, pelo Handler ou pela posição que chegar com ele vencido.
+        ultimoEnvio = pecas.desdeOBoot.getAsLong();
         if (!pedirPosicoes()) return;
         principal.postDelayed(envioPeriodico, ENVIO_MS);
         agendarOFim(agora);
@@ -330,22 +423,52 @@ public class ServicoDaEquipe extends Service {
             encerrar(FORA_DO_PRAZO);
             return;
         }
-        // Sem a velocidade do aparelho, a distância decide sozinha (o ritmo pede as duas: abaixo de 1 m/s e a menos de
-        // 150 m); a primeira leitura não tem com quem comparar e conta como deslocamento.
+        if (!notificacaoAVista(this)) {
+            // O técnico desligou a notificação ou o canal com a coleta ligada: esta posição já não entra.
+            encerrar(SEM_A_NOTIFICACAO);
+            return;
+        }
+        // O ritmo: sem a velocidade do aparelho, a distância decide sozinha (ele pede as duas: abaixo de 1 m/s e a menos de
+        // 150 m); a primeira leitura não tem com quem comparar e conta como deslocamento (o ritmo começa no curto).
         Float velocidade = l.hasSpeed() ? l.getSpeed() : null;
         double metros = ultima == null ? Double.POSITIVE_INFINITY : ultima.distanceTo(l);
+        boolean mov = movDaLeitura(l, ultima);
         ultima = new Location(l);
         long intervalo = ritmo.proximoIntervaloMs(velocidade == null ? 0 : velocidade, metros);
-        boolean emDeslocamento = intervalo == RitmoDaColeta.EM_DESLOCAMENTO_MS;
-        // O "mov" é o estado do ritmo (parado só depois de três leituras paradas seguidas), o mesmo que decide quando vem
-        // o próximo ponto: o mapa vê deslocamento enquanto o celular manda a cada 2 min.
         PontoDaEquipe ponto = new PontoDaEquipe(l.getTime(), l.getLatitude(), l.getLongitude(), l.getAccuracy(),
-            velocidade, emDeslocamento);
+            velocidade, mov);
         executar(() -> pecas.fila.guardar(ponto));
         if (intervalo != intervaloPedido) {
             intervaloPedido = intervalo;
-            pedirPosicoes();
+            if (!pedirPosicoes()) return;
         }
+        // Com a tela apagada o Handler não anda, e é a posição que acorda o celular: com o envio vencido, manda agora
+        // (o ponto de agora vai junto, porque a fila grava antes, na mesma thread).
+        if (pecas.desdeOBoot.getAsLong() - ultimoEnvio >= ENVIO_MS - FOLGA_DO_ENVIO_MS) mandarOLote();
+    }
+
+    /**
+     * O "mov" do ponto (seção 8 do desenho): a própria leitura em deslocamento, com a régua do ritmo (1 m/s ou mais, ou
+     * 150 m ou mais da leitura anterior: {@link RitmoDaColeta#leituraParada}), e não o estado do ritmo. O ritmo sai do
+     * deslocamento só na terceira parada seguida e começa nele, e com o estado dele as três primeiras leituras do dia em
+     * casa (o app aberto antes de sair) e as da chegada em casa ou no hotel iam com mov true: o mapa mostra o ponto exato e
+     * o Abrir rota de quem está em deslocamento, e o desenho esconde os dois de quem está parado fora de usina. Pelo mesmo
+     * motivo, sem a leitura anterior só a velocidade conta (a primeira leitura sem velocidade vai parada), e a distância
+     * que cabe na precisão das duas leituras não conta: é o salto da posição de rede (do Wi-Fi para a antena e de volta)
+     * com o celular parado em cima da mesa.
+     */
+    static boolean movDaLeitura(Location leitura, @Nullable Location anterior) {
+        double velocidade = leitura.hasSpeed() ? leitura.getSpeed() : 0;
+        double metros = 0;
+        if (anterior != null) {
+            double distancia = anterior.distanceTo(leitura);
+            if (distancia > precisao(anterior) + precisao(leitura)) metros = distancia;
+        }
+        return !RitmoDaColeta.leituraParada(velocidade, metros);
+    }
+
+    private static double precisao(Location l) {
+        return l.hasAccuracy() ? l.getAccuracy() : 0;
     }
 
     private final Runnable envioPeriodico = new Runnable() {
@@ -356,15 +479,37 @@ public class ServicoDaEquipe extends Service {
                 encerrar(FORA_DO_PRAZO);
                 return;
             }
-            principal.postDelayed(this, ENVIO_MS);
-            executar(() -> {
-                EnvioDePontos.Resultado r = pecas.envio.enviar();
-                principal.post(() -> aposOEnvio(r));
-            });
+            if (!notificacaoAVista(ServicoDaEquipe.this)) {
+                encerrar(SEM_A_NOTIFICACAO);
+                return;
+            }
+            mandarOLote();
         }
     };
 
+    /**
+     * Manda o lote mais antigo na thread do disco e da rede, com o celular acordado até a resposta. O Handler recomeça a
+     * contar daqui: a posição que mandou não leva a outro envio do Handler logo depois.
+     */
+    private void mandarOLote() {
+        ultimoEnvio = pecas.desdeOBoot.getAsLong();
+        principal.removeCallbacks(envioPeriodico);
+        principal.postDelayed(envioPeriodico, ENVIO_MS);
+        if (acordado != null) acordado.acquire(ACORDADO_NO_ENVIO_MS);
+        executar(() -> {
+            EnvioDePontos.Resultado r = EnvioDePontos.Resultado.SEM_REDE;
+            try {
+                r = pecas.envio.enviar();
+            } finally {
+                // Também com a fila que lançou: o celular volta a dormir na hora, e não só no fim do prazo.
+                EnvioDePontos.Resultado fim = r;
+                principal.post(() -> aposOEnvio(fim));
+            }
+        });
+    }
+
     private void aposOEnvio(EnvioDePontos.Resultado r) {
+        soltarOAcordado();
         if (r != EnvioDePontos.Resultado.PARAR || !coletando) return;
         // O 401 (a chave que o Nexus não reconhece) ou o coleta:false: a chave já saiu (EnvioDePontos), e o religamento não
         // volta. A próxima abertura do app decide de novo, com o Nexus.
@@ -420,17 +565,22 @@ public class ServicoDaEquipe extends Service {
         stopSelf(ultimoInicio);
     }
 
-    /** Solta o GPS e os relógios (também no onDestroy). */
+    /** Solta o GPS, os relógios e o celular acordado (também no onDestroy). */
     private void desligar() {
         coletando = false;
         principal.removeCallbacks(envioPeriodico);
         principal.removeCallbacks(fimDoPrazo);
+        soltarOAcordado();
         try {
             pecas.fonte.parar();
         } catch (RuntimeException e) {
             // o Google Play services fora: não há pedido a soltar
         }
         if (emPrimeiroPlano == this) emPrimeiroPlano = null;
+    }
+
+    private void soltarOAcordado() {
+        if (acordado != null && acordado.isHeld()) acordado.release();
     }
 
     /** A localização precisa: sem ela o pedido de alta precisão é recusado, e a aproximada erra por quilômetros. */

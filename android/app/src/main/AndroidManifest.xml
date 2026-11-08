@@ -130,6 +130,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- O celular acordado durante o envio dos pontos (ServicoDaEquipe): com a tela apagada ele dorme entre uma posição e
+         outra. O Firebase também a traz, mas a coleta não fica dependendo de outra biblioteca para tê-la. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Sem o required="false", a permissão CAMERA faz a câmera parecer obrigatória (lint
          PermissionImpliesUnsupportedChromeOsHardware). As duas são pedidas em tempo de execução. -->

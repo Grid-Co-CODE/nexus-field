@@ -163,8 +163,10 @@ caminho e os nomes; o que mudar, ele avisa à sessão do Nexus Field antes de p�
     a anterior do mesmo par): o nativo diz se tem chave (`temChave`).
 - **`POST /t/campo/equipe/posicoes`** (pública; chamada pelo NATIVO, com o app aberto ou fechado).
   - Pedido: `Authorization: Bearer <chave>`; corpo `{aparelho, fuso, pontos: [{t, lat, lon, prec, vel, mov}]}`: `t` em
-    milissegundos UTC, `prec` em metros, `vel` em m/s ou nulo, `mov` se está em deslocamento, `fuso` os minutos que se
-    somam ao UTC para dar a hora do celular (Brasília -180, Mato Grosso -240: o `TimeZone.getOffset(t)/60000` do
+    milissegundos UTC, `prec` em metros, `vel` em m/s ou nulo, `mov` se a própria leitura está em deslocamento (1 m/s
+    ou mais, ou 150 m ou mais da leitura anterior e além da precisão das duas; a primeira leitura sem velocidade vai
+    `false`; é o ponto, e não o ritmo da coleta, que segue curto por três leituras depois de parar), `fuso` os minutos
+    que se somam ao UTC para dar a hora do celular (Brasília -180, Mato Grosso -240: o `TimeZone.getOffset(t)/60000` do
     Android), para o Nexus conferir a janela das 6h às 22h na hora do técnico. Até 200 pontos e 64 KB por lote.
   - Sem a permissão "o tempo todo", o nativo manda `{aparelho, fuso, permissao: "sem", pontos: []}` (no máximo um a cada
     30 minutos), para o mapa separar quem negou de quem não abriu o app.

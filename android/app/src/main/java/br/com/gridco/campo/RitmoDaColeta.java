@@ -17,8 +17,16 @@ final class RitmoDaColeta {
 
     private int paradasSeguidas = 0;
 
+    /**
+     * Uma leitura parada: abaixo de 1 m/s e a menos de 150 m da anterior. É a régua do ritmo (três seguidas alongam o
+     * intervalo) e a do "mov" de cada ponto (ServicoDaEquipe.movDaLeitura), que olha só a leitura, sem a contagem.
+     */
+    static boolean leituraParada(double velocidadeMs, double metrosDesdeOUltimo) {
+        return velocidadeMs < VELOCIDADE_DE_PARADO_MS && metrosDesdeOUltimo < DISTANCIA_DE_PARADO_M;
+    }
+
     long proximoIntervaloMs(double velocidadeMs, double metrosDesdeOUltimo) {
-        boolean parada = velocidadeMs < VELOCIDADE_DE_PARADO_MS && metrosDesdeOUltimo < DISTANCIA_DE_PARADO_M;
+        boolean parada = leituraParada(velocidadeMs, metrosDesdeOUltimo);
         paradasSeguidas = parada ? Math.min(paradasSeguidas + 1, LEITURAS_PARA_PARAR) : 0;
         return paradasSeguidas >= LEITURAS_PARA_PARAR ? PARADO_MS : EM_DESLOCAMENTO_MS;
     }
