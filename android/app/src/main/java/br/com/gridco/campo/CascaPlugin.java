@@ -970,18 +970,19 @@ public class CascaPlugin extends Plugin {
         }
 
         // A resposta (o equipeAparelho) vai pela ponte da mensagem que pediu, da thread do envio da equipe, depois do que
-        // já estava nela: o Sair que ainda revogava a chave responde, depois, que não há chave.
+        // já estava nela: o Sair que ainda revogava a chave responde, depois, que não há chave; a chave de outra conta sai
+        // antes, como no Sair dela, e a resposta diz que não há a desta.
         @Override
-        public void equipePedirAparelho() {
+        public void equipePedirAparelho(String conta) {
             JavaScriptReplyProxy ponte = ponteDaMensagem;
             EquipeNaCasca daEquipe = equipe;
             if (ponte == null || daEquipe == null) return;
-            daEquipe.pedirAparelho(mensagem -> responder(ponte, mensagem));
+            daEquipe.pedirAparelho(conta, mensagem -> responder(ponte, mensagem));
         }
 
         @Override
-        public void equipeChave(boolean coleta, String chave) {
-            if (equipe != null) equipe.receberChave(coleta, chave);
+        public void equipeChave(boolean coleta, String chave, String conta) {
+            if (equipe != null) equipe.receberChave(coleta, chave, conta);
         }
 
         @Override

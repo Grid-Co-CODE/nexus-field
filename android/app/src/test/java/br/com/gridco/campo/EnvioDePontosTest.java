@@ -27,6 +27,8 @@ import org.robolectric.RuntimeEnvironment;
 public class EnvioDePontosTest {
 
     private static final long AGORA = 1_762_600_000_000L;
+    // A conta da chave (o SHA-256 que a página calcula), fictícia: o envio não a usa.
+    private static final String CONTA = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
 
     private Context ctx;
     private ChaveDaEquipe chave;
@@ -70,7 +72,7 @@ public class EnvioDePontosTest {
     public void semChaveOuFilaVaziaNaoPedeNada() {
         encher(3);
         assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         fila.limpar();
         assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
         assertTrue(pedidos.isEmpty());
@@ -78,7 +80,7 @@ public class EnvioDePontosTest {
 
     @Test
     public void duzentosPorLoteComAparelhoFusoEChave() throws Exception {
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         encher(250);
         assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
         assertEquals(1, pedidos.size());
@@ -95,7 +97,7 @@ public class EnvioDePontosTest {
 
     @Test
     public void coletaFalsaParaApagaAChaveELimpaAFila() {
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         encher(5);
         resposta = new EnvioDePontos.Resposta(200, "{\"aceitos\":0,\"coleta\":false}");
         assertEquals(EnvioDePontos.Resultado.PARAR, envio().enviar());
@@ -105,7 +107,7 @@ public class EnvioDePontosTest {
 
     @Test
     public void quatrocentoEUmApagaAChaveEMantemAFila() {
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         encher(5);
         resposta = new EnvioDePontos.Resposta(401, "");
         assertEquals(EnvioDePontos.Resultado.PARAR, envio().enviar());
@@ -115,7 +117,7 @@ public class EnvioDePontosTest {
 
     @Test
     public void semRedeMantemFilaEChave() {
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         encher(5);
         falha = new IOException("sem rede");
         assertEquals(EnvioDePontos.Resultado.SEM_REDE, envio().enviar());
@@ -125,7 +127,7 @@ public class EnvioDePontosTest {
 
     @Test
     public void todo5xxDaSemRedeEMantemAChave() {
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         encher(5);
         resposta = new EnvioDePontos.Resposta(503, "{}");
         assertEquals(EnvioDePontos.Resultado.SEM_REDE, envio().enviar());
@@ -137,7 +139,7 @@ public class EnvioDePontosTest {
 
     @Test
     public void respostaIlegivelNaoTiraDaFila() {
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         encher(5);
         resposta = new EnvioDePontos.Resposta(200, "<html>");
         assertEquals(EnvioDePontos.Resultado.SEM_REDE, envio().enviar());
@@ -147,7 +149,7 @@ public class EnvioDePontosTest {
 
     @Test
     public void loteQuePassariaDoLimiteDeBytesSaiMenor() throws Exception {
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         encher(200);
         EnvioDePontos pequeno = new EnvioDePontos(chave, fila, falso, () -> AGORA, 4000);
         assertEquals(EnvioDePontos.Resultado.ENVIADO, pequeno.enviar());
@@ -165,7 +167,7 @@ public class EnvioDePontosTest {
 
     @Test
     public void revogarPedeComAChaveEApagaMesmoSeFalhar() throws Exception {
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         envio().revogar();
         assertEquals(1, pedidos.size());
         assertEquals("https://app.gridco.com.br/t/campo/equipe/aparelho/revogar", pedidos.get(0)[0]);
@@ -173,7 +175,7 @@ public class EnvioDePontosTest {
         assertEquals(chave.aparelho(), new JSONObject(pedidos.get(0)[2]).getString("aparelho"));
         assertNull(chave.chave());
 
-        chave.guardar("k2");
+        chave.guardar("k2", CONTA);
         falha = new IOException("sem rede");
         envio().revogar();
         assertNull(chave.chave());
@@ -181,7 +183,7 @@ public class EnvioDePontosTest {
 
     @Test
     public void avisarSemPermissaoManda() throws Exception {
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().avisarSemPermissao());
         String[] p = pedidos.get(0);
         assertEquals("https://app.gridco.com.br/t/campo/equipe/posicoes", p[0]);
@@ -196,14 +198,14 @@ public class EnvioDePontosTest {
     @Test
     public void avisarSemPermissaoTemAsMesmasRespostas() {
         assertEquals(EnvioDePontos.Resultado.NADA, envio().avisarSemPermissao());
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         resposta = new EnvioDePontos.Resposta(200, "{\"coleta\":false}");
         assertEquals(EnvioDePontos.Resultado.PARAR, envio().avisarSemPermissao());
         assertNull(chave.chave());
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         resposta = new EnvioDePontos.Resposta(401, "");
         assertEquals(EnvioDePontos.Resultado.PARAR, envio().avisarSemPermissao());
-        chave.guardar("k1");
+        chave.guardar("k1", CONTA);
         resposta = new EnvioDePontos.Resposta(503, "");
         assertEquals(EnvioDePontos.Resultado.SEM_REDE, envio().avisarSemPermissao());
         assertNotNull(chave.chave());

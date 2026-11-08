@@ -1297,8 +1297,10 @@ test('o ABRIR_OS do inicio.js tem os nomes que o contrato com o site exige, e a 
     assert.ok(objeto.includes(ref), ref);
   }
 
-  const secao = CODIGO.slice(CODIGO.indexOf('// 9. Abrir a OS pelo toque'), CODIGO.indexOf('// Ponto único de entrada'));
+  // A seção 9 vai até a 10 (a chave da equipe, que tem a prova dela no testes/equipe.test.mjs).
+  const secao = CODIGO.slice(CODIGO.indexOf('// 9. Abrir a OS pelo toque'), CODIGO.indexOf('// 10. A chave da equipe'));
   assert.ok(secao.includes('function instalarAbrirOS('), 'o corte pega a seção 9');
+  assert.ok(!secao.includes('function instalarEquipe('), 'e só ela');
   const codigo = secao.split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
   for (const usado of ['ABRIR_OS.funcao.buscar', 'ABRIR_OS.id.busca', 'ABRIR_OS.funcao.aba', 'ABRIR_OS.aba',
     'ABRIR_OS.ronda.global', 'ABRIR_OS.ronda.usina', 'ABRIR_OS.ronda.respostas', 'ABRIR_OS.ronda.dispersos',

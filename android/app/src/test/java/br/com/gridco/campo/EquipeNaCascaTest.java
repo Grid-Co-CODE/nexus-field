@@ -12,6 +12,7 @@ import android.Manifest;
 import android.app.Application;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Looper;
 import android.view.View;
@@ -56,6 +57,9 @@ public class EquipeNaCascaTest {
     // Fictícias, no formato do contrato (32 bytes em base64url, 43 caracteres).
     private static final String CHAVE_A = "chaveFicticiaDaEquipe_AAAAAAAAAAAAAAAAAAAAA";
     private static final String CHAVE_B = "chaveFicticiaDaEquipe_BBBBBBBBBBBBBBBBBBBBB";
+    // As contas de dois técnicos no mesmo aparelho, no formato que a página manda (o SHA-256 em hex minúsculo), fictícias.
+    private static final String CONTA_A = "aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000";
+    private static final String CONTA_B = "bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000";
     private static final String USO = Manifest.permission.ACCESS_FINE_LOCATION;
     private static final String APROXIMADA = Manifest.permission.ACCESS_COARSE_LOCATION;
     private static final String O_TEMPO_TODO = Manifest.permission.ACCESS_BACKGROUND_LOCATION;
@@ -204,10 +208,19 @@ public class EquipeNaCascaTest {
             "1.2.0");
     }
 
-    /** O aparelho que já tem a chave e cujo técnico já leu o aviso. */
+    /** O aparelho que já tem a chave da conta A e cujo técnico já leu o aviso. */
     private void comChaveEAviso(String k) {
-        chave.guardar(k);
+        chave.guardar(k, CONTA_A);
         chave.aceitarAviso();
+    }
+
+    private SharedPreferences daCasca() {
+        return app.getSharedPreferences("equipe_casca", Context.MODE_PRIVATE);
+    }
+
+    /** O Nexus já soube, em {@code quando}, que falta a permissão (a marca dos 30 minutos). */
+    private void marcarSemPermissao(long quando) {
+        daCasca().edit().putLong("sem_permissao_em", quando).commit();
     }
 
     private void encher(int n) {
@@ -290,7 +303,7 @@ public class EquipeNaCascaTest {
         servico.rodando = true;
         int[] filaNoParar = {-1};
         servico.aoParar = () -> filaNoParar[0] = fila.tamanho();
-        casca(ANDROID_11).receberChave(false, null);
+        casca(ANDROID_11).receberChave(false, null, CONTA_A);
         assertEquals("a coleta para primeiro, e só então a fila sai: o que falhar depois não a deixa ligada", 3,
             filaNoParar[0]);
         assertNull(chave.chave());
@@ -303,11 +316,12 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void receberChaveDeOutraZeraOAvisoEParaAColetaAteOContinuar() {
+    public void aChaveNovaDaMesmaContaZeraOAvisoEParaAColetaAteOContinuar() {
+        // A chave refeita da mesma conta (o 401 do envio apagou a de antes, e a página pediu outra): o aviso de novo.
         comChaveEAviso(CHAVE_A);
         servico.rodando = true;
         EquipeNaCasca c = casca(ANDROID_11);
-        c.receberChave(true, CHAVE_B);
+        c.receberChave(true, CHAVE_B, CONTA_A);
         assertEquals(CHAVE_B, chave.chave());
         assertFalse(chave.avisoAceito());
         assertEquals("a coleta de quem ainda não leu o aviso não segue", 1, servico.parados);
@@ -321,7 +335,7 @@ public class EquipeNaCascaTest {
     @Test
     public void receberAMesmaChaveNaoMostraOAvisoDeNovo() {
         comChaveEAviso(CHAVE_A);
-        casca(ANDROID_11).receberChave(true, CHAVE_A);
+        casca(ANDROID_11).receberChave(true, CHAVE_A, CONTA_A);
         assertTrue(chave.avisoAceito());
         assertEquals(0, tela.avisos);
         assertEquals(1, servico.iniciados);
@@ -330,7 +344,7 @@ public class EquipeNaCascaTest {
     @Test
     public void aChaveQueACifraNaoGuardaNaoLigaNada() {
         cifra.falharAoCifrar = true;
-        casca(ANDROID_11).receberChave(true, CHAVE_A);
+        casca(ANDROID_11).receberChave(true, CHAVE_A, CONTA_A);
         assertNull(chave.chave());
         assertEquals(0, servico.iniciados);
         assertEquals(0, tela.avisos);
@@ -356,7 +370,7 @@ public class EquipeNaCascaTest {
     public void oAvisoApareceUmaVezEOContinuarSegueParaAPermissaoNoAndroid11() {
         tirar(O_TEMPO_TODO);
         EquipeNaCasca c = casca(ANDROID_11);
-        c.receberChave(true, CHAVE_A);
+        c.receberChave(true, CHAVE_A, CONTA_A);
         assertEquals(1, tela.avisos);
         c.reavaliar(); // a volta ao app com o aviso na frente: não abre outro por cima
         assertEquals(1, tela.avisos);
@@ -470,7 +484,7 @@ public class EquipeNaCascaTest {
         c.reavaliar();
         tela.continuarDaExplicacao.run();
         c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false)); // a conta de antes negou
-        c.receberChave(true, CHAVE_B); // outra conta entrou no mesmo aparelho
+        c.receberChave(true, CHAVE_B, CONTA_B); // outra conta entrou no mesmo aparelho
         assertEquals(1, tela.avisos);
         tela.continuarDoAviso.run();
         assertEquals("o Continuar do aviso segue para a permissão, também depois do não da outra conta", 2,
@@ -516,7 +530,7 @@ public class EquipeNaCascaTest {
     public void oQueNaoApareceuNaTelaNaoDeixaACascaEsperandoParaSempre() {
         // A tela saindo (finishing) não mostra o diálogo nem pede ao Android: ninguém vai responder.
         tirar(O_TEMPO_TODO);
-        chave.guardar(CHAVE_A);
+        chave.guardar(CHAVE_A, CONTA_A);
         EquipeNaCasca c = casca(ANDROID_11);
         tela.saindo = true;
         c.reavaliar();
@@ -543,7 +557,7 @@ public class EquipeNaCascaTest {
     @Test
     public void foraDaJanelaNadaApareceEAColetaQueSobrouPara() {
         tirar(O_TEMPO_TODO);
-        chave.guardar(CHAVE_A); // sem o aviso aceito
+        chave.guardar(CHAVE_A, CONTA_A); // sem o aviso aceito
         agora = em(9, 23, 0);
         EquipeNaCasca c = casca(ANDROID_11);
         c.reavaliar();
@@ -625,7 +639,7 @@ public class EquipeNaCascaTest {
 
         // A conta seguinte no aparelho: a chave nova, o aviso e o Continuar ligam a coleta dela (a marca do Sair saiu
         // com a chave de quem saiu).
-        c.receberChave(true, CHAVE_B);
+        c.receberChave(true, CHAVE_B, CONTA_B);
         soltar(threadDoEnvio);
         assertEquals(1, tela.avisos);
         tela.continuarDoAviso.run();
@@ -662,7 +676,7 @@ public class EquipeNaCascaTest {
         c.sair();
         assertEquals("a coleta para na hora, sem esperar a rede", 1, servico.parados);
         List<String> respostas = new ArrayList<>();
-        c.pedirAparelho(json -> respostas.add(json));
+        c.pedirAparelho(CONTA_A, json -> respostas.add(json));
         assertTrue("o disco e a rede só na thread do envio", respostas.isEmpty() && pedidosAoNexus.isEmpty());
         soltar(threadDoEnvio);
         assertEquals(1, respostas.size());
@@ -673,36 +687,168 @@ public class EquipeNaCascaTest {
         assertFalse("o Sair veio antes: a página pede outra chave", r.getBoolean("temChave"));
     }
 
+    // --- a conta da chave (o aparelho dividido) -----------------------------------------------------------------------
+
     @Test
-    public void oAparelhoComAChaveDizQueTem() throws Exception {
+    public void aMesmaContaComAChaveDizQueTemENadaPara() throws Exception {
         comChaveEAviso(CHAVE_A);
+        encher(2);
+        servico.rodando = true;
+        marcarSemPermissao(agora);
         List<String> respostas = new ArrayList<>();
-        casca(ANDROID_11).pedirAparelho(json -> respostas.add(json));
+        casca(ANDROID_11).pedirAparelho(CONTA_A, json -> respostas.add(json));
         JSONObject r = new JSONObject(respostas.get(0));
-        assertTrue(r.getBoolean("temChave"));
+        assertTrue("a chave desta conta: a página não pede outra", r.getBoolean("temChave"));
         assertFalse("a chave nunca vai à página", respostas.get(0).contains(CHAVE_A));
+        assertFalse("nem a conta volta a ela", respostas.get(0).contains(CONTA_A));
+        assertTrue("nada parado", servico.chamadas.isEmpty());
+        assertEquals(2, fila.tamanho());
+        assertTrue(pedidosAoNexus.isEmpty());
+        assertEquals(CHAVE_A, chave.chave());
+        assertTrue(chave.avisoAceito());
+        assertTrue(daCasca().contains("sem_permissao_em"));
+        assertEquals(0, tela.fechadas);
+    }
+
+    @Test
+    public void outraContaNoAparelhoFazOSairDaAnteriorAntesDaResposta() throws Exception {
+        // O caso: A não tocou em Sair, e B entra no mesmo aparelho. Sem isto, B ficava com a chave, o aviso aceito e a
+        // fila de A, e as posições de B iam ao Nexus em nome de A.
+        comChaveEAviso(CHAVE_A);
+        encher(3);
+        servico.rodando = true;
+        marcarSemPermissao(agora);
+        String aparelho = chave.aparelho();
+        List<String> naHoraDaResposta = new ArrayList<>();
+        List<String> respostas = new ArrayList<>();
+        casca(ANDROID_11).pedirAparelho(CONTA_B, json -> {
+            naHoraDaResposta.add("serviço " + servico.chamadas + ", fila " + fila.tamanho() + ", Nexus "
+                + pedidosAoNexus.size() + ", chave " + chave.chave() + ", aviso " + chave.avisoAceito() + ", marca "
+                + daCasca().contains("sem_permissao_em"));
+            return respostas.add(json);
+        });
+        assertEquals("tudo de A já saiu quando a resposta vai",
+            Collections.singletonList("serviço [parar], fila 0, Nexus 1, chave null, aviso false, marca false"),
+            naHoraDaResposta);
+        assertFalse("a página de B pede a chave dela", new JSONObject(respostas.get(0)).getBoolean("temChave"));
+        String[] revogar = pedidosAoNexus.get(0);
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, revogar[0]);
+        assertEquals("o revogar vai com a chave velha", CHAVE_A, revogar[1]);
+        assertEquals(aparelho, new JSONObject(revogar[2]).getString("aparelho"));
+        assertNull(chave.conta());
+        assertEquals("o aparelho fica: é a identidade dele, não da conta", aparelho, chave.aparelho());
+        assertEquals(0, servico.iniciados);
+        assertEquals("um diálogo da equipe de A aberto sai", 1, tela.fechadas);
+    }
+
+    @Test
+    public void aChaveSemContaContaComoDeOutraConta() throws Exception {
+        // A chave guardada antes de a conta existir (uma 1.2.0 de desenvolvimento): não se sabe de quem é.
+        comChaveEAviso(CHAVE_A);
+        encher(1);
+        app.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("conta").commit();
+        List<String> respostas = new ArrayList<>();
+        casca(ANDROID_11).pedirAparelho(CONTA_A, json -> respostas.add(json));
+        assertFalse(new JSONObject(respostas.get(0)).getBoolean("temChave"));
+        assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
+        assertNull(chave.chave());
+        assertEquals(0, fila.tamanho());
+        assertEquals(Collections.singletonList("parar"), servico.chamadas);
+    }
+
+    @Test
+    public void oCofreQueNaoLeAContaAgoraNaoMudaNada() throws Exception {
+        comChaveEAviso(CHAVE_A);
+        encher(2);
+        servico.rodando = true;
+        cifra.keystoreFora = true;
+        List<String> respostas = new ArrayList<>();
+        casca(ANDROID_11).pedirAparelho(CONTA_B, json -> respostas.add(json));
+        assertTrue("a chave continua lá, e pedir outra a revogaria à toa", new JSONObject(respostas.get(0)).getBoolean("temChave"));
+        assertTrue(servico.chamadas.isEmpty());
+        assertTrue(pedidosAoNexus.isEmpty());
+        assertEquals(2, fila.tamanho());
+        cifra.keystoreFora = false;
+        assertEquals(CHAVE_A, chave.chave());
+        assertEquals(CONTA_A, chave.conta());
+    }
+
+    @Test
+    public void aChaveDeOutraContaQueAindaEstivesseGuardadaSaiAntesDaNova() throws Exception {
+        // O equipeChave de B que chegasse com a chave de A ainda guardada (sem o pedido do aparelho antes): a fila de A
+        // não sobe com a chave de B, e a de A é revogada.
+        comChaveEAviso(CHAVE_A);
+        encher(2);
+        EquipeNaCasca c = casca(ANDROID_11);
+        c.receberChave(true, CHAVE_B, CONTA_B);
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
+        assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
+        assertEquals(0, fila.tamanho());
+        assertEquals(CHAVE_B, chave.chave());
+        assertEquals(CONTA_B, chave.conta());
+        assertFalse(chave.avisoAceito());
+        assertEquals("B lê o aviso dela", 1, tela.avisos);
+        assertEquals(0, servico.iniciados);
+        // A mesma conta com a chave dela: nada mais é revogado.
+        c.receberChave(true, CHAVE_B, CONTA_B);
+        assertEquals(1, pedidosAoNexus.size());
+    }
+
+    @Test
+    public void aContaNovaAvisaSemPermissaoSemEsperarOsTrintaMinutosDaAnterior() throws Exception {
+        tirar(O_TEMPO_TODO);
+        comChaveEAviso(CHAVE_A);
+        EquipeNaCasca c = casca(ANDROID_11);
+        c.reavaliar();
+        tela.continuarDaExplicacao.run();
+        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        assertEquals("o sem permissão de A", 1, pedidosAoNexus.size());
+        c.pedirAparelho(CONTA_B, json -> true); // B entrou sem o Sair de A
+        assertEquals("o revogar da chave de A", 2, pedidosAoNexus.size());
+        agora += MINUTO;
+        c.receberChave(true, CHAVE_B, CONTA_B);
+        tela.continuarDoAviso.run();
+        tela.continuarDaExplicacao.run();
+        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        assertEquals("o mapa sabe de B um minuto depois, não 30", 3, pedidosAoNexus.size());
+        assertEquals(CHAVE_B, pedidosAoNexus.get(2)[1]);
+        assertEquals("sem", new JSONObject(pedidosAoNexus.get(2)[2]).getString("permissao"));
+    }
+
+    @Test
+    public void oSairTambemApagaAMarcaDosTrintaMinutos() {
+        comChaveEAviso(CHAVE_A);
+        marcarSemPermissao(agora);
+        casca(ANDROID_11).sair();
+        assertFalse("a próxima conta não espera os 30 minutos de quem saiu", daCasca().contains("sem_permissao_em"));
+        assertNull(chave.chave());
+        assertNull(chave.conta());
     }
 
     // --- o log --------------------------------------------------------------------------------------------------------
 
     @Test
-    public void nadaDaChaveNemDoAparelhoVaiAoLog() {
+    public void nadaDaChaveDaContaNemDoAparelhoVaiAoLog() {
         tirar(O_TEMPO_TODO);
         EquipeNaCasca c = casca(ANDROID_11);
-        c.receberChave(true, CHAVE_A);
+        c.receberChave(true, CHAVE_A, CONTA_A);
         tela.continuarDoAviso.run();
         tela.continuarDaExplicacao.run();
         c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
-        c.receberChave(true, CHAVE_B);
-        c.pedirAparelho(json -> true);
-        semRede = new IOException("sem rede " + CHAVE_B);
+        c.pedirAparelho(CONTA_A, json -> true);
+        c.pedirAparelho(CONTA_B, json -> true); // a troca de conta
+        c.receberChave(true, CHAVE_B, CONTA_B);
+        c.receberChave(true, CHAVE_A, CONTA_A); // e a volta, pelo equipeChave
+        semRede = new IOException("sem rede " + CHAVE_B + " " + CONTA_B);
         c.sair();
-        c.receberChave(false, null);
+        c.receberChave(false, null, CONTA_B);
         String aparelho = chave.aparelho();
         assertFalse(ShadowLog.getLogs().isEmpty());
         for (ShadowLog.LogItem item : ShadowLog.getLogs()) {
             String linha = item.tag + " " + item.msg + (item.throwable == null ? "" : " " + item.throwable);
-            for (String proibido : new String[] {CHAVE_A, CHAVE_B, "chaveFicticia", aparelho}) {
+            for (String proibido : new String[] {CHAVE_A, CHAVE_B, "chaveFicticia", CONTA_A, CONTA_B, "aaaa0000",
+                    "bbbb0000", aparelho}) {
                 if (linha.contains(proibido)) fail("o log levou \"" + proibido + "\": " + linha);
             }
         }

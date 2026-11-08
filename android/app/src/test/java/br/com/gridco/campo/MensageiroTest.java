@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.json.JSONException;
@@ -853,6 +854,10 @@ public class MensageiroTest {
 
     // Fictícia, no formato do contrato (32 bytes em base64url, 43 caracteres): como o token, nunca vai ao log.
     private static final String CHAVE_DA_EQUIPE = "chaveFicticiaDaEquipe_0123456789-abcdefghij";
+    // A conta, no formato que a página manda (o SHA-256 em hex minúsculo do oid da conta Microsoft), fictícia: aponta para
+    // a pessoa, e também não vai ao log.
+    private static final String CONTA = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private static final String OUTRA_CONTA = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
     private ChaveDaEquipe chaveDaEquipe(CifraFalsa cifra) {
         Context ctx = RuntimeEnvironment.getApplication();
@@ -861,11 +866,35 @@ public class MensageiroTest {
     }
 
     @Test
-    public void equipePedirAparelhoChegaAoPlugin() {
-        // Só o tipo: o que vier junto (a conta, um aparelho) não é lido nem vai ao log.
-        assertTrue(m.tratar("{\"t\":\"equipePedirAparelho\",\"email\":\"" + EMAIL + "\"}"));
-        assertEquals(1, acoes.equipePedidos);
+    public void equipePedirAparelhoChegaAoPluginComAConta() {
+        // Só a conta: o que vier junto (um e-mail, um aparelho) não é lido nem vai ao log.
+        assertTrue(m.tratar("{\"t\":\"equipePedirAparelho\",\"conta\":\"" + CONTA + "\",\"email\":\"" + EMAIL + "\"}"));
+        assertEquals(Arrays.asList(CONTA), acoes.equipePedidos);
         assertTrue(acoes.erros.isEmpty());
+        semDadosDoTecnico();
+        semAChaveDaEquipe();
+    }
+
+    @Test
+    public void equipePedirAparelhoSemAContaOuComAContaTortaERecusadoComUmErroSemConteudo() {
+        // A conta decide se a chave guardada é de quem está no aparelho: só o hex minúsculo de 64 que a página calcula
+        // (o maiúsculo seria a mesma conta escrita de outro jeito, e pareceria outra).
+        for (String torta : new String[] {
+                "{\"t\":\"equipePedirAparelho\"}",
+                "{\"t\":\"equipePedirAparelho\",\"conta\":null}",
+                "{\"t\":\"equipePedirAparelho\",\"conta\":\"\"}",
+                "{\"t\":\"equipePedirAparelho\",\"conta\":12345}",
+                "{\"t\":\"equipePedirAparelho\",\"conta\":\"" + CONTA.substring(1) + "\"}",
+                "{\"t\":\"equipePedirAparelho\",\"conta\":\"" + CONTA + "0\"}",
+                "{\"t\":\"equipePedirAparelho\",\"conta\":\"" + CONTA.toUpperCase(Locale.ROOT) + "\"}",
+                "{\"t\":\"equipePedirAparelho\",\"conta\":\"" + CONTA.substring(1) + "g\"}",
+                "{\"t\":\"equipePedirAparelho\",\"conta\":\" " + CONTA.substring(1) + "\"}",
+                "{\"t\":\"equipePedirAparelho\",\"conta\":\"" + EMAIL + "\"}"}) {
+            assertFalse(torta, m.tratar(torta));
+        }
+        assertTrue("nenhuma torta chegou ao plugin", acoes.equipePedidos.isEmpty());
+        assertEquals(10, acoes.erros.size());
+        for (String erro : acoes.erros) assertEquals("equipePedirAparelho: mensagem com campo que falta ou torto", erro);
         semDadosDoTecnico();
     }
 
@@ -873,62 +902,80 @@ public class MensageiroTest {
     public void aRespostaDoAparelhoLevaOAparelhoDaChaveDaEquipeAVersaoESeTemChave() throws JSONException {
         CifraFalsa cifra = new CifraFalsa();
         ChaveDaEquipe chave = chaveDaEquipe(cifra);
-        JSONObject sem = objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0"));
+        JSONObject sem = objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0", CONTA));
         assertEquals("equipeAparelho", sem.getString("t"));
         assertEquals(chave.aparelho(), sem.getString("aparelho"));
         assertEquals("1.2.0", sem.getString("versao"));
         assertFalse("o aparelho sem chave: a página pede uma ao Nexus", sem.getBoolean("temChave"));
 
-        chave.guardar(CHAVE_DA_EQUIPE);
-        String com = Mensageiro.respostaDaEquipe(chave, "1.2.0");
+        chave.guardar(CHAVE_DA_EQUIPE, CONTA);
+        String com = Mensageiro.respostaDaEquipe(chave, "1.2.0", CONTA);
         assertTrue("com chave a página não pede outra (cada pedido revoga a anterior)", objeto(com).getBoolean("temChave"));
         assertFalse("a chave nunca vai à página", com.contains(CHAVE_DA_EQUIPE));
+        assertFalse("nem a conta volta a ela", com.contains(CONTA));
+        // A chave de outra conta não é a desta: a página pede a dela.
+        assertFalse(objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0", OUTRA_CONTA)).getBoolean("temChave"));
         // O cofre do aparelho que não respondeu agora: a chave guardada continua lá, e a página não pede outra.
         cifra.keystoreFora = true;
-        assertTrue(objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0")).getBoolean("temChave"));
+        assertTrue(objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0", CONTA)).getBoolean("temChave"));
         cifra.keystoreFora = false;
         // A chave que a cifra de agora nunca vai ler vale como sem chave.
         cifra.falharAoDecifrar = true;
-        assertFalse(objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0")).getBoolean("temChave"));
+        assertFalse(objeto(Mensageiro.respostaDaEquipe(chave, "1.2.0", CONTA)).getBoolean("temChave"));
         cifra.falharAoDecifrar = false;
         chave.apagar();
-        JSONObject apagada = objeto(Mensageiro.respostaDaEquipe(chave, null));
+        JSONObject apagada = objeto(Mensageiro.respostaDaEquipe(chave, null, CONTA));
         assertFalse(apagada.getBoolean("temChave"));
         assertEquals("o aparelho fica depois do apagar", chave.aparelho(), apagada.getString("aparelho"));
         assertEquals("", apagada.getString("versao"));
     }
 
     @Test
-    public void equipeChaveComOQueONexusRespondeuChegaAoPlugin() {
-        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}"));
-        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":false}"));
+    public void equipeChaveComOQueONexusRespondeuChegaAoPluginComAConta() {
+        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\",\"conta\":\"" + CONTA
+            + "\"}"));
+        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":false,\"conta\":\"" + CONTA + "\"}"));
         // Com o coleta:false, a chave que vier junto não vale.
-        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":false,\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}"));
-        assertEquals(Arrays.asList("true:" + CHAVE_DA_EQUIPE, "false:null", "false:null"), acoes.equipe);
+        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":false,\"chave\":\"" + CHAVE_DA_EQUIPE + "\",\"conta\":\""
+            + OUTRA_CONTA + "\"}"));
+        assertEquals(Arrays.asList("true:" + CHAVE_DA_EQUIPE + ":" + CONTA, "false:null:" + CONTA,
+            "false:null:" + OUTRA_CONTA), acoes.equipe);
         assertTrue(acoes.erros.isEmpty());
         semAChaveDaEquipe();
     }
 
     @Test
-    public void equipeChaveComColetaESemAChaveERecusadaComUmErroSemConteudo() {
+    public void equipeChaveComColetaESemAChaveOuSemAContaERecusadaComUmErroSemConteudo() {
+        String comConta = ",\"conta\":\"" + CONTA + "\"}";
         for (String torta : new String[] {
-                "{\"t\":\"equipeChave\",\"coleta\":true}",
-                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":null}",
-                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"\"}",
-                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":12345678901234567890}",
+                "{\"t\":\"equipeChave\",\"coleta\":true" + comConta,
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":null" + comConta,
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"\"" + comConta,
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":12345678901234567890" + comConta,
                 // A chave vai no Authorization (Bearer): só o alfabeto do RFC 6750, sem espaço, '@' nem quebra de linha.
-                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + EMAIL + "\"}",
-                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + " x\"}",
-                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\\r\\nX-Outro: 1\"}",
-                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"curta\"}",
-                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + new String(new char[600]).replace('\0', 'a') + "\"}",
-                "{\"t\":\"equipeChave\",\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}",
-                "{\"t\":\"equipeChave\",\"coleta\":\"true\",\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}",
-                "{\"t\":\"equipeChave\",\"coleta\":1,\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}"}) {
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + EMAIL + "\"" + comConta,
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + " x\"" + comConta,
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\\r\\nX-Outro: 1\"" + comConta,
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"curta\"" + comConta,
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + new String(new char[600]).replace('\0', 'a') + "\""
+                    + comConta,
+                "{\"t\":\"equipeChave\",\"chave\":\"" + CHAVE_DA_EQUIPE + "\"" + comConta,
+                "{\"t\":\"equipeChave\",\"coleta\":\"true\",\"chave\":\"" + CHAVE_DA_EQUIPE + "\"" + comConta,
+                "{\"t\":\"equipeChave\",\"coleta\":1,\"chave\":\"" + CHAVE_DA_EQUIPE + "\"" + comConta,
+                // A conta, nas duas respostas do Nexus: sem ela (ou torta) não se sabe de quem é a chave.
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":false}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\",\"conta\":null}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\",\"conta\":\""
+                    + CONTA.substring(2) + "\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\",\"conta\":\""
+                    + CONTA.toUpperCase(Locale.ROOT) + "\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":false,\"conta\":\"" + EMAIL + "\"}",
+                "{\"t\":\"equipeChave\",\"coleta\":false,\"conta\":42}"}) {
             assertFalse(torta, m.tratar(torta));
         }
         assertTrue("nenhuma torta chegou ao plugin", acoes.equipe.isEmpty());
-        assertEquals(12, acoes.erros.size());
+        assertEquals(19, acoes.erros.size());
         for (String erro : acoes.erros) assertEquals("equipeChave: mensagem com campo que falta ou torto", erro);
         semDadosDoTecnico();
         semAChaveDaEquipe();
@@ -946,19 +993,24 @@ public class MensageiroTest {
     public void nenhumaMensagemDaEquipeLevaAChaveOuOAparelhoAoLog() {
         ChaveDaEquipe chave = chaveDaEquipe(new CifraFalsa());
         String aparelho = chave.aparelho();
-        assertTrue(m.tratar("{\"t\":\"equipePedirAparelho\",\"aparelho\":\"" + aparelho + "\"}"));
-        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\",\"aparelho\":\""
-            + aparelho + "\"}"));
+        assertTrue(m.tratar("{\"t\":\"equipePedirAparelho\",\"conta\":\"" + CONTA + "\",\"aparelho\":\"" + aparelho + "\"}"));
+        assertFalse(m.tratar("{\"t\":\"equipePedirAparelho\",\"conta\":\"" + CONTA + " " + aparelho + "\"}"));
+        assertTrue(m.tratar("{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\",\"conta\":\""
+            + CONTA + "\",\"aparelho\":\"" + aparelho + "\"}"));
         assertFalse(m.tratar("{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + aparelho + " " + CHAVE_DA_EQUIPE
-            + "\"}"));
-        assertFalse(m.tratar("{\"t\":\"equipeChave\",\"coleta\":\"" + CHAVE_DA_EQUIPE + "\"}"));
-        chave.guardar(CHAVE_DA_EQUIPE);
-        Mensageiro.respostaDaEquipe(chave, "1.2.0");
+            + "\",\"conta\":\"" + CONTA + "\"}"));
+        assertFalse(m.tratar("{\"t\":\"equipeChave\",\"coleta\":\"" + CHAVE_DA_EQUIPE + "\",\"conta\":\"" + CONTA + "\"}"));
+        assertFalse(m.tratar("{\"t\":\"equipeChave\",\"coleta\":true,\"chave\":\"" + CHAVE_DA_EQUIPE + "\",\"conta\":\""
+            + CONTA + "x\"}"));
+        chave.guardar(CHAVE_DA_EQUIPE, CONTA);
+        Mensageiro.respostaDaEquipe(chave, "1.2.0", CONTA);
+        Mensageiro.respostaDaEquipe(chave, "1.2.0", OUTRA_CONTA);
         List<String> tudo = new ArrayList<>(acoes.erros);
         for (ShadowLog.LogItem item : ShadowLog.getLogs()) tudo.add(item.tag + " " + item.msg);
         for (String linha : tudo) {
             assertFalse("o log levou a chave da equipe: " + linha, linha.contains(CHAVE_DA_EQUIPE));
             assertFalse("o log levou o id do aparelho: " + linha, linha.contains(aparelho));
+            assertFalse("o log levou a conta: " + linha, linha.contains(CONTA) || linha.contains("0123456789abcdef"));
         }
     }
 
@@ -1102,11 +1154,13 @@ public class MensageiroTest {
         final List<Boolean> admins = new ArrayList<>();
         final List<String> testes = new ArrayList<>();
         final List<String> push = new ArrayList<>();
-        int equipePedidos;
+        final List<String> equipePedidos = new ArrayList<>();
         final List<String> equipe = new ArrayList<>();
 
-        @Override public void equipePedirAparelho() { equipePedidos++; }
-        @Override public void equipeChave(boolean coleta, String chave) { equipe.add(coleta + ":" + chave); }
+        @Override public void equipePedirAparelho(String conta) { equipePedidos.add(conta); }
+        @Override public void equipeChave(boolean coleta, String chave, String conta) {
+            equipe.add(coleta + ":" + chave + ":" + conta);
+        }
         @Override public void pushSaiu() { push.add("saiu"); }
         @Override public void pushRegistrado() { push.add("registrado"); }
         @Override public void osAberta(String os) { push.add("aberta:" + os); }

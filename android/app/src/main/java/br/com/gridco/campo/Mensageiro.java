@@ -38,7 +38,7 @@ import org.json.JSONObject;
  *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila}
  *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken · pushSaiu · pushRegistrado
  *   pushAdmin {admin} · pushTeste {ok, status, aparelhos, pedido} · osAberta {os}
- *   equipePedirAparelho · equipeChave {coleta, chave}
+ *   equipePedirAparelho {conta} · equipeChave {coleta, chave, conta}
  * </pre>
  *
  * E a resposta do idbPedir, pela ponte da mesma mensagem: idbItem, idbPedaco e idbFim ({@link #enviarIdb}), ou
@@ -111,6 +111,14 @@ public final class Mensageiro {
     private static final Pattern CHAVE_DA_EQUIPE = Pattern.compile("[A-Za-z0-9._~+/-]{16,}=*");
     private static final int CHAVE_DA_EQUIPE_NO_MAXIMO = 512;
 
+    /**
+     * A conta que a página manda com o pedido do aparelho e com a chave da equipe: o SHA-256, em hex minúsculo, que ela
+     * calcula do token Microsoft dela ("nexus-field-equipe:" + o oid, ou o sub). É por ela que a casca sabe se a chave
+     * guardada é de quem está no aparelho ({@link EquipeNaCasca}), então só o formato exato: o maiúsculo seria a mesma
+     * conta escrita de outro jeito, e pareceria outra (a chave dela revogada à toa).
+     */
+    private static final Pattern CONTA_DA_EQUIPE = Pattern.compile("[0-9a-f]{64}");
+
     /** O que o canal pede ao plugin. Todas chegam na thread do espelho; quem mexe na WebView passa para a de UI. */
     public interface Acoes {
         /**
@@ -163,17 +171,18 @@ public final class Mensageiro {
         void pushTeste(AtalhosDeTeste.Resultado resultado, int aparelhos, int pedido);
 
         /**
-         * A página quer o id do aparelho e saber se ele já tem a chave da equipe, para só pedir uma ao Nexus quando não
-         * tem (cada pedido gera chave nova e revoga a anterior): responda pela ponte da própria mensagem com o
-         * {@link Mensageiro#respostaDaEquipe}, pela {@link EquipeNaCasca} (depois de um Sair que ainda revoga a chave).
+         * A página quer o id do aparelho e saber se ele já tem a chave da equipe DESTA conta (a já conferida), para só
+         * pedir uma ao Nexus quando não tem (cada pedido gera chave nova e revoga a anterior): responda pela ponte da
+         * própria mensagem com o {@link Mensageiro#respostaDaEquipe}, pela {@link EquipeNaCasca} (depois de um Sair que
+         * ainda revoga a chave, e depois de tirar, como no Sair dela, a chave de outra conta).
          */
-        void equipePedirAparelho();
+        void equipePedirAparelho(String conta);
 
         /**
-         * O que o Nexus respondeu ao registro do aparelho, repassado pela página: a coleta vale para a conta (com a
-         * chave, já conferida) ou não (a chave null). Vai à {@link EquipeNaCasca#receberChave}.
+         * O que o Nexus respondeu ao registro do aparelho, repassado pela página com a conta (já conferida): a coleta vale
+         * para ela (com a chave, já conferida) ou não (a chave null). Vai à {@link EquipeNaCasca#receberChave}.
          */
-        void equipeChave(boolean coleta, String chave);
+        void equipeChave(boolean coleta, String chave, String conta);
 
         /** Um aviso para o log. Nunca traz nome de chave, valor, URL com parâmetros nem e-mail. */
         void erro(String onde, String msg);
@@ -391,17 +400,19 @@ public final class Mensageiro {
 
     /**
      * O id do aparelho para a página registrá-lo no Nexus (spec 2026-11-08, seção 8):
-     * {@code {t:'equipeAparelho', aparelho, versao, temChave}}, a resposta ao equipePedirAparelho. A página manda o
-     * {@code aparelho} e o "NexusField/&lt;versao&gt;" ao Nexus com o Bearer dela (o token da Microsoft nunca chega ao
-     * nativo), e só quando {@code temChave} é false: cada pedido gera chave nova e revoga a anterior do par. A chave em si
-     * nunca vai à página. O cofre do aparelho que não respondeu agora (a chave guardada, que a cifra não leu neste
-     * instante) conta como "tem": a chave continua lá, e pedir outra a revogaria à toa; a que a cifra de agora nunca vai
-     * ler conta como "não tem" ({@link ChaveDaEquipe#chave}). Lê o disco e a cifra: só na thread do envio da equipe.
+     * {@code {t:'equipeAparelho', aparelho, versao, temChave}}, a resposta ao equipePedirAparelho da {@code conta}. A
+     * página manda o {@code aparelho} e o "NexusField/&lt;versao&gt;" ao Nexus com o Bearer dela (o token da Microsoft
+     * nunca chega ao nativo), e só quando {@code temChave} é false: cada pedido gera chave nova e revoga a anterior do
+     * par. {@code temChave} só é true com a chave guardada DESTA conta (a de outra, ou a de antes da conta, a página pede a
+     * dela). A chave e a conta nunca voltam à página. O cofre do aparelho que não respondeu agora (a chave guardada, que a
+     * cifra não leu neste instante) conta como "tem": a chave continua lá, e pedir outra a revogaria à toa; a que a cifra
+     * de agora nunca vai ler conta como "não tem" ({@link ChaveDaEquipe#chave}). Lê o disco e a cifra: só na thread do
+     * envio da equipe.
      */
-    static String respostaDaEquipe(ChaveDaEquipe chave, String versao) {
+    static String respostaDaEquipe(ChaveDaEquipe chave, String versao, String conta) {
         boolean temChave;
         try {
-            temChave = chave.chave() != null;
+            temChave = chave.chave() != null && conta != null && conta.equals(chave.conta());
         } catch (RuntimeException e) {
             temChave = true;
         }
@@ -412,6 +423,11 @@ public final class Mensageiro {
     /** A chave da equipe que pode ir num "Authorization: Bearer" ({@link #CHAVE_DA_EQUIPE}). */
     static boolean chaveDaEquipeValida(String chave) {
         return chave != null && chave.length() <= CHAVE_DA_EQUIPE_NO_MAXIMO && CHAVE_DA_EQUIPE.matcher(chave).matches();
+    }
+
+    /** A conta da equipe no formato que a página manda ({@link #CONTA_DA_EQUIPE}). */
+    static boolean contaDaEquipeValida(String conta) {
+        return conta != null && CONTA_DA_EQUIPE.matcher(conta).matches();
     }
 
     private final ArmazemEspelho armazem;
@@ -564,23 +580,29 @@ public final class Mensageiro {
                     if (resultado == AtalhosDeTeste.Resultado.SO_ADMIN) acoes.pushAdmin(false);
                     return true;
                 }
-                case "equipePedirAparelho":
-                    // Só o tipo: o que vier junto não é lido.
-                    acoes.equipePedirAparelho();
+                case "equipePedirAparelho": {
+                    // Só a conta: o que vier junto não é lido. Sem ela (ou torta) não se sabe se a chave guardada é de
+                    // quem está no aparelho, e o pedido é recusado sem citar o que veio.
+                    String conta = texto(m, "conta");
+                    if (!contaDaEquipeValida(conta)) return recusar(t);
+                    acoes.equipePedirAparelho(conta);
                     return true;
+                }
                 case "equipeChave": {
-                    // A coleta só vale com o coleta:true do Nexus e uma chave que pode ir no Authorization; o que falta
-                    // ou vem torto é recusado sem citar o que veio (a chave é segredo). Com o coleta:false, a chave
-                    // que viesse junto não vale.
+                    // A coleta só vale com o coleta:true do Nexus e uma chave que pode ir no Authorization, e as duas
+                    // respostas só com a conta de quem pediu; o que falta ou vem torto é recusado sem citar o que veio
+                    // (a chave é segredo). Com o coleta:false, a chave que viesse junto não vale.
                     Object coleta = m.opt("coleta");
                     if (!(coleta instanceof Boolean)) return recusar(t);
+                    String conta = texto(m, "conta");
+                    if (!contaDaEquipeValida(conta)) return recusar(t);
                     if (!(Boolean) coleta) {
-                        acoes.equipeChave(false, null);
+                        acoes.equipeChave(false, null, conta);
                         return true;
                     }
                     String chave = texto(m, "chave");
                     if (!chaveDaEquipeValida(chave)) return recusar(t);
-                    acoes.equipeChave(true, chave);
+                    acoes.equipeChave(true, chave, conta);
                     return true;
                 }
                 case "erro": {

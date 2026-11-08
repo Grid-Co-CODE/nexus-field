@@ -56,6 +56,8 @@ public class ServicoDaEquipeTest {
     private static final long UM_DIA_MS = 24L * 60L * 60L * 1000L;
     private static final double LAT = -15.60;
     private static final double LON = -56.10;
+    // A conta da chave (o SHA-256 que a página calcula), fictícia: o serviço não a usa.
+    private static final String CONTA = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
 
     /** As posições falsas: guardam o último pedido (o ritmo e a precisão) e entregam o que o teste mandar. */
     private static final class FonteFalsa implements ServicoDaEquipe.FonteDePosicoes {
@@ -293,7 +295,7 @@ public class ServicoDaEquipeTest {
     @Test
     public void oEnvioQueDevolvePararDesligaOServicoETiraANotificacao() {
         agora = em(10, 0);
-        chave.guardar("chave-ficticia");
+        chave.guardar("chave-ficticia", CONTA);
         fila.guardar(new PontoDaEquipe(System.currentTimeMillis(), LAT, LON, 8f, 0f, false));
         resposta = new EnvioDePontos.Resposta(401, "");
         ServicoDaEquipe s = ligar();
@@ -468,7 +470,7 @@ public class ServicoDaEquipeTest {
         // de CPU acordada, não anda. Aqui o laço principal não roda: só o relógio desde o boot avança, e quem acorda o
         // serviço é a posição.
         agora = em(10, 0);
-        chave.guardar("chave-ficticia");
+        chave.guardar("chave-ficticia", CONTA);
         ligar();
         long t0 = System.currentTimeMillis() - 300_000;
 
@@ -502,7 +504,7 @@ public class ServicoDaEquipeTest {
         // Com o app aberto o Handler também manda: o envio que a posição fez o leva a contar de novo, para não sair outro
         // logo depois.
         agora = em(10, 0);
-        chave.guardar("chave-ficticia");
+        chave.guardar("chave-ficticia", CONTA);
         ligar();
         long t0 = System.currentTimeMillis() - 300_000;
         // 30 s de tela acesa, e ela apaga.
@@ -527,7 +529,7 @@ public class ServicoDaEquipeTest {
         ServicoDaEquipe.pecasDeTeste = new ServicoDaEquipe.Pecas(() -> agora, () -> desdeOBoot, chave, fila, envio,
             fonte, naThread::add);
         agora = em(10, 0);
-        chave.guardar("chave-ficticia");
+        chave.guardar("chave-ficticia", CONTA);
         ligar();
         desdeOBoot += ServicoDaEquipe.ENVIO_MS;
         fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
@@ -577,7 +579,7 @@ public class ServicoDaEquipeTest {
     @Test
     public void aNotificacaoDesligadaComAColetaLigadaParaOServico() {
         agora = em(10, 0);
-        chave.guardar("chave-ficticia");
+        chave.guardar("chave-ficticia", CONTA);
         ServicoDaEquipe s = ligar();
 
         // O técnico desliga o canal da equipe com a coleta ligada: a posição seguinte já não entra, e o serviço para.

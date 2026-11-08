@@ -19,6 +19,7 @@
  *   8. o registro do aparelho para as notificações               (notificações, Task 3)
  *      e o atalho de teste dos avisos (__gcCascaTestarAvisos)     (notificações, Task 6)
  *   9. abrir a OS pelo toque na notificação (__gcCascaAbrirOS)   (notificações, Task 4)
+ *  10. a chave da equipe: o registro do aparelho no Nexus         (mapa de equipe, Task 6; roda dentro da 8)
  */
 (function () {
   'use strict';
@@ -2486,6 +2487,12 @@
     Object.defineProperty(win, '__gcCascaTestarAvisos', {
       value: testarAvisos, enumerable: false, configurable: true, writable: false,
     });
+
+    // A seção 10 (a chave da equipe) roda aqui dentro, com a espera da tela do App, o Bearer e o Sair desta seção, sem
+    // cópia: o "logado" e o Sair são um só para as duas.
+    tentar(ctx, 'equipe', function () {
+      instalarEquipe(ctx, { quandoLogado: quandoLogado, pedirBearer: pedirBearer, saiu: function () { return saiu; } });
+    });
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -2810,6 +2817,183 @@
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+  // 10. A chave da equipe (spec 2026-11-08, seções 4.1 e 8)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  // A coleta da posição da equipe (Nexus Field 1.2.0) manda os pontos ao Nexus com uma chave do aparelho, que o nativo usa
+  // com o app fechado (a página não roda). Quem a pede é a PÁGINA, porque só ela tem o login da Microsoft: o token nunca
+  // vai ao nativo, que recebe a chave e o hash da conta. Uma vez por carga, com a tela do App na frente e 5 s depois do
+  // load, pelas peças da seção 8 (a espera da tela do App, o Bearer e o Sair), dentro da qual esta roda:
+  //   script -> nativo: {t:'equipePedirAparelho', conta};
+  //   nativo -> script: {t:'equipeAparelho', aparelho, versao, temChave}: o id do aparelho, a versão do app e se ele já
+  //                     tem a chave DESTA conta;
+  //   script -> Nexus:  só com temChave false, POST https://app.gridco.com.br/t/campo/equipe/aparelho, com o Bearer da
+  //                     página e {aparelho, app:'NexusField/<versao>'};
+  //   script -> nativo: com o 200, {t:'equipeChave', coleta, chave, conta} (com o coleta false, sem a chave).
+  //
+  // SÓ SEM A CHAVE (o contrato com o chat do Nexus, 08/11/2026): cada pedido gera chave nova e revoga a anterior do par
+  // pessoa e aparelho, e pedir a cada carga trocaria a chave a cada abertura do app. A página só pede quando o nativo diz
+  // que não tem (temChave false: a instalação nova, a chave que um 401 do envio apagou, a outra conta); sem o campo, ou
+  // com outro valor, também não pede.
+  //
+  // A CONTA (o aparelho dividido): o SHA-256, em hex minúsculo, de "nexus-field-equipe:" + o oid (ou, sem ele, o sub) da
+  // parte do meio do próprio token. O nativo guarda a conta com a chave e só diz temChave true com a chave da mesma
+  // conta; a de outra conta ele tira antes de responder, como no Sair dela. Caso que criou a regra: na revisão da metade
+  // nativa, B que entrava sem o Sair de A ficava com a chave, o aviso aceito e a fila de A, e as posições de B iam ao
+  // Nexus em nome de A. O hash não sai do aparelho, e o prefixo o separa de qualquer outro resumo do mesmo oid. O token
+  // do pedido ao Nexus é o mesmo de que saiu a conta (não é pedido de novo): a conta que vai com a chave é a do token que
+  // o Nexus conferiu.
+  //
+  // NADA NESTA CARGA (a próxima tenta), sem laço e sem nada na tela: sem login (o Bearer null), o token que não diz de
+  // quem é (sem oid nem sub, ou que não é um JWT), a página sem o crypto.subtle ou o TextEncoder, o nativo com a chave
+  // desta conta, o 401 (o token vencido), o 503 (a Microsoft fora, o Nexus sem configuração), outro status, a rede ou o
+  // CORS que falham (o TypeError do fetch) e a resposta fora do contrato. Uma tentativa por carga: a que se repetisse no
+  // online ou na volta ao app trocaria a chave à toa. Só avisa ({t:'erro', onde:'equipe'}, com um texto nosso) o que
+  // passou do pedido ao nativo e o resumo que falha: antes dele é o estado comum de quem não entra na coleta, e o aviso a
+  // cada abertura seria ruído. Nunca o token, o e-mail, o oid, a conta, o aparelho nem a chave.
+  //
+  // O SAIR (da seção 8): nada depois dele nesta carga, nem o pedido ao nativo, nem o POST, nem o equipeChave da resposta
+  // que chegar depois (a chave seria de quem saiu, e o Sair do nativo já revogou a dele).
+  var NEXUS_DA_EQUIPE = 'https://app.gridco.com.br';
+  var ROTA_DO_APARELHO = '/t/campo/equipe/aparelho';
+  var PREFIXO_DA_CONTA = 'nexus-field-equipe:';
+  var CONTA_DA_EQUIPE = /^[0-9a-f]{64}$/;
+
+  // O id da conta no token da página: o oid ou, sem ele, o sub da parte do meio do JWT (base64url de um JSON), ou null se
+  // o token não for um JWT que se leia ou não disser de quem é. O oid é um GUID e o sub um texto ASCII: o texto do atob
+  // (um caractere por byte) basta para os dois, e o resto do corpo (um nome com acento) só precisa ser JSON.
+  function idDaConta(win, token) {
+    var partes = String(token).split('.');
+    if (partes.length !== 3 || !partes[1] || typeof win.atob !== 'function') return null;
+    var b64 = partes[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    var corpo;
+    try {
+      corpo = JSON.parse(win.atob(b64));
+    } catch (e) {
+      return null;
+    }
+    if (!corpo || typeof corpo !== 'object') return null;
+    if (typeof corpo.oid === 'string' && corpo.oid) return corpo.oid;
+    if (typeof corpo.sub === 'string' && corpo.sub) return corpo.sub;
+    return null;
+  }
+
+  // A página tem como resumir a conta? O crypto.subtle só existe em contexto seguro (o App é https), e o TextEncoder em
+  // toda WebView que roda este script.
+  function podeResumir(win) {
+    var subtle = win.crypto && win.crypto.subtle;
+    return !!subtle && typeof subtle.digest === 'function' && typeof win.TextEncoder === 'function';
+  }
+
+  // A conta: o SHA-256, em hex minúsculo, do prefixo + o id, em UTF-8. Promise do texto (ou de null, se o resumo não
+  // tiver o formato); o digest que falha a rejeita.
+  function resumoDaConta(win, id) {
+    return new Promise(function (ok) {
+      ok(win.crypto.subtle.digest('SHA-256', new win.TextEncoder().encode(PREFIXO_DA_CONTA + id)));
+    }).then(function (resumo) {
+      var bytes = new Uint8Array(resumo);
+      var hex = '';
+      for (var i = 0; i < bytes.length; i++) hex += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+      return CONTA_DA_EQUIPE.test(hex) ? hex : null;
+    });
+  }
+
+  // `pecas` são as da seção 8: quandoLogado(fn) (fn agora, com a tela do App na frente, ou quando ela vier),
+  // pedirBearer() (o token da página agora, ou null; nunca lança: a falha sai como Promise rejeitada) e saiu() (o Sair foi
+  // tocado nesta carga).
+  function instalarEquipe(ctx, pecas) {
+    var win = ctx.win;
+    var agendar = win.setTimeout.bind(win);
+    var carregou = false;    // o load desta carga já agendou a tentativa: uma por carga
+    var esperando = null;    // { bearer, conta }: o pedido ao nativo desta carga, à espera do equipeAparelho
+
+    function avisar(texto) {
+      ctx.falhou('equipe', new Error(texto));
+    }
+
+    // Com a tela do App na frente (uma vez: o quandoLogado roda cada espera uma vez só): o token, a conta e o pedido do
+    // aparelho ao nativo.
+    function comecar() {
+      if (pecas.saiu()) return;
+      pecas.pedirBearer().then(function (bearer) {
+        var id = bearer ? idDaConta(win, bearer) : null;
+        if (id === null || !podeResumir(win)) return undefined;
+        return resumoDaConta(win, id).then(function (conta) {
+          if (conta === null || pecas.saiu()) return;
+          esperando = { bearer: bearer, conta: conta };
+          ctx.enviar({ t: 'equipePedirAparelho', conta: conta }, 'equipe');
+        }, function (e) {
+          avisar('o resumo da conta falhou (' + nomeDoErro(e) + '): a chave da equipe fica para a próxima carga');
+        });
+      }).then(null, function () {
+        // O getTokenMW que lança: quem avisa o login que falta é a seção 8.
+      });
+    }
+
+    // O registro do aparelho no Nexus, com o token de que saiu a conta. Sem cookie (o Nexus confere só o Bearer) e sem
+    // seguir redirecionamento (o Bearer não vai a outro endereço). Nunca lança.
+    function registrarNoNexus(este, aparelho, versao) {
+      new Promise(function (ok) {
+        // O gcQuieto é o do próprio campo.html (v284): a barra de carregamento conta só o que o técnico pediu.
+        ok(win.fetch(NEXUS_DA_EQUIPE + ROTA_DO_APARELHO, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + este.bearer, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ aparelho: aparelho, app: 'NexusField/' + versao }),
+          credentials: 'omit',
+          redirect: 'error',
+          gcQuieto: true,
+        }));
+      }).then(function (resposta) {
+        if (!resposta || resposta.status !== 200) {
+          avisar('o registro do aparelho no Nexus respondeu ' + situacao(resposta) +
+            ': a chave da equipe fica para a próxima carga');
+          return undefined;
+        }
+        return resposta.json().then(function (dados) {
+          // O Sair veio com o pedido no ar: a chave seria de quem saiu.
+          if (pecas.saiu()) return;
+          var objeto = !!dados && typeof dados === 'object';
+          if (objeto && dados.coleta === true && typeof dados.chave === 'string' && dados.chave) {
+            ctx.enviar({ t: 'equipeChave', coleta: true, chave: dados.chave, conta: este.conta }, 'equipe');
+          } else if (objeto && dados.coleta === false) {
+            ctx.enviar({ t: 'equipeChave', coleta: false, conta: este.conta }, 'equipe');
+          } else {
+            avisar('o registro do aparelho no Nexus respondeu 200 fora do contrato: a chave da equipe fica para a ' +
+              'próxima carga');
+          }
+        });
+      }).then(null, function (e) {
+        avisar('o registro do aparelho no Nexus falhou (' + nomeDoErro(e) + '): a chave da equipe fica para a próxima carga');
+      });
+    }
+
+    ctx.ouvirNativo(function (m) {
+      if (!m || typeof m !== 'object' || m.t !== 'equipeAparelho') return;
+      var este = esperando;
+      esperando = null;
+      // A resposta sem o pedido desta carga (repetida, ou atrasada), ou depois do Sair: nada.
+      if (este === null || pecas.saiu()) return;
+      // Com a chave desta conta, nada nesta carga; sem o campo, ou com outro valor, também: pedir sem saber trocaria a
+      // chave que o aparelho tem.
+      if (m.temChave !== false) return;
+      if (typeof m.aparelho !== 'string' || !m.aparelho) {
+        avisar('o nativo respondeu sem o id do aparelho: a chave da equipe fica para a próxima carga');
+        return;
+      }
+      registrarNoNexus(este, m.aparelho, typeof m.versao === 'string' ? m.versao : '');
+    });
+
+    win.addEventListener('load', function () {
+      if (carregou) return;
+      carregou = true;
+      agendar(function () {
+        if (!pecas.saiu()) pecas.quandoLogado(comecar);
+      }, ESPERA_PUSH_MS);
+    });
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
   // Ponto único de entrada
   // ---------------------------------------------------------------------------------------------------------------
 
@@ -2838,7 +3022,7 @@
       if (!ctx.espelhoDesligado) instalarEspelhoLS(ctx, ls);
     });
     // A 5 depois da 3 e da 4: ela lê o `espelhoDesligado` e o `cargaParada` que a 4 decidiu. A 6 e a 7 não espelham
-    // nada e valem em toda carga; a 8 também não espelha, e fica fora só da carga parada.
+    // nada e valem em toda carga; a 8 também não espelha, e fica fora só da carga parada (com a 10, que roda dentro dela).
     tentar(ctx, 'idb', function () { instalarIDB(ctx); });
     // Sem a seção 5 nesta carga (a janela sem IndexedDB, ou ele negado), a perda termina só com o localStorage: não há
     // fotos a esperar, e uma marca que nunca saísse deixaria toda carga sem espelho.

@@ -42,9 +42,15 @@ import java.util.function.LongSupplier;
  *       no máximo um a cada 30 minutos no aparelho (a marca atravessa a tela recriada), para o mapa separar quem negou de
  *       quem não abriu o app. O aviso que não chegou ao Nexus (sem rede) não conta: a próxima volta ao app tenta.</li>
  *   <li><b>O Sair</b> para a coleta na hora, apaga a fila (os pontos de quem saiu não podem subir com a chave de quem
- *       entrar depois) e revoga e apaga a chave, mesmo sem rede. Até a chave sair, a decisão que já esperava na
- *       thread (a volta ao app atrás de um envio pendurado na rede fraca) não liga a coleta nem mostra nada, e a
- *       tarefa do Sair para de novo antes da rede: senão a coleta de quem saiu seguiria até as 22h.</li>
+ *       entrar depois) e revoga e apaga a chave, mesmo sem rede, com o aviso aceito e a marca dos 30 minutos (a conta
+ *       seguinte não espera a de quem saiu para o mapa saber que falta a permissão). Até a chave sair, a decisão que já
+ *       esperava na thread (a volta ao app atrás de um envio pendurado na rede fraca) não liga a coleta nem mostra nada,
+ *       e a tarefa do Sair para de novo antes da rede: senão a coleta de quem saiu seguiria até as 22h.</li>
+ *   <li><b>A chave é de uma conta</b> (a que a página calcula do token dela, {@link ChaveDaEquipe#conta}). A outra conta
+ *       no aparelho (B que entra sem o Sair de A), ou a chave de antes da conta, recebe o mesmo trabalho do Sair da
+ *       anterior, na thread do envio, antes de a página saber se há chave ({@link #pedirAparelho}) ou de a chave nova
+ *       entrar ({@link #receberChave}): senão B ficava com a chave, o aviso aceito e a fila de A, e as posições de B iam
+ *       ao Nexus em nome de A. O cofre que não respondeu agora não muda nada: a próxima carga confere de novo.</li>
  *   <li><b>Uma thread só</b> para o disco, a cifra e a rede: a do serviço ({@link ServicoDaEquipe.Pecas#execucao}), na
  *       ordem em que tudo chegou. O pedido do aparelho que vem depois de um Sair só é respondido depois de a chave sair (e
  *       a página pede outra), e a chave que chega enquanto um envio leva o 401 não é apagada por ele. O que mexe na tela
@@ -197,8 +203,11 @@ final class EquipeNaCasca {
         return new String[] {O_TEMPO_TODO};
     }
 
-    /** O que o Nexus respondeu ao registro do aparelho, que a página repassa (o equipeChave, já conferido no Mensageiro). */
-    void receberChave(boolean coleta, String nova) {
+    /**
+     * O que o Nexus respondeu ao registro do aparelho, que a página repassa com a conta dela (o equipeChave, já conferido
+     * no Mensageiro).
+     */
+    void receberChave(boolean coleta, String nova, String conta) {
         trabalhar(() -> {
             if (!coleta || nova == null) {
                 // A coleta não vale para esta conta: primeiro ela para (o que falhar depois não a deixa ligada), e
@@ -211,8 +220,11 @@ final class EquipeNaCasca {
                 Log.i(TAG, "o Nexus: a coleta da equipe não vale para esta conta");
                 return;
             }
+            // A chave de outra conta ainda guardada (o pedido do aparelho desta conta não passou antes): sai como no Sair
+            // dela, antes de a nova entrar, ou a fila dela subiria com a chave desta.
+            if (deOutraConta(conta)) esquecerAContaAnterior();
             try {
-                if (chave.guardar(nova)) Log.i(TAG, "o Nexus deu a chave da equipe a este aparelho");
+                if (chave.guardar(nova, conta)) Log.i(TAG, "o Nexus deu a chave da equipe a este aparelho");
             } catch (RuntimeException e) {
                 // A cifra que falhou: a chave não vai em claro para o disco, e a próxima carga da página pede outra.
                 Log.w(TAG, "a chave da equipe não foi guardada (" + e.getClass().getSimpleName() + ")");
@@ -235,32 +247,24 @@ final class EquipeNaCasca {
         saidasPendentes.incrementAndGet(); // antes do parar: a decisão que vier depois dele já vê a marca
         servico.parar();
         trabalhar(() -> {
-            // A decisão que corria na thread quando o Sair chegou já tinha passado pela marca, e o iniciar dela pode
-            // ter valido depois do parar de cima: para de novo, antes da rede do revogar (até 30 s com o sinal fraco).
-            servico.parar();
-            pararDeEsperar();
-            jaPediu = false;
-            limparAFila();
-            try {
-                envio.revogar(); // pede ao Nexus para revogar e apaga a chave daqui de qualquer jeito
-            } finally {
-                // Também com o cofre do aparelho que não leu a chave agora: o revogar lança antes de apagá-la, e a chave
-                // de quem saiu não pode ficar (a do Nexus vence pela troca ou pela validade). A marca do Sair sai com
-                // ela.
-                chave.apagar();
-                saidasPendentes.decrementAndGet();
-            }
+            esquecerAConta();
+            // A marca do Sair sai com a chave (que sai também quando o revogar falha): se a chave não saiu do disco, a
+            // marca fica, e nada liga com ela.
+            saidasPendentes.decrementAndGet();
             Log.i(TAG, "o Sair: a coleta da equipe parou, e a chave do aparelho foi revogada e apagada");
         });
     }
 
     /**
-     * A página pediu o id do aparelho (o equipePedirAparelho): a resposta ({@link Mensageiro#respostaDaEquipe}) vai pela
-     * ponte da mensagem, na thread do envio, depois do que já estava nela (o Sair que ainda revogava a chave).
+     * A página pediu o id do aparelho (o equipePedirAparelho, com a conta dela): a resposta
+     * ({@link Mensageiro#respostaDaEquipe}) vai pela ponte da mensagem, na thread do envio, depois do que já estava nela
+     * (o Sair que ainda revogava a chave). A chave guardada de outra conta (ou de antes da conta) sai antes da resposta,
+     * como no Sair dela, e a resposta então diz que não há chave: a página registra a conta de agora.
      */
-    void pedirAparelho(Mensageiro.Saida ponte) {
+    void pedirAparelho(String conta, Mensageiro.Saida ponte) {
         trabalhar(() -> {
-            if (!ponte.enviar(Mensageiro.respostaDaEquipe(chave, versao))) {
+            if (deOutraConta(conta)) esquecerAContaAnterior();
+            if (!ponte.enviar(Mensageiro.respostaDaEquipe(chave, versao, conta))) {
                 Log.i(TAG, "a página foi embora antes do id do aparelho: a próxima carga pede de novo");
             }
         });
@@ -444,6 +448,59 @@ final class EquipeNaCasca {
         } catch (RuntimeException e) {
             Log.w(TAG, "a fila da equipe não foi apagada (" + e.getClass().getSimpleName() + ")");
         }
+    }
+
+    // A chave guardada é de outra conta que a da página, ou de antes da conta (não se sabe de quem é). Sem chave, nada a
+    // tirar. Com o cofre que não respondeu agora, também não: a chave e a conta continuam guardadas, e tirá-las revogaria
+    // à toa a chave de quem pode ser a mesma conta; a próxima carga confere de novo.
+    private boolean deOutraConta(String conta) {
+        if (!chave.temChaveGuardada()) return false;
+        String daChave;
+        try {
+            daChave = chave.conta();
+        } catch (RuntimeException e) {
+            Log.w(TAG, "a conta da chave da equipe não pôde ser lida agora (" + e.getClass().getSimpleName() + ")");
+            return false;
+        }
+        return !conta.equals(daChave);
+    }
+
+    // A troca de conta no aparelho: o trabalho do Sair da anterior. O que falhar nele não segura o que vem depois (a
+    // resposta à página, a chave nova).
+    private void esquecerAContaAnterior() {
+        Log.i(TAG, "outra conta no aparelho: a coleta e a chave da anterior saem, como no Sair dela");
+        try {
+            esquecerAConta();
+        } catch (RuntimeException e) {
+            Log.w(TAG, "a chave da conta anterior não saiu (" + e.getClass().getSimpleName() + ")");
+        }
+    }
+
+    // O trabalho do Sair, na thread do envio. A coleta para (no Sair, de novo: a decisão que corria na thread quando ele
+    // chegou já tinha passado pela marca, e o iniciar dela pode ter valido depois do parar de lá) antes da fila e da rede
+    // do revogar (até 30 s com o sinal fraco); o diálogo da equipe sai; a fila sai (os pontos desta conta não sobem com a
+    // chave da próxima); a chave é revogada no Nexus e apagada daqui, com a conta e o aviso aceito, e a marca dos 30
+    // minutos vai junto. Só lança se a chave não sair do disco.
+    private void esquecerAConta() {
+        servico.parar();
+        pararDeEsperar();
+        jaPediu = false;
+        limparAFila();
+        try {
+            envio.revogar(); // pede ao Nexus para revogar e apaga a chave daqui de qualquer jeito
+        } catch (RuntimeException e) {
+            // O cofre do aparelho que não leu a chave agora: o revogar lança antes de mandá-la e antes de apagá-la. A do
+            // Nexus vence pela troca ou pela validade; a daqui sai abaixo assim mesmo.
+            Log.w(TAG, "a chave da equipe não foi revogada no Nexus (" + e.getClass().getSimpleName() + ")");
+        }
+        chave.apagar();
+        esquecerAMarcaSemPermissao();
+    }
+
+    // A marca dos 30 minutos é do aviso da conta que saiu: a seguinte avisa o Nexus que falta a permissão sem esperar por
+    // ela.
+    private void esquecerAMarcaSemPermissao() {
+        app.getSharedPreferences(PREFERENCIAS, Context.MODE_PRIVATE).edit().remove(CHAVE_SEM_PERMISSAO).apply();
     }
 
     private boolean tem(String permissao) {
