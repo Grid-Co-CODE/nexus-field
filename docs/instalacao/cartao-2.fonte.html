@@ -9,16 +9,16 @@
   :root { --fundo:#090d18; --cartao:#161d30; --texto:#f2f4f8; --suave:#a9b3c6; --verde:#a3d900; --sobre-verde:#090d18;
           --fonte-titulo:"Barlow Condensed","Arial Narrow",sans-serif; --fonte-texto:"Barlow",system-ui,sans-serif; }
   * { box-sizing:border-box; }
-  html, body { margin:0; width:540px; height:960px; overflow:hidden; background:var(--fundo); color:var(--texto); font:17px/1.4 var(--fonte-texto); }
-  .cartao { height:960px; padding:30px 28px 24px; display:flex; flex-direction:column; gap:18px; }
+  html, body { margin:0; width:540px; height:960px; overflow:hidden; background:var(--fundo); color:var(--texto); font:17px/1.3 var(--fonte-texto); }
+  .cartao { height:960px; padding:22px 28px 16px; display:flex; flex-direction:column; gap:11px; }
   h2 { margin:0; font:700 30px/1.05 var(--fonte-titulo); }
-  ol { list-style:none; margin:0; padding:0; display:grid; gap:11px; counter-reset:p 5; }
+  ol { list-style:none; margin:0; padding:0; display:grid; gap:7px; counter-reset:p 5; }
   li { counter-increment:p; display:grid; grid-template-columns:38px 1fr; gap:12px; align-items:start; }
   li::before { content:counter(p); width:38px; height:38px; border-radius:50%; background:var(--verde); color:var(--sobre-verde); font:700 23px/38px var(--fonte-titulo); text-align:center; }
   li > div > b { display:block; font-size:17px; }
   li span { color:var(--suave); font-size:15px; }
   li span b { color:var(--texto); font-weight:600; }
-  .bloco { background:var(--cartao); border-radius:12px; padding:14px 16px; display:grid; gap:8px; }
+  .bloco { background:var(--cartao); border-radius:12px; padding:10px 14px; display:grid; gap:5px; }
   .bloco h3 { margin:0; font:700 21px/1.1 var(--fonte-titulo); color:var(--verde); }
   .bloco p { margin:0; font-size:15px; color:var(--suave); }
   .bloco p b { color:var(--texto); font-weight:600; }
@@ -30,12 +30,12 @@
   <h2>Na primeira abertura</h2>
   <ol>
     <li><div><b>Toque em Continuar e permita tudo</b><span>Câmera; localização <b>Precisa</b>, durante o uso do app; e as notificações, que trazem o resumo das 7h e das 13h e as emergências.</span></div></li>
-    <li><div><b>Localização: Permitir o tempo todo</b><span>Se o Nexus Field avisar da Localização da equipe, toque em Continuar e, nos ajustes da localização, escolha Permitir o tempo todo.</span></div></li>
+    <li><div><b>Localização: Permitir o tempo todo</b><span>Se avisar da Localização da equipe, toque em Continuar e escolha Permitir o tempo todo.</span></div></li>
     <li><div><b>Entre com a conta Microsoft da Grid</b><span>A mesma do App de Campo.</span></div></li>
     <li><div><b>Use sempre o Nexus Field</b><span>Não o navegador, para os registros ficarem num lugar só.</span></div></li>
   </ol>
   <div class="bloco">
-    <h3>Para os avisos e a localização da equipe com o app fechado</h3>
+    <h3>Avisos e localização com o app fechado</h3>
     <p><b>Xiaomi, Redmi, POCO:</b> Configurações, Apps, Gerenciar apps, Nexus Field. Ligue Início automático (vale também para a localização) e, em Economia de bateria, Sem restrições.</p>
     <p><b>Samsung:</b> Configurações, Apps, Nexus Field, Bateria, Sem restrições. Se o Bloqueador automático estiver ligado, ele impede instalar e atualizar.</p>
     <p><b>Motorola e outras:</b> Configurações, Apps, Nexus Field, Bateria, Sem restrições.</p>
