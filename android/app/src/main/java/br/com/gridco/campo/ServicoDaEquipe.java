@@ -54,7 +54,8 @@ import java.util.function.LongSupplier;
  *   <li>Coleta no ritmo do {@link RitmoDaColeta}: 2 min com a alta precisão em deslocamento, 10 min com a precisão
  *       equilibrada parado. Cada posição vai à {@link FilaDePontos} com o "mov" da própria leitura
  *       ({@link #movDaLeitura}), e o {@link EnvioDePontos} manda o lote mais antigo a cada {@link #ENVIO_MS}, numa thread
- *       só para o disco e a rede.</li>
+ *       só para o disco e a rede. Na partida a frio a coleta segue igual e o lote espera na fila até a página desta
+ *       partida conferir a conta da chave ({@link ChaveDaEquipe#conferida}).</li>
  *   <li>O envio não depende só do Handler, que conta o tempo de CPU acordada: com a tela apagada (no bolso, no suporte do
  *       carro) o celular dorme entre uma posição e outra, e os 2 min do Handler levariam horas no relógio (o mapa diria
  *       "sem sinal" com o técnico trabalhando). Por isso a posição que chega com o envio vencido, contado no relógio que

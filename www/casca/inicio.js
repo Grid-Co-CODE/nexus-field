@@ -2062,6 +2062,29 @@
     return typeof n === 'number' && isFinite(n) && n >= 0 && n <= APARELHOS_NO_MAXIMO && Math.floor(n) === n ? n : null;
   }
 
+  // A espera entre as tentativas que falharam (a do registro das notificações e a da chave da equipe, seção 10, cada uma
+  // com a sua): cada tentativa a recomeça (`recomecar`), e o online ou a volta ao app que chega dentro dela (`depois`)
+  // tenta quando ela acaba, uma vez (`retomar`). Sem isso, o online que chegasse na espera se perdia: a rede voltou, e não
+  // vem outro.
+  function criarEspera(agendar, cancelar, ms, retomar) {
+    var timer = null;
+    var depois = false;
+    return {
+      recomecar: function () {
+        if (timer !== null) cancelar(timer);
+        timer = agendar(function () {
+          timer = null;
+          if (depois) { depois = false; retomar(); }
+        }, ms);
+      },
+      ativa: function () { return timer !== null; },
+      depois: function () { depois = true; },
+      parar: function () {
+        if (timer !== null) { cancelar(timer); timer = null; }
+      },
+    };
+  }
+
   function instalarPush(ctx) {
     // A carga parada para pedir o retrato vai ser recarregada pelo nativo: a página nem roda.
     if (ctx.cargaParada) return;
@@ -2083,9 +2106,8 @@
     // online e na volta ao app). null é "nada a esperar" (registrado, ou à espera da tela do App, que tem a vigia dela, ou
     // parado). O online e a volta ao app retomam, respeitando a espera de 10 minutos.
     var aguardando = null;
-    var esfriando = false;       // a última tentativa tem menos de 10 minutos
-    var esfriamento = null;      // o timer dela
-    var tentarDepois = false;    // um online chegou na espera: tenta quando ela acabar
+    // A última tentativa tem menos de 10 minutos (ativa); o online que chega nela tenta quando ela acabar (depois).
+    var espera = criarEspera(agendar, cancelar, INTERVALO_PUSH_MS, retomar);
     var carregou = false;
     var papel = null;            // o /me desta carga: null (ainda não), 'emCurso', 'semBearer' ou 'feito'
     var saiu = false;            // o Sair foi tocado: nada de registro nem de atalho a partir daqui, nesta carga
@@ -2166,16 +2188,7 @@
     }
 
     // --- A espera de 10 minutos entre tentativas ------------------------------------------------------------------
-    // Cada tentativa (o pedido do token de novo, o registro que falhou) recomeça a espera.
-    function esfriar() {
-      if (esfriamento !== null) cancelar(esfriamento);
-      esfriando = true;
-      esfriamento = agendar(function () {
-        esfriamento = null;
-        esfriando = false;
-        if (tentarDepois) { tentarDepois = false; retomar(); }
-      }, INTERVALO_PUSH_MS);
-    }
+    // Cada tentativa (o pedido do token de novo, o registro que falhou) recomeça a espera (espera.recomecar).
     function retomar() {
       if (saiu) return;
       if (aguardando === 'token') pedirTokenDeNovo();
@@ -2188,13 +2201,13 @@
       if (aoEntrar.length && !conferirLogin()) vigiar();
       if (aguardando === 'login') { registrar(); return; }
       if (aguardando === 'token' || aguardando === 'servidor' || (aguardando === 'rede' && peloOnline)) {
-        if (esfriando) tentarDepois = true;
+        if (espera.ativa()) espera.depois();
         else retomar();
       }
     }
 
     function pedirTokenDeNovo() {
-      esfriar();
+      espera.recomecar();
       ctx.enviar({ t: 'pushPedirToken' }, 'push');
     }
 
@@ -2259,7 +2272,7 @@
     function esperarARede(texto, redeDePe) {
       avisar(texto);
       aguardando = redeDePe ? 'servidor' : 'rede';
-      esfriar();
+      espera.recomecar();
     }
     // O aparelho estava no ar quando o pedido falhou (o navigator.onLine da WebView): a falha não foi a falta de rede (o
     // tempo esgotado, a conexão que caiu no meio). Sem como saber, conta como sem rede (espera o online, como antes).
@@ -2361,7 +2374,7 @@
         saiu = true;
         aoEntrar = [];
         pararDeVigiar();
-        if (esfriamento !== null) { cancelar(esfriamento); esfriamento = null; }
+        espera.parar();
         ctx.enviar({ t: 'pushSaiu' }, 'push');
         avisarAdmin(false);
         if (typeof ctx.esquecerOsPendente === 'function') {
@@ -2393,7 +2406,7 @@
         // Sem token (o Firebase não configurado, ou o token ainda não saiu): pede de novo depois, se ainda não há um.
         if (token === null && !saiu) {
           aguardando = 'token';
-          if (!esfriando) esfriar();
+          if (!espera.ativa()) espera.recomecar();
         }
         return;
       }
@@ -2822,8 +2835,8 @@
 
   // A coleta da posição da equipe (Nexus Field 1.2.0) manda os pontos ao Nexus com uma chave do aparelho, que o nativo usa
   // com o app fechado (a página não roda). Quem a pede é a PÁGINA, porque só ela tem o login da Microsoft: o token nunca
-  // vai ao nativo, que recebe a chave e o hash da conta. Uma vez por carga, com a tela do App na frente e 5 s depois do
-  // load, pelas peças da seção 8 (a espera da tela do App, o Bearer e o Sair), dentro da qual esta roda:
+  // vai ao nativo, que recebe a chave e o hash da conta. A primeira tentativa sai com a tela do App na frente e 5 s depois
+  // do load, pelas peças da seção 8 (a espera da tela do App, o Bearer e o Sair), dentro da qual esta roda:
   //   script -> nativo: {t:'equipePedirAparelho', conta};
   //   nativo -> script: {t:'equipeAparelho', aparelho, versao, temChave}: o id do aparelho, a versão do app e se ele já
   //                     tem a chave DESTA conta;
@@ -2844,16 +2857,28 @@
   // do pedido ao Nexus é o mesmo de que saiu a conta (não é pedido de novo): a conta que vai com a chave é a do token que
   // o Nexus conferiu.
   //
-  // NADA NESTA CARGA (a próxima tenta), sem laço e sem nada na tela: sem login (o Bearer null), o token que não diz de
-  // quem é (sem oid nem sub, ou que não é um JWT), a página sem o crypto.subtle ou o TextEncoder, o nativo com a chave
-  // desta conta, o 401 (o token vencido), o 503 (a Microsoft fora, o Nexus sem configuração), outro status, a rede ou o
-  // CORS que falham (o TypeError do fetch) e a resposta fora do contrato. Uma tentativa por carga: a que se repetisse no
-  // online ou na volta ao app trocaria a chave à toa. Só avisa ({t:'erro', onde:'equipe'}, com um texto nosso) o que
-  // passou do pedido ao nativo e o resumo que falha: antes dele é o estado comum de quem não entra na coleta, e o aviso a
-  // cada abertura seria ruído. Nunca o token, o e-mail, o oid, a conta, o aparelho nem a chave.
+  // A NOVA TENTATIVA, sem laço e sem nada na tela. Caso que criou a regra: a abertura sem sinal é o comum no campo, e com
+  // uma tentativa por carga o aparelho ficava sem chave (e o nativo sem a conta conferida, sem mandar nada) até a carga
+  // seguinte, que pode ser no dia seguinte (a volta ao app não recarrega a página). A tentativa TERMINA quando o nativo
+  // diz que tem a chave desta conta (temChave true) ou recebe a resposta do Nexus (a chave nova, ou o coleta:false, no
+  // equipeChave entregue): daí em diante nada nesta carga, porque cada pedido ao Nexus gera chave nova e revoga a anterior,
+  // e pedir de novo trocaria a chave à toa. A que não terminou tenta de novo no online e na volta ao app (a página
+  // visível), como o registro das notificações da seção 8:
+  //   - a que parou antes do nativo (sem login: o Bearer null ou o getTokenMW que lança; o token que não diz de quem é,
+  //     sem oid nem sub ou que não é um JWT; a página que não resume a conta) tenta na hora: nada foi pedido a ninguém;
+  //   - a que chegou ao nativo (o nativo que não responde, ou responde sem o id do aparelho ou sem o temChave; o 401, o
+  //     token vencido; o 404; o 503, a Microsoft fora ou o Nexus sem configuração; outro status; a rede, o CORS ou o tempo
+  //     esgotado do fetch; a resposta fora do contrato) tenta no máximo uma vez a cada 10 minutos, contados do pedido ao
+  //     nativo (a espera da seção 8, criarEspera): o que chega na espera tenta quando ela acaba;
+  //   - com o pedido ao Nexus no ar, nada começa outro: duas respostas trariam duas chaves, e a última a chegar podia ser
+  //     a que a outra revogou.
+  // Avisa ({t:'erro', onde:'equipe'}, com um texto nosso) cada falha do nativo ou do Nexus e, uma vez por carga cada, o
+  // token que não diz de quem é e a página que não resume a conta (as falhas que só aparecem no aparelho). O Bearer null,
+  // não: é o estado comum de quem ainda não entrou, e o aviso a cada abertura seria ruído. Nunca o token, o e-mail, o
+  // oid, a conta, o aparelho nem a chave.
   //
   // O SAIR (da seção 8): nada depois dele nesta carga, nem o pedido ao nativo, nem o POST, nem o equipeChave da resposta
-  // que chegar depois (a chave seria de quem saiu, e o Sair do nativo já revogou a dele).
+  // que chegar depois (a chave seria de quem saiu, e o Sair do nativo já revogou a dele), nem nova tentativa.
   var NEXUS_DA_EQUIPE = 'https://app.gridco.com.br';
   var ROTA_DO_APARELHO = '/t/campo/equipe/aparelho';
   var PREFIXO_DA_CONTA = 'nexus-field-equipe:';
@@ -2904,31 +2929,103 @@
   // tocado nesta carga).
   function instalarEquipe(ctx, pecas) {
     var win = ctx.win;
+    var doc = win.document;
     var agendar = win.setTimeout.bind(win);
-    var carregou = false;    // o load desta carga já agendou a tentativa: uma por carga
-    var esperando = null;    // { bearer, conta }: o pedido ao nativo desta carga, à espera do equipeAparelho
+    var cancelar = win.clearTimeout.bind(win);
+    var carregou = false;    // o load desta carga já agendou a primeira tentativa
+    // Onde está a tentativa de agora: null (a primeira ainda não começou), 'local' (o token e o resumo da conta), 'nativo'
+    // (o pedido do aparelho, à espera do equipeAparelho), 'nexus' (o POST no ar), 'semLogin' (parou antes do nativo),
+    // 'falhou' (o nativo ou o Nexus responderam sem terminar) ou 'terminou' (nada mais nesta carga).
+    var fase = null;
+    // { bearer, conta }: o pedido ao nativo da tentativa de agora, à espera do equipeAparelho. A tentativa nova o limpa:
+    // a resposta atrasada da anterior, que chegasse antes do pedido novo, levaria ao Nexus um segundo pedido.
+    var esperando = null;
+    var avisados = {};       // os avisos de uma vez por carga: o token sem id e a página que não resume a conta
+    // A espera da seção 8 (10 minutos), contada do pedido ao nativo.
+    var espera = criarEspera(agendar, cancelar, INTERVALO_PUSH_MS, tentarDeNovo);
 
     function avisar(texto) {
       ctx.falhou('equipe', new Error(texto));
     }
 
-    // Com a tela do App na frente (uma vez: o quandoLogado roda cada espera uma vez só): o token, a conta e o pedido do
-    // aparelho ao nativo.
+    function avisarUmaVez(tipo, texto) {
+      if (avisados[tipo]) return;
+      avisados[tipo] = true;
+      avisar(texto);
+    }
+
+    // Com a tela do App na frente (o quandoLogado): o token, a conta e o pedido do aparelho ao nativo. Nada com uma
+    // tentativa já no ar ou terminada (o quandoLogado pode rodar isto bem depois do pedido).
     function comecar() {
-      if (pecas.saiu()) return;
+      if (pecas.saiu() || fase === 'local' || fase === 'nexus' || fase === 'terminou') return;
+      fase = 'local';
+      esperando = null;
       pecas.pedirBearer().then(function (bearer) {
-        var id = bearer ? idDaConta(win, bearer) : null;
-        if (id === null || !podeResumir(win)) return undefined;
+        if (pecas.saiu()) return undefined;
+        if (!bearer) { fase = 'semLogin'; return undefined; }
+        var id = idDaConta(win, bearer);
+        if (id === null) {
+          fase = 'semLogin';
+          avisarUmaVez('semId', 'o token da página não diz de quem é a conta (não é um JWT com o oid ou o sub): a ' +
+            'chave da equipe não é pedida');
+          return undefined;
+        }
+        if (!podeResumir(win)) {
+          fase = 'semLogin';
+          avisarUmaVez('semResumo', 'a página não tem o crypto.subtle ou o TextEncoder para resumir a conta: a chave ' +
+            'da equipe não é pedida');
+          return undefined;
+        }
         return resumoDaConta(win, id).then(function (conta) {
-          if (conta === null || pecas.saiu()) return;
+          if (pecas.saiu()) return;
+          if (conta === null) {
+            fase = 'semLogin';
+            avisarUmaVez('semResumo', 'o resumo da conta saiu fora do formato: a chave da equipe não é pedida');
+            return;
+          }
           esperando = { bearer: bearer, conta: conta };
+          fase = 'nativo';
+          espera.recomecar();
           ctx.enviar({ t: 'equipePedirAparelho', conta: conta }, 'equipe');
         }, function (e) {
-          avisar('o resumo da conta falhou (' + nomeDoErro(e) + '): a chave da equipe fica para a próxima carga');
+          fase = 'semLogin';
+          avisarUmaVez('semResumo', 'o resumo da conta falhou (' + nomeDoErro(e) + '): a chave da equipe não é pedida');
         });
       }).then(null, function () {
         // O getTokenMW que lança: quem avisa o login que falta é a seção 8.
+        if (fase === 'local') fase = 'semLogin';
       });
+    }
+
+    // Depois de uma tentativa que não terminou: a seguinte, com a tela do App na frente.
+    function tentarDeNovo() {
+      if (pecas.saiu() || fase === null || fase === 'local' || fase === 'nexus' || fase === 'terminou') return;
+      pecas.quandoLogado(comecar);
+    }
+
+    // O online e a volta ao app.
+    function aoPoderTentar() {
+      if (pecas.saiu()) return;
+      // Parou antes do nativo: nada foi pedido a ninguém, e tenta na hora (como o login que falta na seção 8).
+      if (fase === 'semLogin') { tentarDeNovo(); return; }
+      // O nativo foi chamado (e talvez o Nexus): no máximo uma vez a cada 10 minutos; dentro da espera, quando ela acabar.
+      if (fase === 'nativo' || fase === 'falhou') {
+        if (espera.ativa()) espera.depois();
+        else tentarDeNovo();
+      }
+      // 'local' e 'nexus': a tentativa de agora está no ar; null: a primeira ainda não começou; 'terminou': nada.
+    }
+
+    // A resposta do Nexus foi ao nativo (o enviar devolveu se saiu): entregue, a tentativa terminou; o canal que falhou
+    // (o enviar já avisou) tenta de novo, porque o nativo não ficou sabendo.
+    function entregou(foi) {
+      fase = foi ? 'terminou' : 'falhou';
+    }
+
+    // A falha do nativo ou do Nexus: avisa, e a próxima tentativa sai no online ou na volta ao app.
+    function falhar(texto) {
+      fase = 'falhou';
+      avisar(texto + ': tenta de novo no próximo online ou na volta ao app');
     }
 
     // O registro do aparelho no Nexus, com o token de que saiu a conta. Sem cookie (o Nexus confere só o Bearer) e sem
@@ -2946,8 +3043,7 @@
         }));
       }).then(function (resposta) {
         if (!resposta || resposta.status !== 200) {
-          avisar('o registro do aparelho no Nexus respondeu ' + situacao(resposta) +
-            ': a chave da equipe fica para a próxima carga');
+          falhar('o registro do aparelho no Nexus respondeu ' + situacao(resposta));
           return undefined;
         }
         return resposta.json().then(function (dados) {
@@ -2955,16 +3051,15 @@
           if (pecas.saiu()) return;
           var objeto = !!dados && typeof dados === 'object';
           if (objeto && dados.coleta === true && typeof dados.chave === 'string' && dados.chave) {
-            ctx.enviar({ t: 'equipeChave', coleta: true, chave: dados.chave, conta: este.conta }, 'equipe');
+            entregou(ctx.enviar({ t: 'equipeChave', coleta: true, chave: dados.chave, conta: este.conta }, 'equipe'));
           } else if (objeto && dados.coleta === false) {
-            ctx.enviar({ t: 'equipeChave', coleta: false, conta: este.conta }, 'equipe');
+            entregou(ctx.enviar({ t: 'equipeChave', coleta: false, conta: este.conta }, 'equipe'));
           } else {
-            avisar('o registro do aparelho no Nexus respondeu 200 fora do contrato: a chave da equipe fica para a ' +
-              'próxima carga');
+            falhar('o registro do aparelho no Nexus respondeu 200 fora do contrato');
           }
         });
       }).then(null, function (e) {
-        avisar('o registro do aparelho no Nexus falhou (' + nomeDoErro(e) + '): a chave da equipe fica para a próxima carga');
+        falhar('o registro do aparelho no Nexus falhou (' + nomeDoErro(e) + ')');
       });
     }
 
@@ -2972,15 +3067,18 @@
       if (!m || typeof m !== 'object' || m.t !== 'equipeAparelho') return;
       var este = esperando;
       esperando = null;
-      // A resposta sem o pedido desta carga (repetida, ou atrasada), ou depois do Sair: nada.
+      // A resposta sem o pedido da tentativa de agora (repetida, ou atrasada), ou depois do Sair: nada.
       if (este === null || pecas.saiu()) return;
-      // Com a chave desta conta, nada nesta carga; sem o campo, ou com outro valor, também: pedir sem saber trocaria a
-      // chave que o aparelho tem.
-      if (m.temChave !== false) return;
+      // Com a chave desta conta, a tentativa terminou: pedir de novo trocaria a chave à toa.
+      if (m.temChave === true) { fase = 'terminou'; return; }
+      // Sem o campo, ou com outro valor: pedir sem saber trocaria a chave que o aparelho tem; a próxima tentativa
+      // pergunta de novo.
+      if (m.temChave !== false) { fase = 'falhou'; return; }
       if (typeof m.aparelho !== 'string' || !m.aparelho) {
-        avisar('o nativo respondeu sem o id do aparelho: a chave da equipe fica para a próxima carga');
+        falhar('o nativo respondeu sem o id do aparelho');
         return;
       }
+      fase = 'nexus';
       registrarNoNexus(este, m.aparelho, typeof m.versao === 'string' ? m.versao : '');
     });
 
@@ -2991,6 +3089,13 @@
         if (!pecas.saiu()) pecas.quandoLogado(comecar);
       }, ESPERA_PUSH_MS);
     });
+
+    win.addEventListener('online', aoPoderTentar);
+    if (doc && typeof doc.addEventListener === 'function') {
+      doc.addEventListener('visibilitychange', function () {
+        if (doc.visibilityState === 'visible') aoPoderTentar();
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------------------------------------------

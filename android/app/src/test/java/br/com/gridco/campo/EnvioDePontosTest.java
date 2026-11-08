@@ -113,6 +113,34 @@ public class EnvioDePontosTest {
         assertEquals(EnvioDePontos.Resultado.PARAR, envio().enviar());
         assertNull(chave.chave());
         assertEquals(5, fila.tamanho());
+        // A conta fica: é a dona da fila que sobrou (a mesma conta a sobe com a chave nova; outra conta a apaga antes).
+        assertEquals(CONTA, chave.conta());
+    }
+
+    @Test
+    public void semAContaConferidaNestaPartidaNadaSaiMasORevogarNaoEspera() throws Exception {
+        chave.guardar("k1", CONTA);
+        encher(3);
+        // A partida a frio: a chave e a conta no disco, e a página desta partida ainda não mandou a conta.
+        chave = new ChaveDaEquipe(ctx, new CifraFalsa());
+        assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
+        assertEquals("nem o aviso sem permissão", EnvioDePontos.Resultado.NADA, envio().avisarSemPermissao());
+        assertTrue("nada pedido ao Nexus", pedidos.isEmpty());
+        assertEquals("a fila fica", 3, fila.tamanho());
+        assertEquals("e a chave", "k1", chave.chave());
+
+        assertTrue(chave.conferir(CONTA));
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
+        assertEquals(1, pedidos.size());
+        assertEquals(0, fila.tamanho());
+
+        // O Sair de outra partida: a revogação vai com a chave velha, sem esperar conferência nenhuma.
+        chave = new ChaveDaEquipe(ctx, new CifraFalsa());
+        envio().revogar();
+        assertEquals(2, pedidos.size());
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidos.get(1)[0]);
+        assertEquals("k1", pedidos.get(1)[1]);
+        assertNull(chave.chave());
     }
 
     @Test

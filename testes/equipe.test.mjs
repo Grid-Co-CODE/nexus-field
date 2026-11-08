@@ -7,7 +7,11 @@
 //     revoga a anterior do par pessoa e aparelho;
 //   - a conta é o SHA-256 de "nexus-field-equipe:" + o oid (ou, sem ele, o sub) do próprio token, e só ela vai ao nativo:
 //     o token da Microsoft e o e-mail, nunca;
-//   - 401, 503, rede, CORS e resposta torta: nada nesta carga, sem exceção que escape; depois do Sair, nada.
+//   - a tentativa que não terminou tenta de novo no online e na volta ao app: na hora a que parou antes do nativo (sem
+//     login), e no máximo uma vez a cada 10 minutos a que chegou ao nativo ou ao Nexus (401, 503, rede, CORS, resposta
+//     torta, o nativo que não responde); a que terminou (a chave desta conta no aparelho, a chave nova ou o coleta:false
+//     entregues ao nativo) não tenta mais nesta carga; nenhuma exceção escapa; depois do Sair, nada;
+//   - o token que não diz de quem é e a página que não resume a conta avisam, uma vez por carga cada.
 // O Nexus e o nativo são falsos: as rotas são do chat "Nexus (Usinas 360)" e ainda não estão no ar.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -67,11 +71,22 @@ process.on('unhandledRejection', (e) => { escapadas.push(e); });
 // registro das notificações, da seção 8) responde à parte e fica fora dos `pedidos`.
 function montar({ token = TOKEN, nexus = comChave, tela = 'app', cripto = true, codificador = true, ...opcoes } = {}) {
   const j = criarJanela(opcoes);
-  const estado = { token, nexus, bearers: 0 };
+  const estado = { token, nexus, bearers: 0, resumindo: 0 };
   const pedidos = [];
   j.win.MIDDLEWARE_URL = MW;
   j.win.getTokenMW = async () => { estado.bearers++; return estado.token; };
-  if (cripto) j.win.crypto = webcrypto;
+  // O crypto do Node, com a conta dos resumos em curso: o digest roda fora do laço de eventos, e com a máquina ocupada (o
+  // npm test roda os arquivos em paralelo) passa das voltas do assentar; o carregar espera por ele.
+  if (cripto) {
+    j.win.crypto = {
+      subtle: {
+        digest: (...args) => {
+          estado.resumindo++;
+          return webcrypto.subtle.digest(...args).finally(() => { estado.resumindo--; });
+        },
+      },
+    };
+  }
   if (codificador) j.win.TextEncoder = TextEncoder;
   j.win.fetch = (url, init) => {
     if (String(url).indexOf(MW) === 0) {
@@ -110,11 +125,18 @@ function recarregar(j, opcoes = {}) {
   });
 }
 
+// O resumo da conta em curso (o da janela com o crypto do Node) terminou, e o que vem depois dele também.
+async function resumido(j) {
+  await assentar();
+  await ate(() => !j.estado.resumindo, 'o resumo da conta');
+  await assentar();
+}
+
 // O load da página e os 5 s.
 async function carregar(j) {
   j.win.dispatchEvent({ type: 'load' });
   j.avancar(ESPERA_MS);
-  await assentar();
+  await resumido(j);
 }
 
 function mostrar(j) {
@@ -122,13 +144,20 @@ function mostrar(j) {
   j.win.document.dispatchEvent({ type: 'visibilitychange' });
 }
 
-// A rede que volta, a volta ao app e a espera: nada disso pede de novo nesta carga.
+// A rede que volta, a volta ao app e a espera: o que faria uma tentativa de novo (e nada disso pede de novo depois da
+// tentativa que terminou).
 async function tudoQueTentariaDeNovo(j) {
   j.win.dispatchEvent({ type: 'online' });
   mostrar(j);
   j.avancar(DEZ_MIN_MS);
-  await assentar();
+  await resumido(j);
 }
+
+const online = (j) => j.win.dispatchEvent({ type: 'online' });
+// Quantas tentativas chegaram ao nativo (o equipePedirAparelho de cada uma).
+const pedidosAoNativo = (j) => j.doTipo('equipePedirAparelho').length;
+// Os avisos desta seção (os da seção 8, com o rótulo push, ficam de fora).
+const avisosDaEquipe = (j) => j.erros().filter((e) => e.onde === 'equipe');
 
 test('logado: o aparelho pedido ao nativo com a conta, um pedido ao Nexus com o Bearer e o corpo do contrato, e a chave ao nativo', async () => {
   const j = montar();
@@ -157,7 +186,9 @@ test('logado: o aparelho pedido ao nativo com a conta, um pedido ao Nexus com o 
   assert.equal(init.redirect, 'error');
   assert.deepEqual(j.doTipo('equipeChave'), [{ t: 'equipeChave', coleta: true, chave: CHAVE, conta: CONTA }]);
 
-  // Uma vez por carga: nem a rede que volta, nem a volta ao app, nem a espera pedem de novo.
+  // A tentativa terminou (a chave nova entregue ao nativo): nem a rede que volta, nem a volta ao app, nem a espera pedem
+  // de novo nesta carga, porque cada pedido troca a chave.
+  await tudoQueTentariaDeNovo(j);
   await tudoQueTentariaDeNovo(j);
   assert.equal(j.pedidos.length, 1);
   assert.equal(j.doTipo('equipePedirAparelho').length, 1);
@@ -184,33 +215,76 @@ test('a conta: o SHA-256, em hex minúsculo, de "nexus-field-equipe:" + o oid do
   assert.notEqual(outra.doTipo('equipePedirAparelho')[0].conta, CONTA);
 });
 
-test('o token sem o oid e sem o sub, o que não é JWT, sem login ou a página sem o crypto.subtle: nada nesta carga', async () => {
-  for (const [nome, opcoes] of [
-    ['JWT sem oid nem sub', { token: jwt({ preferred_username: EMAIL, name: 'Conta Fictícia' }) }],
-    ['JWT com o oid e o sub vazios', { token: jwt({ oid: '', sub: '' }) }],
-    ['JWT com o corpo que não é JSON', { token: [b64url('{}'), b64url('não é JSON'), 'x'].join('.') }],
-    ['JWT com o corpo que não é objeto', { token: [b64url('{}'), b64url('42'), 'x'].join('.') }],
-    ['JWT com o corpo que não é base64', { token: 'a.%%%.c' }],
-    ['token opaco', { token: 'tokenOpacoFicticio' }],
-    ['token com quatro partes', { token: TOKEN + '.extra' }],
-    ['sem login (o Bearer null)', { token: null }],
-    ['sem o crypto.subtle', { cripto: false }],
-    ['sem o TextEncoder', { codificador: false }],
+test('o token que não diz de quem é e a página que não resume a conta: nada vai ao nativo, e um aviso da equipe por carga', async () => {
+  // São as falhas que só aparecem no aparelho (o token que o getTokenMW dá, a WebView do celular): caladas, o piloto não
+  // teria como saber por que o aparelho não entra na coleta.
+  const resumoCurto = { subtle: { digest: () => Promise.resolve(new ArrayBuffer(16)) } };
+  for (const [nome, opcoes, assunto, cripto] of [
+    ['JWT sem oid nem sub', { token: jwt({ preferred_username: EMAIL, name: 'Conta Fictícia' }) }, 'token'],
+    ['JWT com o oid e o sub vazios', { token: jwt({ oid: '', sub: '' }) }, 'token'],
+    ['JWT com o corpo que não é JSON', { token: [b64url('{}'), b64url('não é JSON'), 'x'].join('.') }, 'token'],
+    ['JWT com o corpo que não é objeto', { token: [b64url('{}'), b64url('42'), 'x'].join('.') }, 'token'],
+    ['JWT com o corpo que não é base64', { token: 'a.%%%.c' }, 'token'],
+    ['token opaco', { token: 'tokenOpacoFicticio' }, 'token'],
+    ['token com quatro partes', { token: TOKEN + '.extra' }, 'token'],
+    ['sem o crypto.subtle', { cripto: false }, 'resum'],
+    ['sem o TextEncoder', { codificador: false }, 'resum'],
+    ['o resumo fora do formato', { cripto: false }, 'resum', resumoCurto],
   ]) {
     const j = montar(opcoes);
+    if (cripto) j.win.crypto = cripto;
     await carregar(j);
     // Um equipeAparelho que chegasse assim mesmo não vale: não houve pedido nesta carga.
     j.nativo({ temChave: false });
     await assentar();
-    // E nada tenta de novo nesta carga, nem com o login que chega depois.
-    j.estado.token = TOKEN;
+    // As novas tentativas (o online, a volta ao app, a espera) falham igual, e o aviso não se repete nesta carga.
+    await tudoQueTentariaDeNovo(j);
     await tudoQueTentariaDeNovo(j);
     assert.deepEqual(j.daEquipe(), [], nome);
     assert.deepEqual(j.pedidos, [], nome);
-    // O estado comum de quem não entra na coleta não é erro: nada de aviso a cada abertura.
-    assert.deepEqual(j.erros().filter((e) => e.onde === 'equipe'), [], nome);
+    const avisos = avisosDaEquipe(j);
+    assert.equal(avisos.length, 1, nome + ': um aviso por carga');
+    assert.ok(avisos[0].msg.includes(assunto), nome + ': ' + avisos[0].msg);
+    // A carga seguinte avisa de novo (o aviso é por carga).
+    const k = recarregar(j, opcoes);
+    if (cripto) k.win.crypto = cripto;
+    await carregar(k);
+    assert.equal(avisosDaEquipe(k).length, 1, nome + ': na carga seguinte');
   }
   assert.deepEqual(escapadas, []);
+});
+
+test('sem login (o Bearer null): nada vai ao nativo, nada avisa, e o online ou a volta ao app tentam na hora', async () => {
+  for (const [nome, gatilho] of [['a volta ao app', mostrar], ['o online', online]]) {
+    const j = montar({ token: null });
+    await carregar(j);
+    gatilho(j); // ainda sem login: nada
+    await assentar();
+    assert.deepEqual(j.daEquipe(), [], nome);
+    // A sessão volta (a rede, o MSAL que renovou o token): a tentativa não espera os 10 minutos, porque nada foi pedido
+    // a ninguém.
+    j.estado.token = TOKEN;
+    gatilho(j);
+    await ate(() => pedidosAoNativo(j) === 1, nome + ': o pedido ao nativo');
+    assert.deepEqual(j.doTipo('equipePedirAparelho'), [{ t: 'equipePedirAparelho', conta: CONTA }], nome);
+    j.nativo();
+    await ate(() => j.doTipo('equipeChave').length === 1, nome + ': o equipeChave');
+    // O estado comum de quem ainda não entrou não é erro: nada de aviso a cada abertura.
+    assert.deepEqual(avisosDaEquipe(j), [], nome);
+  }
+  assert.deepEqual(escapadas, []);
+});
+
+test('o token que não diz de quem é, e depois o token com o oid: a volta ao app tenta, sem outro aviso', async () => {
+  const j = montar({ token: 'tokenOpacoFicticio' });
+  await carregar(j);
+  assert.equal(avisosDaEquipe(j).length, 1);
+  j.estado.token = TOKEN;
+  mostrar(j);
+  await ate(() => pedidosAoNativo(j) === 1, 'o pedido ao nativo');
+  j.nativo();
+  await ate(() => j.doTipo('equipeChave').length === 1, 'o equipeChave');
+  assert.equal(avisosDaEquipe(j).length, 1);
 });
 
 test('na tela de login: nada até o #s-app ganhar o .on, e aí um pedido só', async () => {
@@ -241,13 +315,22 @@ test('com a chave desta conta no aparelho (temChave true), nada vai ao Nexus; se
   await assentar();
   assert.deepEqual(j.pedidos, []);
   assert.deepEqual(j.doTipo('equipeChave'), []);
-  // O nativo que não diz (sem o campo, ou com outro valor): também nada; pedir sem saber trocaria a chave à toa.
+  // A tentativa terminou: nada de nova tentativa nesta carga (pedir de novo trocaria a chave à toa).
+  await tudoQueTentariaDeNovo(j);
+  await tudoQueTentariaDeNovo(j);
+  assert.equal(pedidosAoNativo(j), 1);
+  assert.deepEqual(j.pedidos, []);
+  // O nativo que não diz (sem o campo, ou com outro valor): também nada; pedir sem saber trocaria a chave à toa. A
+  // tentativa não terminou: passados os 10 minutos, o online pergunta ao nativo de novo.
   for (const temChave of [undefined, null, 'false', 0]) {
     const k = montar();
     await carregar(k);
     k.nativo({ temChave });
     await assentar();
     assert.deepEqual(k.pedidos, [], String(temChave));
+    k.avancar(DEZ_MIN_MS);
+    online(k);
+    await ate(() => pedidosAoNativo(k) === 2, String(temChave) + ': a nova tentativa');
   }
   const s = montar();
   await carregar(s);
@@ -312,15 +395,139 @@ test('o token da Microsoft, o oid e o e-mail não vão ao nativo: só o hash da 
   assert.equal(j.doTipo('equipeChave')[0].conta, CONTA);
 });
 
-test('o coleta:false do Nexus vai ao nativo com a conta e sem chave', async () => {
+test('o coleta:false do Nexus vai ao nativo com a conta e sem chave, e não tenta de novo', async () => {
   const j = montar({ nexus: responde(200, { coleta: false, chave: CHAVE }) });
   await carregar(j);
   j.nativo();
   await ate(() => j.doTipo('equipeChave').length > 0, 'o equipeChave');
   assert.deepEqual(j.doTipo('equipeChave'), [{ t: 'equipeChave', coleta: false, conta: CONTA }]);
+  // A resposta do Nexus terminou a tentativa: o aparelho não entra na coleta, e pedir de novo não muda isso.
+  await tudoQueTentariaDeNovo(j);
+  await tudoQueTentariaDeNovo(j);
+  assert.equal(pedidosAoNativo(j), 1);
+  assert.equal(j.pedidos.length, 1);
 });
 
-test('401, 503, outro status, a rede, o CORS e a resposta torta: nada nesta carga e nenhuma exceção que escape', async () => {
+test('503 e depois o online: tenta de novo, no máximo uma vez a cada 10 minutos (o online da espera tenta quando ela acaba)', async () => {
+  const j = montar({ nexus: responde(503, {}) });
+  await carregar(j);
+  j.nativo();
+  await assentar();
+  assert.equal(j.pedidos.length, 1, 'a primeira tentativa, 5 s depois do load');
+  // A rede volta logo depois: dentro da espera, nada agora.
+  online(j);
+  await assentar();
+  assert.equal(pedidosAoNativo(j), 1, 'o online antes dos 10 minutos não tenta na hora');
+  j.avancar(DEZ_MIN_MS / 2);
+  online(j);
+  mostrar(j);
+  await assentar();
+  assert.equal(pedidosAoNativo(j), 1, 'de novo antes dos 10 minutos: nada');
+  // Os 10 minutos do pedido ao nativo: o online que esperava tenta, uma vez.
+  j.avancar(DEZ_MIN_MS / 2);
+  await ate(() => pedidosAoNativo(j) === 2, 'a segunda tentativa');
+  j.nativo();
+  await assentar();
+  assert.equal(j.pedidos.length, 2);
+  // Sem online nem volta ao app, nada: sem laço.
+  j.avancar(DEZ_MIN_MS * 3);
+  await assentar();
+  assert.equal(pedidosAoNativo(j), 2, 'sem laço');
+  // Passados os 10 minutos, o online tenta na hora.
+  online(j);
+  await ate(() => pedidosAoNativo(j) === 3, 'a terceira tentativa');
+  // O Nexus de volta: a chave vai ao nativo, e a tentativa terminou.
+  j.estado.nexus = comChave;
+  j.nativo();
+  await ate(() => j.doTipo('equipeChave').length === 1, 'o equipeChave');
+  await tudoQueTentariaDeNovo(j);
+  await tudoQueTentariaDeNovo(j);
+  assert.equal(pedidosAoNativo(j), 3, 'depois do sucesso, nem o online nem a volta ao app tentam');
+  assert.equal(j.pedidos.length, 3);
+  assert.deepEqual(avisosDaEquipe(j).map((e) => e.msg.includes('503')), [true, true], 'um aviso por falha');
+  assert.deepEqual(escapadas, []);
+});
+
+test('a volta ao app também tenta de novo depois da falha que chegou ao Nexus, passados os 10 minutos', async () => {
+  const j = montar({ nexus: semRede });
+  await carregar(j);
+  j.nativo();
+  await assentar();
+  assert.equal(j.pedidos.length, 1);
+  mostrar(j);
+  await assentar();
+  assert.equal(pedidosAoNativo(j), 1, 'na espera, nada');
+  j.avancar(DEZ_MIN_MS);
+  await ate(() => pedidosAoNativo(j) === 2, 'a volta ao app que esperava tenta quando a espera acaba');
+  j.estado.nexus = comChave;
+  j.nativo();
+  await ate(() => j.doTipo('equipeChave').length === 1, 'o equipeChave');
+});
+
+test('o nativo que não responde: a nova tentativa vem com o online, passados os 10 minutos do pedido', async () => {
+  const j = montar();
+  await carregar(j);
+  assert.equal(pedidosAoNativo(j), 1);
+  online(j);
+  j.avancar(DEZ_MIN_MS - 1);
+  await assentar();
+  assert.equal(pedidosAoNativo(j), 1, 'esperando o nativo, nada antes dos 10 minutos');
+  j.avancar(1);
+  // A resposta atrasada da primeira chega antes do pedido da segunda: não vale (levaria ao Nexus um segundo pedido).
+  j.nativo();
+  await ate(() => pedidosAoNativo(j) === 2, 'a segunda tentativa');
+  await assentar();
+  assert.deepEqual(j.pedidos, []);
+  // A resposta à segunda, e uma repetida: um pedido só ao Nexus.
+  j.nativo();
+  j.nativo();
+  await ate(() => j.doTipo('equipeChave').length === 1, 'o equipeChave');
+  await assentar();
+  assert.equal(j.pedidos.length, 1);
+});
+
+test('a chave que não chegou ao nativo (o canal que falhou) tenta de novo: o nativo não ficou sabendo', async () => {
+  const j = montar();
+  const postar = j.canal.postMessage;
+  let canalFora = true;
+  j.canal.postMessage = function (texto) {
+    if (canalFora && texto.includes('"equipeChave"')) throw new Error('o canal caiu');
+    return postar.call(this, texto);
+  };
+  await carregar(j);
+  j.nativo();
+  await ate(() => avisosDaEquipe(j).length === 1, 'o aviso do canal');
+  assert.equal(j.pedidos.length, 1);
+  canalFora = false;
+  j.avancar(DEZ_MIN_MS);
+  online(j);
+  await ate(() => pedidosAoNativo(j) === 2, 'a nova tentativa');
+  j.nativo();
+  await ate(() => j.doTipo('equipeChave').length === 1, 'o equipeChave');
+});
+
+test('com o pedido ao Nexus no ar, nada começa outro: dois pedidos trariam duas chaves', async () => {
+  let soltar;
+  const j = montar({ nexus: () => new Promise((r) => { soltar = r; }) });
+  await carregar(j);
+  j.nativo();
+  await ate(() => j.pedidos.length === 1, 'o pedido ao Nexus');
+  online(j);
+  mostrar(j);
+  j.avancar(DEZ_MIN_MS * 2);
+  online(j);
+  mostrar(j);
+  await assentar();
+  assert.equal(pedidosAoNativo(j), 1, 'nem o online, nem a volta ao app, nem o fim da espera');
+  // O Nexus responde 503: a tentativa não terminou, e o próximo online tenta (os 10 minutos já passaram).
+  soltar({ ok: false, status: 503, json: () => Promise.resolve({}) });
+  await assentar();
+  assert.equal(pedidosAoNativo(j), 1);
+  online(j);
+  await ate(() => pedidosAoNativo(j) === 2, 'a nova tentativa');
+});
+
+test('401, 503, outro status, a rede, o CORS e a resposta torta: um aviso, nenhuma exceção que escape, e a nova tentativa no online ou na volta ao app', async () => {
   const json200 = (json) => () => Promise.resolve({ ok: true, status: 200, json });
   for (const [nome, nexus] of [
     ['401 (o token vencido)', responde(401, { erro: 'token' })],
@@ -349,17 +556,25 @@ test('401, 503, outro status, a rede, o CORS e a resposta torta: nada nesta carg
     assert.deepEqual(j.doTipo('equipeChave'), [], nome);
     const avisos = j.erros();
     assert.ok(avisos.length === 1 && avisos[0].onde === 'equipe', nome + ': um aviso, com o rótulo da equipe');
-    // A próxima tentativa é a da carga seguinte: nada de laço.
-    await tudoQueTentariaDeNovo(j);
-    assert.equal(j.pedidos.length, 1, nome + ': uma vez por carga');
+    // Sem laço: sem o online nem a volta ao app, nada mais.
+    j.avancar(DEZ_MIN_MS * 2);
+    await assentar();
+    assert.equal(pedidosAoNativo(j), 1, nome + ': sem laço');
+    // A volta ao app, passados os 10 minutos, tenta de novo (o pedido ao nativo, que aqui não responde).
+    mostrar(j);
+    await ate(() => pedidosAoNativo(j) === 2, nome + ': a nova tentativa');
+    assert.equal(j.pedidos.length, 1, nome);
   }
-  // O nativo que responde sem o id do aparelho: nada vai ao Nexus, e avisa.
+  // O nativo que responde sem o id do aparelho: nada vai ao Nexus, avisa, e o próximo online tenta de novo.
   const k = montar();
   await carregar(k);
   k.nativo({ aparelho: '' });
   await assentar();
   assert.deepEqual(k.pedidos, []);
   assert.deepEqual(k.erros().map((e) => e.onde), ['equipe']);
+  k.avancar(DEZ_MIN_MS);
+  online(k);
+  await ate(() => pedidosAoNativo(k) === 2, 'a nova tentativa');
   assert.deepEqual(escapadas, []);
 });
 
@@ -409,6 +624,27 @@ test('depois do Sair, nada: nem o pedido ao nativo, nem o Nexus, nem a chave que
   soltar({ ok: true, status: 200, json: () => Promise.resolve({ coleta: true, chave: CHAVE }) });
   await assentar();
   assert.deepEqual(d.doTipo('equipeChave'), []);
+
+  // O Sair depois de uma falha: nem o online que esperava, nem a volta ao app, nem o fim da espera tentam de novo.
+  const e = montar({ nexus: responde(503, {}) });
+  e.win.sair = sairDaPagina;
+  await carregar(e);
+  e.nativo();
+  await assentar();
+  online(e); // na espera: tentaria quando ela acabasse
+  await e.win.sair();
+  await tudoQueTentariaDeNovo(e);
+  await tudoQueTentariaDeNovo(e);
+  assert.equal(pedidosAoNativo(e), 1);
+
+  // E o sem login, que tentaria na hora.
+  const f = montar({ token: null });
+  f.win.sair = sairDaPagina;
+  await carregar(f);
+  await f.win.sair();
+  f.estado.token = TOKEN;
+  await tudoQueTentariaDeNovo(f);
+  assert.deepEqual(f.daEquipe(), []);
   assert.deepEqual(escapadas, []);
 });
 
@@ -423,7 +659,11 @@ test('a página sem o getTokenMW ou com o getTokenMW que lança: nada da equipe,
     assert.deepEqual(j.daEquipe(), [], falta);
     assert.deepEqual(j.pedidos, [], falta);
     // O aviso do login que falta é o da seção 8 (o rótulo push), não um da equipe a cada abertura.
-    assert.deepEqual(j.erros().filter((e) => e.onde === 'equipe'), [], falta);
+    assert.deepEqual(avisosDaEquipe(j), [], falta);
+    // A página que passa a dar o token: a volta ao app tenta na hora (nada foi pedido a ninguém).
+    j.win.getTokenMW = async () => TOKEN;
+    mostrar(j);
+    await ate(() => pedidosAoNativo(j) === 1, falta + ': a nova tentativa');
   }
   assert.deepEqual(escapadas, []);
 });
@@ -449,8 +689,15 @@ test('os avisos ao nativo não levam o token, o e-mail, o oid, a conta, o aparel
   await carregar(r);
   avisos.push(...r.erros());
   assert.deepEqual(r.daEquipe(), []);
+  // O token que não diz de quem é, com o e-mail, o nome e o resto no corpo; e a página sem o crypto, com o token bom.
+  const s = montar({ token: jwt({ preferred_username: EMAIL, name: 'Conta Fictícia', eco: citando }) });
+  await carregar(s);
+  avisos.push(...s.erros());
+  const t = montar({ cripto: false });
+  await carregar(t);
+  avisos.push(...t.erros());
 
-  assert.equal(avisos.length, 5, 'cada falha avisou: ' + avisos.length);
+  assert.equal(avisos.length, 7, 'cada falha avisou: ' + avisos.length);
   for (const e of avisos) {
     assert.equal(e.onde, 'equipe');
     for (const proibido of [TOKEN, 'eyJ', EMAIL, 'tecnico.ficticio', '@exemplo', OID, CONTA, APARELHO, CHAVE, 'chaveFicticia']) {

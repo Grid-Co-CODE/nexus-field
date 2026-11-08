@@ -46,11 +46,19 @@ import java.util.function.LongSupplier;
  *       seguinte não espera a de quem saiu para o mapa saber que falta a permissão). Até a chave sair, a decisão que já
  *       esperava na thread (a volta ao app atrás de um envio pendurado na rede fraca) não liga a coleta nem mostra nada,
  *       e a tarefa do Sair para de novo antes da rede: senão a coleta de quem saiu seguiria até as 22h.</li>
- *   <li><b>A chave é de uma conta</b> (a que a página calcula do token dela, {@link ChaveDaEquipe#conta}). A outra conta
- *       no aparelho (B que entra sem o Sair de A), ou a chave de antes da conta, recebe o mesmo trabalho do Sair da
- *       anterior, na thread do envio, antes de a página saber se há chave ({@link #pedirAparelho}) ou de a chave nova
- *       entrar ({@link #receberChave}): senão B ficava com a chave, o aviso aceito e a fila de A, e as posições de B iam
- *       ao Nexus em nome de A. O cofre que não respondeu agora não muda nada: a próxima carga confere de novo.</li>
+ *   <li><b>A chave e a fila são de uma conta</b> (a que a página calcula do token dela, {@link ChaveDaEquipe#conta}), e a
+ *       conta guardada sobrevive ao 401 do envio, que apaga só a chave. A outra conta no aparelho (B que entra sem o Sair
+ *       de A, com a chave de A ou com a fila que o 401 deixou), a chave de antes da conta ou a fila sem conta guardada
+ *       recebem o mesmo trabalho do Sair da anterior (sem a revogação, sem chave a revogar), na thread do envio, antes de
+ *       a página saber se há chave ({@link #pedirAparelho}) ou de a chave nova entrar ({@link #receberChave}): senão B
+ *       ficava com a chave, o aviso aceito e a fila de A, e as posições de B iam ao Nexus em nome de A (ou o dia de A em
+ *       nome de B). A mesma conta, depois do 401, fica com a fila, que sobe com a chave nova. O cofre que não respondeu
+ *       agora não muda nada: a próxima carga confere de novo.</li>
+ *   <li><b>Nada sai em nome de uma conta que esta partida não conferiu</b> ({@link ChaveDaEquipe#conferida}, só na
+ *       memória): na partida a frio a coleta liga com a chave guardada e guarda na fila (a abertura sem sinal também
+ *       coleta), e o envio, o aviso sem permissão inclusive, espera até o pedido do aparelho achar a chave da mesma conta
+ *       ou a chave nova entrar. O cofre que não lê a conta não confere: a resposta diz que há a chave, e nada sai até a
+ *       próxima conferência. O Sair e a troca de conta voltam a "não conferida"; a revogação do Sair não espera.</li>
  *   <li><b>Uma thread só</b> para o disco, a cifra e a rede: a do serviço ({@link ServicoDaEquipe.Pecas#execucao}), na
  *       ordem em que tudo chegou. O pedido do aparelho que vem depois de um Sair só é respondido depois de a chave sair (e
  *       a página pede outra), e a chave que chega enquanto um envio leva o 401 não é apagada por ele. O que mexe na tela
@@ -220,10 +228,11 @@ final class EquipeNaCasca {
                 Log.i(TAG, "o Nexus: a coleta da equipe não vale para esta conta");
                 return;
             }
-            // A chave de outra conta ainda guardada (o pedido do aparelho desta conta não passou antes): sai como no Sair
-            // dela, antes de a nova entrar, ou a fila dela subiria com a chave desta.
+            // A chave ou a fila de outra conta ainda guardadas (o pedido do aparelho desta conta não passou antes, ou a fila
+            // que o 401 deixou): saem como no Sair dela, antes de a nova entrar, ou a fila dela subiria com a chave desta.
             if (deOutraConta(conta)) esquecerAContaAnterior();
             try {
+                // Guardada, a chave já vem conferida nesta partida: é a da conta que a página mandou, e o envio sai.
                 if (chave.guardar(nova, conta)) Log.i(TAG, "o Nexus deu a chave da equipe a este aparelho");
             } catch (RuntimeException e) {
                 // A cifra que falhou: a chave não vai em claro para o disco, e a próxima carga da página pede outra.
@@ -258,16 +267,30 @@ final class EquipeNaCasca {
     /**
      * A página pediu o id do aparelho (o equipePedirAparelho, com a conta dela): a resposta
      * ({@link Mensageiro#respostaDaEquipe}) vai pela ponte da mensagem, na thread do envio, depois do que já estava nela
-     * (o Sair que ainda revogava a chave). A chave guardada de outra conta (ou de antes da conta) sai antes da resposta,
-     * como no Sair dela, e a resposta então diz que não há chave: a página registra a conta de agora.
+     * (o Sair que ainda revogava a chave). A chave ou a fila guardadas de outra conta (ou sem dona) saem antes da resposta,
+     * como no Sair dela, e a resposta então diz que não há chave: a página registra a conta de agora. A chave da mesma
+     * conta fica conferida nesta partida, e só então o envio sai.
      */
     void pedirAparelho(String conta, Mensageiro.Saida ponte) {
         trabalhar(() -> {
             if (deOutraConta(conta)) esquecerAContaAnterior();
+            conferir(conta);
             if (!ponte.enviar(Mensageiro.respostaDaEquipe(chave, versao, conta))) {
                 Log.i(TAG, "a página foi embora antes do id do aparelho: a próxima carga pede de novo");
             }
         });
+    }
+
+    // A conta que a página mandou, contra a da chave guardada: a mesma solta o envio. O cofre que não respondeu agora não
+    // confere: a resposta diz que há a chave (pedir outra a revogaria à toa), mas nada sai até a próxima conferência, e a
+    // de outra conta, se for, faz a troca.
+    private void conferir(String conta) {
+        try {
+            if (chave.conferir(conta)) Log.i(TAG, "a conta da chave da equipe conferida nesta partida: o envio sai");
+        } catch (RuntimeException e) {
+            Log.w(TAG, "a conta da chave da equipe não pôde ser conferida agora (" + e.getClass().getSimpleName()
+                + "): o envio espera a próxima conferência");
+        }
     }
 
     /** A resposta do Android ao pedido da permissão (o launcher do plugin, na thread de UI). */
@@ -409,6 +432,8 @@ final class EquipeNaCasca {
                 Log.i(TAG, "sem a localização o tempo todo: o aviso ao Nexus fica para a próxima volta ao app");
                 break;
             default:
+                // O NADA: a página desta partida ainda não conferiu a conta da chave, e o aviso espera como o lote.
+                Log.i(TAG, "sem a localização o tempo todo: o aviso ao Nexus espera a página conferir a conta");
                 break;
         }
     }
@@ -450,25 +475,39 @@ final class EquipeNaCasca {
         }
     }
 
-    // A chave guardada é de outra conta que a da página, ou de antes da conta (não se sabe de quem é). Sem chave, nada a
-    // tirar. Com o cofre que não respondeu agora, também não: a chave e a conta continuam guardadas, e tirá-las revogaria
-    // à toa a chave de quem pode ser a mesma conta; a próxima carga confere de novo.
+    // O que está guardado é de outra conta que a da página. A conta guardada é a dona da chave e da fila, e sobrevive ao
+    // 401 (que apaga só a chave): outra conta guardada, com a chave ou sem ela, é a troca de conta. Sem conta guardada, a
+    // chave ou a fila que sobraram não têm dona que se saiba (a chave de antes da conta, o ponto que chegou no meio do
+    // Sair) e saem também; sem nada guardado, nada a tirar. Com o cofre que não respondeu agora, nada: a chave e a conta
+    // continuam guardadas, e tirá-las revogaria à toa a chave de quem pode ser a mesma conta; a próxima carga confere de
+    // novo.
     private boolean deOutraConta(String conta) {
-        if (!chave.temChaveGuardada()) return false;
-        String daChave;
+        String dona;
         try {
-            daChave = chave.conta();
+            dona = chave.conta();
         } catch (RuntimeException e) {
             Log.w(TAG, "a conta da chave da equipe não pôde ser lida agora (" + e.getClass().getSimpleName() + ")");
             return false;
         }
-        return !conta.equals(daChave);
+        if (dona != null) return !conta.equals(dona);
+        return chave.temChaveGuardada() || filaComPontos();
     }
 
-    // A troca de conta no aparelho: o trabalho do Sair da anterior. O que falhar nele não segura o que vem depois (a
-    // resposta à página, a chave nova).
+    // A fila que não se lê agora conta como com pontos: sem conta guardada, o que estiver nela não tem dona, e tirá-la (se
+    // der) não perde nada de quem se saiba.
+    private boolean filaComPontos() {
+        try {
+            return fila.tamanho() > 0;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "a fila da equipe não pôde ser lida agora (" + e.getClass().getSimpleName() + ")");
+            return true;
+        }
+    }
+
+    // A troca de conta no aparelho: o trabalho do Sair da anterior (sem chave guardada, como depois do 401, não há o que
+    // revogar: o revogar só apaga). O que falhar nele não segura o que vem depois (a resposta à página, a chave nova).
     private void esquecerAContaAnterior() {
-        Log.i(TAG, "outra conta no aparelho: a coleta e a chave da anterior saem, como no Sair dela");
+        Log.i(TAG, "outra conta no aparelho: a coleta, a fila e a chave da anterior saem, como no Sair dela");
         try {
             esquecerAConta();
         } catch (RuntimeException e) {

@@ -16,7 +16,13 @@ import java.util.UUID;
  *       sub sem ele): a chave é de uma conta, e a casca só a usa para a mesma ({@link EquipeNaCasca}). Caso que criou a
  *       regra: no aparelho dividido, B que entrava sem o Sair de A ficava com a chave, o aviso aceito e a fila de A, e as
  *       posições de B iam ao Nexus em nome de A. Ela aponta para a pessoa: guardada cifrada, como a chave, e entra e sai
- *       junto com ela.</li>
+ *       junto com ela, menos no 401 do envio ({@link #apagarAChave}): aí a conta fica, dona da fila que sobrou.</li>
+ *   <li>A conta conferida ({@link #conferida}) é só da memória desta partida do processo: começa "não conferida" e só a
+ *       página a confere, pelo pedido do aparelho da mesma conta ({@link #conferir}) ou pela chave nova que ela entrega
+ *       ({@link #guardar}). Até lá a coleta segue e guarda na fila, e nada sai ao Nexus ({@link EnvioDePontos}). Caso que
+ *       criou a regra: na partida a frio, o onResume ligava a coleta com a chave guardada antes de a página mandar a conta,
+ *       e o primeiro lote (uns 1 min 45 s depois) levava em nome de A as posições de B, que entrou sem o Sair de A e cujo
+ *       login foi mais lento que isso.</li>
  *   <li>O aviso aceito pertence à chave em uso: chave diferente (outro técnico no mesmo aparelho, ou a revogada e
  *       refeita) zera o aceite, e o técnico vê o aviso de novo.</li>
  *   <li>Chave que a cifra de agora não lê ({@link Cifra.Ilegivel}) vale como sem chave: o serviço pede outra. A conta
@@ -35,6 +41,9 @@ final class ChaveDaEquipe {
 
     private final SharedPreferences prefs;
     private final Cifra cifra;
+    // Só na memória: some com o processo, e a partida seguinte começa sem conferir (uma ChaveDaEquipe por processo, a das
+    // ServicoDaEquipe.Pecas).
+    private boolean conferida = false;
 
     ChaveDaEquipe(Context ctx, Cifra cifra) {
         this.prefs = ctx.getSharedPreferences(ARQUIVO, Context.MODE_PRIVATE);
@@ -52,13 +61,19 @@ final class ChaveDaEquipe {
 
     /**
      * Guarda a chave e a conta dela, as duas cifradas, de uma vez. True se é outra chave ou outra conta que as de antes (e
-     * então o aviso aceito volta a "não").
+     * então o aviso aceito volta a "não"). Guardada (ou a mesma de antes), a conta fica conferida nesta partida: é a chave
+     * que a página desta partida entregou, da conta que ela mandou. A cifra que falha lança antes, e a conferência fica
+     * como estava.
      */
     synchronized boolean guardar(String chave, String conta) {
-        if (chave.equals(chave()) && conta.equals(conta())) return false;
+        if (chave.equals(chave()) && conta.equals(conta())) {
+            conferida = true;
+            return false;
+        }
         String cifrada = Base64.encodeToString(cifra.cifrar(chave), Base64.NO_WRAP);
         String contaCifrada = Base64.encodeToString(cifra.cifrar(conta), Base64.NO_WRAP);
         prefs.edit().putString(K_CHAVE, cifrada).putString(K_CONTA, contaCifrada).putBoolean(K_AVISO, false).commit();
+        conferida = true;
         return true;
     }
 
@@ -80,8 +95,38 @@ final class ChaveDaEquipe {
         return prefs.contains(K_CHAVE);
     }
 
+    /**
+     * A página desta partida mandou a conta dela (o pedido do aparelho): com a chave guardada da MESMA conta, a conta fica
+     * conferida e o envio sai; sem chave, ou com a de outra conta, não. Lança com o cofre que não respondeu agora, e nada
+     * fica conferido (o que estava deixa de estar): o cofre que não lê a conta não confere, e nada sai até a próxima
+     * conferência.
+     */
+    synchronized boolean conferir(String conta) {
+        conferida = false;
+        conferida = chave() != null && conta.equals(conta());
+        return conferida;
+    }
+
+    /** A conta da chave guardada foi conferida pela página nesta partida do processo: só então o envio sai. */
+    synchronized boolean conferida() {
+        return conferida;
+    }
+
+    /** O Sair, a troca de conta e o coleta:false: a chave, a conta e o aviso aceito saem juntos. */
     synchronized void apagar() {
         prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_AVISO).commit();
+        conferida = false;
+    }
+
+    /**
+     * O 401 do envio (a chave que o Nexus não reconhece mais): sai só a chave. A conta fica, dona da fila que sobrou: a
+     * mesma conta a sobe com a chave nova, e outra conta a apaga antes ({@link EquipeNaCasca}). Caso que criou a regra: A
+     * trabalhou o dia sem sinal, a chave venceu e o primeiro envio levou o 401; com a conta apagada junto, B, que abriu o
+     * app no dia seguinte sem o Sair de A, mandava o dia de A ao Nexus em nome de B.
+     */
+    synchronized void apagarAChave() {
+        prefs.edit().remove(K_CHAVE).commit();
+        conferida = false;
     }
 
     private String decifrada(String nome) {

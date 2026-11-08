@@ -19,9 +19,13 @@ import org.json.JSONObject;
  * chave do aparelho no Authorization.
  *
  * <ul>
- *   <li>Só o 401 e o {@code coleta:false} do Nexus param o serviço e apagam a chave. Todo 5xx (o 503, com a Microsoft
- *       fora ou o servidor sem configuração, em especial) e a rede que cai dão {@link Resultado#SEM_REDE}: fila e
- *       chave ficam, e o serviço tenta de novo no ritmo seguinte.</li>
+ *   <li>Nada sai antes de a página desta partida conferir a conta da chave ({@link ChaveDaEquipe#conferida}): o lote e o
+ *       aviso sem permissão devolvem {@link Resultado#NADA} sem pedido ao Nexus, e a fila e a chave ficam. A revogação do
+ *       Sair não espera.</li>
+ *   <li>Só o 401 e o {@code coleta:false} do Nexus param o serviço e apagam a chave. O 401 apaga só a chave: a conta
+ *       fica, dona da fila que sobrou ({@link ChaveDaEquipe#apagarAChave}). O coleta:false apaga a chave, a conta e a
+ *       fila. Todo 5xx (o 503, com a Microsoft fora ou o servidor sem configuração, em especial) e a rede que cai dão
+ *       {@link Resultado#SEM_REDE}: fila e chave ficam, e o serviço tenta de novo no ritmo seguinte.</li>
  *   <li>Resposta 200 que não é JSON legível também vale como sem rede: sem a confirmação do Nexus, os pontos não saem
  *       da fila.</li>
  *   <li>Nada de coordenada, chave ou id de aparelho no log: nem a mensagem das exceções leva o corpo.</li>
@@ -74,7 +78,7 @@ final class EnvioDePontos {
 
     /** Manda o lote mais antigo da fila. */
     Resultado enviar() {
-        String k = chave.chave();
+        String k = chaveConferida();
         if (k == null) return Resultado.NADA;
         List<Long> ids = fila.idsDoLote(MAXIMO_DE_PONTOS);
         if (ids.isEmpty()) return Resultado.NADA;
@@ -97,12 +101,21 @@ final class EnvioDePontos {
      * quem nunca abriu o app): lote vazio com {@code permissao: "sem"}, as mesmas respostas do envio normal.
      */
     Resultado avisarSemPermissao() {
-        String k = chave.chave();
+        String k = chaveConferida();
         if (k == null) return Resultado.NADA;
         return postarPosicoes(k, corpo(new JSONArray(), "sem"));
     }
 
-    /** Pede ao Nexus para revogar a chave e a apaga daqui de qualquer jeito (o técnico desligou, não pode ficar presa). */
+    // A chave para o envio: só a da conta que a página desta partida conferiu (ChaveDaEquipe#conferida). Antes disso o
+    // lote espera na fila, sem pedido ao Nexus: nada sai em nome de uma conta que esta partida não conferiu.
+    private String chaveConferida() {
+        return chave.conferida() ? chave.chave() : null;
+    }
+
+    /**
+     * Pede ao Nexus para revogar a chave e a apaga daqui de qualquer jeito (o técnico desligou, não pode ficar presa). Não
+     * espera a conta conferida: é a chave velha que sai, e o que ela leva é o pedido de revogá-la.
+     */
     void revogar() {
         String k = chave.chave();
         try {
@@ -126,7 +139,8 @@ final class EnvioDePontos {
             return Resultado.SEM_REDE;
         }
         if (resp.status == 401) {
-            chave.apagar();
+            // Só a chave: a conta fica, dona da fila que sobrou (ChaveDaEquipe#apagarAChave).
+            chave.apagarAChave();
             return Resultado.PARAR;
         }
         if (resp.status != 200) return Resultado.SEM_REDE;

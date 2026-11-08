@@ -80,7 +80,9 @@ function montar({ bearer = BEARER, servidor = ok, tela = 'app', mw = MW, ...opco
   doc.body.append(login, app);
   const casca = instalar(j.win, j.canal, j.retrato);
   const doTipo = (t) => j.enviados.filter((m) => m.t === t);
-  const erros = () => j.enviados.filter((m) => m.t === 'erro');
+  // Os da chave da equipe (a seção 10, que roda dentro da 8 e avisa o Bearer fictício daqui, que não é um JWT) têm a
+  // prova deles, no testes/equipe.test.mjs.
+  const erros = () => j.enviados.filter((m) => m.t === 'erro' && m.onde !== 'equipe');
   // O que a seção 8 mandou ao nativo sobre o registro (menos os avisos e o pushAdmin do atalho de teste).
   const doPush = () => j.enviados.filter((m) => typeof m.t === 'string' && m.t.indexOf('push') === 0 && m.t !== 'pushAdmin');
   const registros = () => pedidos.filter((p) => p.url === MW + '/push/registrar');

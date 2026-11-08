@@ -78,7 +78,9 @@ function montar({ bearer = BEARER, papel = 'Admin', me, teste, registro, tela = 
     resultados: () => doTipo('pushTeste'),
     perguntas: () => rota('/me'),
     testes: () => rota('/push/teste'),
-    erros: () => doTipo('erro'),
+    // Os da chave da equipe (a seção 10, que avisa o Bearer fictício daqui, que não é um JWT) têm a prova deles, no
+    // testes/equipe.test.mjs.
+    erros: () => doTipo('erro').filter((e) => e.onde !== 'equipe'),
     entrar: () => app.classList.add('on'),
   };
 }

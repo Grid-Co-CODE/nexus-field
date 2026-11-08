@@ -110,6 +110,12 @@ public class ServicoDaEquipeTest {
         chave = new ChaveDaEquipe(app, new CifraFalsa());
         fila = new FilaDePontos(app);
         fonte = new FonteFalsa();
+        montarAsPecas();
+        ShadowLog.clear();
+    }
+
+    /** O envio com o Nexus falso e as peças do processo com a chave de agora. */
+    private void montarAsPecas() {
         envio = new EnvioDePontos(chave, fila, (url, k, corpo) -> {
             pedidosAoNexus.add(url);
             return resposta;
@@ -117,7 +123,6 @@ public class ServicoDaEquipeTest {
         // O disco e a rede na thread do teste: a fila e o envio rodam na hora, sem outra thread para esperar.
         ServicoDaEquipe.pecasDeTeste = new ServicoDaEquipe.Pecas(() -> agora, () -> desdeOBoot, chave, fila, envio,
             fonte, Runnable::run);
-        ShadowLog.clear();
     }
 
     @After
@@ -497,6 +502,34 @@ public class ServicoDaEquipeTest {
         rodarOLacoPrincipal();
         assertFalse(acordado.isHeld());
         assertTrue(ServicoDaEquipe.rodando());
+    }
+
+    @Test
+    public void naPartidaAFrioAColetaGuardaEOEnvioEsperaAPaginaConferirAConta() {
+        // A chave e a conta no disco, de antes, e o processo novo (o Android matou o app): a coleta liga e guarda como
+        // sempre, e nada vai ao Nexus até a página desta partida mandar a conta (o pedido do aparelho, na EquipeNaCasca).
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia", CONTA);
+        chave = new ChaveDaEquipe(app, new CifraFalsa());
+        montarAsPecas();
+        ligar();
+        long t0 = System.currentTimeMillis() - 300_000;
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
+        fonte.receptor.posicao(posicao(t0, LAT, LON, 0.2f));
+        rodarOLacoPrincipal();
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
+        assertTrue("nem pela posição nem pelo Handler", pedidosAoNexus.isEmpty());
+        assertEquals("a posição fica na fila", 1, fila.tamanho());
+        assertTrue("e a coleta segue", ServicoDaEquipe.rodando());
+        assertFalse("o celular não fica acordado à toa", ShadowPowerManager.getLatestWakeLock().isHeld());
+
+        // A página confere a conta: o envio seguinte sobe a fila.
+        assertTrue(chave.conferir(CONTA));
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
+        fonte.receptor.posicao(posicao(t0 + 120_000, LAT, LON, 0.2f));
+        assertEquals(Arrays.asList(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_POSICOES), pedidosAoNexus);
+        rodarOLacoPrincipal();
+        assertEquals(0, fila.tamanho());
     }
 
     @Test

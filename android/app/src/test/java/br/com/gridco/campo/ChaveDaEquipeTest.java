@@ -165,6 +165,89 @@ public class ChaveDaEquipeTest {
     }
 
     @Test
+    public void oQuatrocentoEUmApagaSoAChaveEAContaFica() {
+        // A conta é a dona da fila que o 401 deixa: a mesma conta a sobe com a chave nova, e outra conta a apaga antes.
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        String aparelho = c.aparelho();
+        c.guardar("k1", CONTA_A);
+        c.apagarAChave();
+        assertNull(c.chave());
+        assertFalse(c.temChaveGuardada());
+        assertEquals(CONTA_A, c.conta());
+        assertEquals(aparelho, c.aparelho());
+        assertTrue("a chave nova da mesma conta é outra chave", c.guardar("k2", CONTA_A));
+        c.apagar();
+        assertNull("o Sair e a troca de conta levam a conta junto", c.conta());
+    }
+
+    // --- a conta conferida nesta partida do processo ------------------------------------------------------------------
+
+    @Test
+    public void aContaSoFicaConferidaPelaPaginaDestaPartida() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        assertFalse("a partida começa sem conferir", c.conferida());
+        c.guardar("k1", CONTA_A);
+        assertTrue("a chave que a página entrega é da conta que a trouxe", c.conferida());
+
+        // O processo novo (o Android matou o app): a chave e a conta no disco, e nada conferido na memória.
+        ChaveDaEquipe outraPartida = new ChaveDaEquipe(ctx, cifra);
+        assertFalse(outraPartida.conferida());
+        assertEquals("k1", outraPartida.chave());
+        assertFalse("outra conta não confere", outraPartida.conferir(CONTA_B));
+        assertFalse(outraPartida.conferida());
+        assertTrue(outraPartida.conferir(CONTA_A));
+        assertTrue(outraPartida.conferida());
+        assertFalse("a conferência seguinte, de outra conta, desfaz", outraPartida.conferir(CONTA_B));
+        assertFalse(outraPartida.conferida());
+    }
+
+    @Test
+    public void guardarAMesmaChaveTambemConfereEACifraQueFalhaNao() {
+        new ChaveDaEquipe(ctx, cifra).guardar("k1", CONTA_A);
+        ChaveDaEquipe outraPartida = new ChaveDaEquipe(ctx, cifra);
+        assertFalse(outraPartida.guardar("k1", CONTA_A));
+        assertTrue("a página entregou a chave desta conta", outraPartida.conferida());
+
+        ChaveDaEquipe terceira = new ChaveDaEquipe(ctx, cifra);
+        cifra.falharAoCifrar = true;
+        try {
+            terceira.guardar("k2", CONTA_A);
+            fail("a cifra que falha não guarda");
+        } catch (IllegalStateException esperado) {
+            // a chave nova não vai em claro para o disco
+        }
+        assertFalse(terceira.conferida());
+    }
+
+    @Test
+    public void oQueApagaAChaveDesfazAConferencia() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        c.apagarAChave();
+        assertFalse(c.conferida());
+        assertFalse("sem chave, nada a conferir", c.conferir(CONTA_A));
+        c.guardar("k2", CONTA_A);
+        c.apagar();
+        assertFalse(c.conferida());
+    }
+
+    @Test
+    public void oCofreQueNaoLeAContaNaoConfere() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        cifra.keystoreFora = true;
+        try {
+            c.conferir(CONTA_A);
+            fail("o cofre que não respondeu agora não diz de quem é a chave");
+        } catch (IllegalStateException esperado) {
+            // a chave e a conta continuam guardadas
+        }
+        assertFalse("o que estava conferido deixa de estar: nada sai até a próxima conferência", c.conferida());
+        cifra.keystoreFora = false;
+        assertTrue(c.conferir(CONTA_A));
+    }
+
+    @Test
     public void aContaIlegivelContaComoSemContaEOCofreForaNaoEUmaContaQueFalta() {
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
