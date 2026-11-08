@@ -237,5 +237,5 @@ coleta não vale. A lógica de decidir fica em classes puras, testadas na JVM; o
 - [ ] **Step 2: Implementar; Step 3: `npm test` verde** e os cartões refeitos
 - [ ] **Step 4: Commit** `docs(equipe): prévia, guia, roteiro e novidades da 1.2.0`
 
-A tag `v1.2.0` não é deste plano. Ela sai depois de: os textos aprovados pelo Levi na prévia e pelo RH e pelo jurídico;
+A tag `v1.2.0` não é deste plano. Ela sai depois de: os textos aprovados pelo dono na prévia e pelo RH e pelo jurídico;
 as rotas do Nexus no ar (chat "Nexus (Usinas 360)"); o piloto com 1 ou 2 técnicos.

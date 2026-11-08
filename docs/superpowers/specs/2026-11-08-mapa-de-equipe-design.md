@@ -1,18 +1,18 @@
 # Mapa de equipe: a localização dos técnicos pelo Nexus Field (desenho)
 
-08/11/2026. Pedido do Levi, dono da casca e do Nexus. A ideia estava na fila dele desde 21/10/2026, com decisões tomadas
+08/11/2026. Pedido do dono da casca e do Nexus. A ideia estava na fila dele desde 21/10/2026, com decisões tomadas
 naquele dia (marcadas "21/10"). Leia antes o `CLAUDE.md` deste repositório; para a parte do Nexus, o `CLAUDE.md` da raiz
 do Nexus, o `nexus/torres/campo/CLAUDE.md` (torre Usinas 360°) e o `nexus/dados/CLAUDE.md` (PRIORIDADE 0).
 
 ## 1. Intenção
 
-Ver onde está cada técnico que tem o Nexus Field e abrir a rota dele até uma usina. Nas palavras do Levi: "identificar
+Ver onde está cada técnico que tem o Nexus Field e abrir a rota dele até uma usina. Nas palavras do dono: "identificar
 onde o técnico está e qual seria a melhor rota para ele, claro que vamos avisar que estamos pegando esses dados e será
 tudo respeitado, mas essa informação é essencial." Em 21/10 ele disse que serve "para ver onde o técnico está e traçar
 rotas melhores entre usinas", e que só sai dentro da LGPD ("será só com LGPD mesmo").
 
 A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a tela é o **Mapa de equipe**, na torre
-**Usinas 360°**. A parte do Nexus é do chat "Nexus (Usinas 360)" (Levi, 08/11: "caso dê certo mande msg para Nexus
+**Usinas 360°**. A parte do Nexus é do chat "Nexus (Usinas 360)" (o dono, 08/11: "caso dê certo mande msg para Nexus
 (Usinas 360)").
 
 ## 2. Objetivos, não-objetivos e anti-objetivos
@@ -26,7 +26,7 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 
 **Não-objetivos**
 - iPhone: continua no App pelo navegador, sem coleta.
-- Ordenar os técnicos pela distância até uma usina, ou planejar a rota do dia entre várias usinas (o Levi escolheu só o
+- Ordenar os técnicos pela distância até uma usina, ou planejar a rota do dia entre várias usinas (o dono escolheu só o
   Abrir rota).
 - Coleta antes da primeira abertura do dia, antes das 6h ou depois das 22h.
 - O técnico ver a posição dos colegas.
@@ -40,7 +40,7 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 - Ponto bruto usado ou mostrado depois de 7 dias.
 - Bateria que acaba no meio do dia e leva o técnico a desinstalar o app.
 
-## 3. Decisões do Levi
+## 3. Decisões do dono
 
 - **Quando liga:** na primeira abertura do Nexus Field no dia, entre 6h e 22h, e vai até as 22h (08/11). Em férias ou
   folga, sem abrir o app, nada é coletado. Antes disso ele tinha dito "das 06:00 às 22:00", por causa da hora extra.
@@ -96,7 +96,7 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   - quem abriu o mapa e quando (para responder a um pedido da LGPD).
 - **A limpeza.** A T.I. apaga da API os pontos com mais de 7 dias e os deslocamentos com mais de 1 ano. O Nexus não usa
   nem mostra ponto com mais de 7 dias, mesmo antes da limpeza. O chat do Nexus deixa pronto o pedido à T.I. (o que
-  apagar, de que livro, com que frequência), em texto para o Levi mandar.
+  apagar, de que livro, com que frequência), em texto para o dono mandar.
 - **A tela.** O Mapa de equipe na torre Usinas 360°, no padrão dos mapas do Nexus: o desenho feito no servidor (o
   contorno do IBGE da Visão do responsável e do Mapa de risco), sem biblioteca de mapa e sem coordenada no navegador.
   Cada técnico é um ponto com a cor da situação: em deslocamento, parado numa usina, parado fora de usina, sem sinal há
@@ -112,7 +112,7 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 
 ## 5. Dependências e ordem
 
-1. **A regra escrita com RH e jurídico** (condição do Levi em 21/10): o texto do aviso ao técnico e da guarda. O piloto
+1. **A regra escrita com RH e jurídico** (condição do dono em 21/10): o texto do aviso ao técnico e da guarda. O piloto
    pode começar antes, com o aviso aprovado na prévia e só com técnicos que saibam.
 2. **O Nexus primeiro:** as três rotas e o dado no banco (chat "Nexus (Usinas 360)"), para a casca ter onde mandar.
 3. **A limpeza da T.I.** combinada antes de passar do piloto.
@@ -140,7 +140,7 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   ela fica (só o hash no banco), quem conta como técnico de campo ativo no cadastro, o raio que conta como "na usina", a
   distância que conta como "fora de usina" e a cor de cada situação.
 
-## 8. O contrato entre a casca e o Nexus (proposta, 08/11/2026)
+## 8. O contrato entre a casca e o Nexus (08/11/2026, com os ajustes do chat do Nexus)
 
 Escrito depois da aprovação, para os dois lados construírem ao mesmo tempo. O chat "Nexus (Usinas 360)" pode mudar o
 caminho e os nomes; o que mudar, ele avisa à sessão do Nexus Field antes de pôr no ar. Base: o endereço do Nexus no ar
@@ -157,19 +157,24 @@ caminho e os nomes; o que mudar, ele avisa à sessão do Nexus Field antes de p�
     cadastro e decide se a coleta vale para ela (técnico de campo ativo; no piloto, só os escolhidos).
   - Resposta: `200 {coleta: true, chave}` (a chave: 32 bytes aleatórios em base64url; o banco guarda só o hash; um par
     pessoa + aparelho tem uma chave só, e a nova troca a velha) ou `200 {coleta: false}`; `401` com o token inválido ou
-    vencido.
+    vencido; `503` com a Microsoft fora do ar ou o servidor sem configuração (a casca não apaga a chave: só o `401`
+    apaga).
+  - A página só pede a chave quando o aparelho não tem uma, ou depois de um `401` (cada pedido gera chave nova e revoga
+    a anterior do mesmo par): o nativo diz se tem chave (`temChave`).
 - **`POST /t/campo/equipe/posicoes`** (pública; chamada pelo NATIVO, com o app aberto ou fechado).
   - Pedido: `Authorization: Bearer <chave>`; corpo `{aparelho, fuso, pontos: [{t, lat, lon, prec, vel, mov}]}`: `t` em
-    milissegundos UTC, `prec` em metros, `vel` em m/s ou nulo, `mov` se está em deslocamento, `fuso` o deslocamento do
-    relógio do celular em minutos (para o Nexus conferir a janela das 6h às 22h na hora do técnico). Até 200 pontos por
-    lote.
+    milissegundos UTC, `prec` em metros, `vel` em m/s ou nulo, `mov` se está em deslocamento, `fuso` os minutos que se
+    somam ao UTC para dar a hora do celular (Brasília -180, Mato Grosso -240: o `TimeZone.getOffset(t)/60000` do
+    Android), para o Nexus conferir a janela das 6h às 22h na hora do técnico. Até 200 pontos e 64 KB por lote.
+  - Sem a permissão "o tempo todo", o nativo manda `{aparelho, fuso, permissao: "sem", pontos: []}` (no máximo um a cada
+    30 minutos), para o mapa separar quem negou de quem não abriu o app.
   - O Nexus descarta ponto com mais de 7 dias ou fora da janela, cifra a coordenada e grava.
   - Resposta: `200 {aceitos, coleta}` (`coleta: false` faz a casca parar até a próxima carga); `401` com a chave
-    inválida ou revogada (a casca apaga a chave e para).
+    inválida ou revogada (a casca apaga a chave e para); qualquer `5xx` é como sem rede (a fila e a chave ficam).
 - **`POST /t/campo/equipe/aparelho/revogar`** (pública; chamada pelo NATIVO no Sair): `Authorization: Bearer <chave>`,
   corpo `{aparelho}`; `204`. A casca apaga a chave dela mesmo sem resposta.
 
-## 9. Decisões que foram minhas (para o Levi conferir)
+## 9. Decisões que foram minhas (para o dono conferir)
 
 - **Só o Google Maps no Abrir rota.** O link do Waze só recebe o destino e traça a rota a partir de quem clica: no
   escritório, ele sairia do escritório, e não do técnico.
