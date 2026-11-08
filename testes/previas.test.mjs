@@ -152,24 +152,26 @@ function rotulosDosAtalhosDoJava() {
   return { curtos: de('setShortLabel'), longos: de('setLongLabel'), desligado: de('disableShortcuts') };
 }
 
-// Os canais como o CanaisDeNotificacao os cria: o id (o valor da constante CANAL_* do Notificacoes), a importância
+// Os canais como o CanaisDeNotificacao os cria: o id (o valor da constante CANAL_* da classe que o Builder cita: o
+// Notificacoes, para os três do servidor, e o ServicoDaEquipe, para o da localização da equipe), a importância
 // (IMPORTANCE_HIGH, DEFAULT, LOW), o nome (a string do strings.xml), o som ('alarme', o somDaEmergencia; 'nenhum', o
 // setSound(null, ...); sem setSound, o 'padrão' de notificação), se vibra e se fura o Não perturbe (setBypassDnd). É o
 // que decide como cada notificação de exemplo aparece (só a de importância alta aparece por cima da tela) e o que o item
 // do som dos canais pede para aprovar.
 function canaisDetalhadosDoJava() {
-  const ids = Object.fromEntries([...lerArquivo(PASTA_JAVA + 'Notificacoes.java')
+  const idsDe = (classe) => Object.fromEntries([...lerArquivo(PASTA_JAVA + classe + '.java')
     .matchAll(/static final String (CANAL_\w+) = "(\w+)";/g)].map((m) => [m[1], m[2]]));
   const fonte = lerArquivo(PASTA_JAVA + 'CanaisDeNotificacao.java');
   const canais = [];
-  for (const m of fonte.matchAll(/new NotificationChannelCompat\.Builder\(\s*Notificacoes\.(CANAL_\w+),\s*NotificationManagerCompat\.IMPORTANCE_(\w+)\)([\s\S]*?)\.build\(\)/g)) {
-    const corpo = m[3];
+  for (const m of fonte.matchAll(/new NotificationChannelCompat\.Builder\(\s*(\w+)\.(CANAL_\w+),\s*NotificationManagerCompat\.IMPORTANCE_(\w+)\)([\s\S]*?)\.build\(\)/g)) {
+    const [, classe, constante, importancia, corpo] = m;
+    const id = idsDe(classe)[constante];
     const nome = corpo.match(/\.setName\([^;]*?R\.string\.(\w+)/);
-    assert.ok(ids[m[1]] && nome, `o teste não leu o canal ${m[1]} do CanaisDeNotificacao`);
+    assert.ok(id && nome, `o teste não leu o canal ${classe}.${constante} do CanaisDeNotificacao`);
     const som = corpo.match(/\.setSound\((somDaEmergencia\(\)|null)\s*,/);
-    assert.ok(som || !/\.setSound\(/.test(corpo), `o teste não leu o som do canal ${m[1]}`);
+    assert.ok(som || !/\.setSound\(/.test(corpo), `o teste não leu o som do canal ${id}`);
     canais.push({
-      id: ids[m[1]], importancia: m[2], nome: nome[1],
+      id, importancia, nome: nome[1],
       som: !som ? 'padrão' : som[1] === 'null' ? 'nenhum' : 'alarme',
       vibra: /\.setVibrationEnabled\(true\)/.test(corpo),
       vibraComoAEmergencia: /\.setVibrationPattern\(vibracaoDaEmergencia\(\)\)/.test(corpo),
@@ -313,7 +315,7 @@ test('nenhuma string da casca fica sem quadro, e a tabela do teste não cita str
 
 test('os nomes dos canais de notificação estão no quadro dos ajustes: os que o CanaisDeNotificacao cria, e só eles', () => {
   const doJava = canaisDoJava();
-  assert.equal(doJava.length, 3, 'o teste achou os três canais do CanaisDeNotificacao');
+  assert.equal(doJava.length, 4, 'o teste achou os quatro canais do CanaisDeNotificacao (os três do servidor e o da equipe)');
   assert.deepEqual(stringsDosCanais().map((s) => s.nome).sort(), [...doJava].sort(),
     'todo notificacao_canal_* do strings.xml é o nome de um canal, e todo canal tira o nome de um deles');
 
@@ -356,8 +358,10 @@ test('toda string do strings.xml tem lugar na prévia: um prefixo novo não esca
   // title_activity_main) o rótulo do ícone e o título da página; o package_name e o custom_url_scheme são o
   // applicationId, que o técnico não lê. Fora disso é texto novo sem quadro: ganha o quadro e o teste dele na prévia
   // antes de ir ao campo, ou entra aqui com o motivo de não aparecer ao técnico. Caso que criou a regra: os nomes dos
-  // canais (18/10/2026) saíram do prefixo casca_ e ficaram fora da prévia sem nenhum teste reclamar.
-  const COM_QUADRO = [/^casca_[a-z_]+$/, /^notificacao_canal_[a-z_]+$/, /^atalho_[a-z_]+$/, /^(app_name|title_activity_main)$/];
+  // canais (18/10/2026) saíram do prefixo casca_ e ficaram fora da prévia sem nenhum teste reclamar. Os
+  // notificacao_equipe_* (a notificação fixa da localização da equipe) têm o quadro #t-equipe-notificacao.
+  const COM_QUADRO = [/^casca_[a-z_]+$/, /^notificacao_canal_[a-z_]+$/, /^notificacao_equipe_[a-z_]+$/, /^atalho_[a-z_]+$/,
+    /^(app_name|title_activity_main)$/];
   const SEM_TELA = ['package_name', 'custom_url_scheme'];
   const nomes = [...STRINGS.matchAll(/<string\b[^>]*\bname="([^"]*)"/g)].map((m) => m[1]);
   assert.ok(nomes.length >= 20, 'o teste leu as strings do strings.xml');
@@ -370,6 +374,36 @@ test('toda string do strings.xml tem lugar na prévia: um prefixo novo não esca
     assert.match(inteira, /^<string name="[^"]*">$/, `string com outro formato, que a prévia não lê: ${inteira}`);
   }
   assert.ok(!/<(plurals|string-array)\b/.test(STRINGS), 'plurals e string-array não têm quadro na prévia');
+});
+
+// A notificação fixa da localização da equipe (spec 2026-11-08): o título e o texto são do strings.xml (o ServicoDaEquipe
+// os mostra enquanto a coleta está ligada), e não do servidor, como os das notificações de exemplo.
+test('a notificação fixa da localização da equipe tem quadro: o título e o texto que o ServicoDaEquipe mostra, no canal dele', () => {
+  const fonte = lerArquivo(PASTA_JAVA + 'ServicoDaEquipe.java');
+  const usadas = [...new Set([...fonte.matchAll(/R\.string\.(notificacao_equipe_\w+)/g)].map((m) => m[1]))].sort();
+  const strings = stringsDe('notificacao_equipe_');
+  assert.deepEqual(strings.map((s) => s.nome).sort(), usadas,
+    'todo notificacao_equipe_* do strings.xml é um texto que o ServicoDaEquipe mostra, e ele só mostra esses');
+  const texto = (sufixo) => strings.find((s) => s.nome === `notificacao_equipe_${sufixo}`)?.texto;
+  assert.ok(texto('titulo') && texto('texto'), 'o título e o texto da notificação fixa');
+
+  const canal = fonte.match(/new NotificationCompat\.Builder\(this, (CANAL_\w+)\)/);
+  const id = canal && fonte.match(new RegExp(`static final String ${canal[1]} = "(\\w+)";`));
+  assert.ok(id, 'o teste leu o canal da notificação fixa');
+  const doCanal = canaisDetalhadosDoJava().find((c) => c.id === id[1]);
+  assert.ok(doCanal, `o CanaisDeNotificacao cria o canal ${id[1]}`);
+
+  const figura = doc().getElementById('t-equipe-notificacao');
+  const quadro = figura?.querySelector('.celular.gaveta');
+  assert.ok(quadro, 'o quadro da notificação fixa (figure#t-equipe-notificacao)');
+  assert.equal(quadro.getAttribute('data-canal'), id[1]);
+  assert.equal(quadro.classList.contains('por-cima'), doCanal.importancia === 'HIGH', 'por cima da tela só a alta');
+  const de = (seletor) => compactar(quadro.querySelector(`.notificacao ${seletor}`)?.textContent ?? '');
+  assert.equal(de('.notificacao-app'), stringDoApp('app_name'));
+  assert.equal(de('.notificacao-titulo'), texto('titulo'));
+  assert.equal(de('.notificacao-texto'), texto('texto'));
+  assert.equal(compactar(figura.querySelector('figcaption .notificacao-canal')?.textContent ?? ''), textoDe(doCanal.nome),
+    'a legenda diz o canal, com o nome do strings.xml');
 });
 
 test('os botões de cada quadro são os que o código Java monta, e todo diálogo do Java tem quadro', () => {
@@ -781,7 +815,7 @@ test('as notificações de exemplo: uma por quadro, no canal e na importância q
   const secao = secaoDeNotificacoes(d);
   assert.ok(secao, 'a seção Notificações');
   const canais = canaisDetalhadosDoJava();
-  assert.equal(canais.length, 3, 'o teste leu os três canais do CanaisDeNotificacao');
+  assert.equal(canais.length, 4, 'o teste leu os quatro canais do CanaisDeNotificacao');
   const osQueAbre = padraoDaOSDoJava();
 
   // A seção diz de quem é o texto e de qual servidor ele foi copiado.

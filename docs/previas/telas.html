@@ -295,8 +295,8 @@
       <li><input type="checkbox" id="ok-erro"><label for="ok-erro"><b class="cita">Sem internet</b>: o título, os dois textos e o botão <b class="cita">Tentar de novo</b>.</label><a class="ver" href="#t-erro">Ver</a></li>
       <li><input type="checkbox" id="ok-fracttal"><label for="ok-fracttal">O aviso do Fracttal: o botão <b class="cita">Fechar</b> e o visual da camada. O texto da explicação vem da página do App de Campo.</label><a class="ver" href="#t-fracttal">Ver</a></li>
       <li><input type="checkbox" id="ok-notificacoes"><label for="ok-notificacoes">Novo: as notificações na barra do Android, com o G da Grid em branco como ícone pequeno e o nome <b class="cita">Nexus Field</b>: o resumo das 7h, o das 13h, a emergência que toca e a que chega em silêncio (a de fora do expediente, e também a enviada no expediente que chega depois dele a um celular que estava sem sinal). O texto de cada uma é escrito pelo servidor do App de Campo (os exemplos são os dele). E o toque na emergência: põe o número da OS na busca da aba Tarefas; se o técnico estiver na tela de entrada, no meio de uma OS, de uma ronda começada ou com outra tela aberta, ela fica pendente até ele ficar livre. A emergência fica na barra até a OS ser mostrada no Nexus Field.</label><a class="ver" href="#t-notif-manha">Ver</a></li>
-      <li><input type="checkbox" id="ok-canais"><label for="ok-canais">Novo: os nomes dos canais das notificações, nos ajustes do Android: <b class="cita">Emergências</b>, <b class="cita">Emergências fora do expediente</b> e <b class="cita">Resumo do dia</b>.</label><a class="ver" href="#t-canais">Ver</a></li>
-      <li><input type="checkbox" id="ok-canais-som"><label for="ok-canais-som">Novo, e não muda depois: como cada canal avisa. <span class="canal-aviso" data-canal="emergencia"><b class="cita">Emergências</b>: o alarme padrão do aparelho, no volume das notificações (não toca no silencioso nem no Não perturbe), três vibrações, e aparece por cima da tela.</span> <span class="canal-aviso" data-canal="resumo"><b class="cita">Resumo do dia</b>: o som padrão de notificação, sem aparecer por cima da tela.</span> <span class="canal-aviso" data-canal="emergencia_silenciosa"><b class="cita">Emergências fora do expediente</b>: nada, sem som, sem vibração e sem aparecer por cima da tela (fica só na barra).</span> <span class="canal-aviso">O Android grava o som, a vibração e a importância de cada canal na primeira abertura da 1.1.0: depois que ela chegar aos aparelhos, mudar isto pede um canal novo (os nomes mudam com a versão).</span></label><a class="ver" href="#t-canais">Ver</a></li>
+      <li><input type="checkbox" id="ok-canais"><label for="ok-canais">Novo: os nomes dos canais das notificações, nos ajustes do Android: <b class="cita">Emergências</b>, <b class="cita">Emergências fora do expediente</b> e <b class="cita">Resumo do dia</b>; e, novo na 1.2.0 e pendente, <b class="cita">Localização da equipe</b>, que só aparece no aparelho em que a coleta da posição ligou.</label><a class="ver" href="#t-canais">Ver</a></li>
+      <li><input type="checkbox" id="ok-canais-som"><label for="ok-canais-som">Novo, e não muda depois: como cada canal avisa. <span class="canal-aviso" data-canal="emergencia"><b class="cita">Emergências</b>: o alarme padrão do aparelho, no volume das notificações (não toca no silencioso nem no Não perturbe), três vibrações, e aparece por cima da tela.</span> <span class="canal-aviso" data-canal="resumo"><b class="cita">Resumo do dia</b>: o som padrão de notificação, sem aparecer por cima da tela.</span> <span class="canal-aviso" data-canal="emergencia_silenciosa"><b class="cita">Emergências fora do expediente</b>: nada, sem som, sem vibração e sem aparecer por cima da tela (fica só na barra).</span> <span class="canal-aviso" data-canal="equipe_localizacao"><b class="cita">Localização da equipe</b> (novo na 1.2.0, pendente): nada, sem som, sem vibração, sem aparecer por cima da tela e sem o ponto no ícone (a notificação fixa fica só na barra, das 6h às 22h).</span> <span class="canal-aviso">O Android grava o som, a vibração e a importância de cada canal na primeira abertura da 1.1.0 (o da localização da equipe, na primeira vez em que a coleta liga): depois que ela chegar aos aparelhos, mudar isto pede um canal novo (os nomes mudam com a versão).</span></label><a class="ver" href="#t-canais">Ver</a></li>
       <li><input type="checkbox" id="ok-atalhos"><label for="ok-atalhos">Novo, só para administrador: os atalhos do toque longo no ícone, <b class="cita">Testar avisos</b> e <b class="cita">Testar sem alarme</b> (com os rótulos curtos, <b class="cita">Testar</b> e <b class="cita">Sem alarme</b>; o teste manda também o resumo, que toca com o som normal, e a emergência de teste do segundo vem sem alarme), e o <b class="cita">Só para administrador</b> do atalho fixado na tela inicial, que fica desligado com outra conta e depois do Sair.</label><a class="ver" href="#t-atalhos">Ver</a></li>
       <li><input type="checkbox" id="ok-teste-avisos"><label for="ok-teste-avisos">Novo, só para administrador: os seis avisos rápidos (toast) do teste, <b class="cita">Aviso de teste enviado para 2 aparelho(s)</b> (o número muda), <b class="cita">Aviso de teste enviado</b> (sem o número), <b class="cita">Só administrador pode testar</b>, <b class="cita">Entre no Nexus Field para testar</b>, <b class="cita">Não consegui enviar o teste agora</b> e <b class="cita">Teste já pedido. Espere alguns segundos para pedir outro</b>.</label><a class="ver" href="#t-teste-enviado">Ver</a></li>
       <li><input type="checkbox" id="ok-visual"><label for="ok-visual">O visual: os diálogos seguem o tema claro ou escuro do aparelho, e os botões usam a cor de destaque padrão do Android (verde-azulado), porque a casca não define uma cor própria.</label></li>
@@ -619,17 +619,19 @@
 
       <figure class="item" id="t-canais">
         <div class="celular ajustes" role="group" aria-label="Tela de ajustes do Android com os canais de notificação do Nexus Field">
-          <!-- Os nomes são os do strings.xml (notificacao_canal_*), e o teste confere que são os três que o
-               CanaisDeNotificacao cria. A ordem aqui é a do id do canal (emergencia, emergencia_silenciosa, resumo),
-               a que se espera dos ajustes do Android; não foi conferida em aparelho, e o teste não a exige. -->
+          <!-- Os nomes são os do strings.xml (notificacao_canal_*), e o teste confere que são os quatro que o
+               CanaisDeNotificacao cria (o da localização da equipe só nasce no aparelho em que a coleta ligou). A ordem
+               aqui é a do id do canal (emergencia, emergencia_silenciosa, equipe_localizacao, resumo), a que se espera
+               dos ajustes do Android; não foi conferida em aparelho, e o teste não a exige. -->
           <div class="ajustes-app">Nexus Field</div>
           <ul class="canais" aria-label="Canais de notificação">
             <li class="canal"><span class="canal-nome">Emergências</span><span class="chave" aria-hidden="true"></span></li>
             <li class="canal"><span class="canal-nome">Emergências fora do expediente</span><span class="chave" aria-hidden="true"></span></li>
+            <li class="canal"><span class="canal-nome">Localização da equipe</span><span class="chave" aria-hidden="true"></span></li>
             <li class="canal"><span class="canal-nome">Resumo do dia</span><span class="chave" aria-hidden="true"></span></li>
           </ul>
         </div>
-        <figcaption><strong>Os canais das notificações, novo.</strong> Aparecem nos ajustes do Android (Apps, Nexus Field, Notificações) e quando o técnico toca e segura uma notificação. Ele pode desligar ou mudar cada um, e o Nexus Field não desfaz o que ele ajustou. Nenhum toca no silencioso nem no Não perturbe. Emergências: o alarme padrão do aparelho, no volume das notificações (não no do despertador), três vibrações, e aparece por cima da tela. Emergências fora do expediente: a emergência que surge fora do dia útil e do expediente, ou que chega depois dele, fica na barra sem som nem vibração. Resumo do dia: os avisos das 7h e das 13h com as tarefas do dia, com o som padrão e sem aparecer por cima da tela. O som, a vibração e a importância de cada canal ficam gravados no aparelho na primeira abertura da 1.1.0, e uma versão nova não os muda (mudar pede um canal novo); os nomes mudam com a versão. O desenho da tela de ajustes é uma aproximação: a ordem e o visual mudam com a versão do Android.</figcaption>
+        <figcaption><strong>Os canais das notificações, novo.</strong> Aparecem nos ajustes do Android (Apps, Nexus Field, Notificações) e quando o técnico toca e segura uma notificação. Ele pode desligar ou mudar cada um, e o Nexus Field não desfaz o que ele ajustou. Nenhum toca no silencioso nem no Não perturbe. Emergências: o alarme padrão do aparelho, no volume das notificações (não no do despertador), três vibrações, e aparece por cima da tela. Emergências fora do expediente: a emergência que surge fora do dia útil e do expediente, ou que chega depois dele, fica na barra sem som nem vibração. Resumo do dia: os avisos das 7h e das 13h com as tarefas do dia, com o som padrão e sem aparecer por cima da tela. Localização da equipe, novo na 1.2.0 e pendente: a <a href="#t-equipe-notificacao">notificação fixa</a> enquanto a coleta da posição está ligada, sem som, sem vibração, sem aparecer por cima da tela e sem o ponto no ícone; só aparece no aparelho em que a coleta ligou. O som, a vibração e a importância de cada canal ficam gravados no aparelho na primeira abertura da 1.1.0 (o da localização da equipe, na primeira vez em que a coleta liga), e uma versão nova não os muda (mudar pede um canal novo); os nomes mudam com a versão. O desenho da tela de ajustes é uma aproximação: a ordem e o visual mudam com a versão do Android.</figcaption>
       </figure>
 
       <figure class="item" id="t-atalhos">
@@ -693,6 +695,28 @@
           <div class="toast" role="status" aria-labelledby="teste-ja-pedido-nome">Teste já pedido. Espere alguns segundos para pedir outro</div>
         </div>
         <figcaption><strong id="teste-ja-pedido-nome">Aviso rápido (toast) do segundo toque, novo.</strong> Um toque no atalho em menos de 10 segundos depois de outro: o primeiro teste já foi pedido, e este não sai (dois toques mandariam dois pares de avisos a cada aparelho da conta).</figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="grupo" aria-labelledby="g-equipe">
+    <h2 id="g-equipe">Localização da equipe</h2>
+    <p class="suave">Novo na 1.2.0, com os textos pendentes de aprovação (do dono da casca, do RH e do jurídico): a coleta da posição dos técnicos de campo para o mapa da equipe no Nexus, da primeira abertura do Nexus Field no dia até as 22h, na hora do celular, só para quem o Nexus diz que a coleta vale. Enquanto ela está ligada, a notificação fixa fica na barra; às 22h ela sai sozinha. O título e o texto são do Nexus Field (o strings.xml), e não do servidor.</p>
+    <div class="galeria">
+
+      <figure class="item" id="t-equipe-notificacao">
+        <div class="celular gaveta" data-canal="equipe_localizacao" role="group" aria-label="Barra do Android com a notificação fixa da localização da equipe do Nexus Field">
+          <div class="barra-status" aria-hidden="true"><span class="barra-hora">07:30</span><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></div>
+          <div class="gaveta-lista">
+            <div class="notificacao" role="group" aria-label="Notificação do Nexus Field">
+              <div class="notificacao-topo"><span class="notificacao-icone" aria-hidden="true"><svg class="notificacao-g" viewBox="0 0 24 24" focusable="false"><use href="#g-notificacao"/></svg></span><span class="notificacao-app">Nexus Field</span></div>
+              <div class="notificacao-titulo">Localização da equipe ligada</div>
+              <div class="notificacao-texto">Até as 22h, o Nexus Field envia a posição deste celular para o mapa da equipe.</div>
+            </div>
+          </div>
+        </div>
+        <figcaption><strong>A notificação fixa da localização da equipe, nova e pendente.</strong> Aparece quando a coleta liga e fica na barra até as 22h, sem a hora, e não há pausa. Até o Android 13 o técnico não a dispensa; do Android 14 em diante o próprio Android deixa arrastá-la para o lado, e a coleta segue até as 22h. Canal: <span class="notificacao-canal">Localização da equipe</span> (sem som, sem vibração, sem aparecer por cima da tela e sem o ponto no ícone). Tocar abre o Nexus Field onde ele estava.</figcaption>
       </figure>
 
     </div>

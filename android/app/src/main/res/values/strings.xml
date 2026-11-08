@@ -82,6 +82,19 @@
     <string name="notificacao_canal_emergencia_silenciosa">Emergências fora do expediente</string>
 
     <!--
+      A localização da equipe (spec 2026-11-08). Textos novos de 08/11/2026, PENDENTES: vão à prévia
+      (docs/previas/telas.html, a seção Localização da equipe e o quadro dos ajustes, #t-canais) e só valem depois de
+      aprovados pelo dono da casca e pelo RH e pelo jurídico. O nome do canal tem o prefixo dos canais (o
+      testes/previas.test.mjs confere que ele está no quadro dos ajustes e que é o do CanaisDeNotificacao); o id
+      (equipe_localizacao) fica no código (ServicoDaEquipe), e o canal só nasce no aparelho em que a coleta ligou. O título
+      e o texto da notificação fixa, que fica na barra enquanto a coleta está ligada (até as 22h), têm prefixo próprio,
+      notificacao_equipe_: não são diálogo nem toast, e o texto é do Nexus Field, não do servidor.
+    -->
+    <string name="notificacao_canal_equipe_localizacao">Localização da equipe</string>
+    <string name="notificacao_equipe_titulo">Localização da equipe ligada</string>
+    <string name="notificacao_equipe_texto">Até as 22h, o Nexus Field envia a posição deste celular para o mapa da equipe.</string>
+
+    <!--
       O atalho de teste dos avisos, só para administrador (decisão do dono, 18/10/2026): o toque longo no ícone do Nexus
       Field mostra estes dois atalhos só na conta que o servidor diz Admin, e cada um pede ao servidor um aviso de teste
       no canal dele (o alto e o silencioso), junto com um resumo de teste, que toca com o som normal no canal do resumo:

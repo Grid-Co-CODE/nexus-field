@@ -39,6 +39,13 @@ import java.util.Arrays;
  * deleteNotificationChannel do velho) muda o som sem o servidor mudar nada. Na Release, a 1.1.0 é a primeira a criar estes
  * canais; um aparelho de prova que rodou um APK de depuração deste ramo de antes do som de alarme tem as "Emergências" com
  * o som padrão de notificação (só reinstalando, o que apaga o espelho).
+ *
+ * E o quarto, "Localização da equipe" (spec 2026-11-08, {@link #criarDaEquipe}): o da notificação fixa do serviço da
+ * coleta (ServicoDaEquipe), com importância baixa, sem som, sem vibração e sem o ponto no ícone (a notificação fica na
+ * barra das 6h às 22h, e o ponto que nunca sai esconderia o do resumo e o da emergência). Não nasce a cada abertura, como
+ * os outros três: o serviço o cria antes de entrar em primeiro plano, e quem a coleta não alcança (o supervisor, o
+ * administrador, quem não está no piloto) não vê nos ajustes do Android um canal de localização que não é dele. A mesma
+ * regra vale para ele: o que ele grava na primeira coleta não muda depois.
  */
 final class CanaisDeNotificacao {
 
@@ -89,6 +96,25 @@ final class CanaisDeNotificacao {
                 .createNotificationChannelsCompat(Arrays.asList(resumo, emergencia, silenciosa));
         } catch (RuntimeException e) {
             Log.w(CascaPlugin.TAG, "os canais de notificação não foram criados: " + e.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * Cria (ou renomeia) o canal da localização da equipe. Nunca lança: roda no serviço da coleta, antes de ele entrar em
+     * primeiro plano (no Android 8+, a notificação de primeiro plano num canal que não existe derruba o app).
+     */
+    static void criarDaEquipe(Context contexto) {
+        try {
+            NotificationChannelCompat equipe = new NotificationChannelCompat.Builder(
+                    ServicoDaEquipe.CANAL_EQUIPE, NotificationManagerCompat.IMPORTANCE_LOW)
+                .setName(contexto.getString(R.string.notificacao_canal_equipe_localizacao))
+                .setSound(null, null)
+                .setVibrationEnabled(false)
+                .setShowBadge(false)
+                .build();
+            NotificationManagerCompat.from(contexto).createNotificationChannel(equipe);
+        } catch (RuntimeException e) {
+            Log.w(CascaPlugin.TAG, "o canal da localização da equipe não foi criado: " + e.getClass().getSimpleName());
         }
     }
 }

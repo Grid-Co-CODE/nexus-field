@@ -165,7 +165,8 @@ do processo), anotar qual foi.
 - [ ] Ligar a notificação em Configurações > Apps > Nexus Field > Notificações e voltar ao Nexus Field: ele se registra
       sozinho em alguns segundos. **Testar avisos** de novo: **Aviso de teste enviado para 1 aparelho(s)**, e o resumo e a
       emergência de teste chegam. Nos mesmos ajustes estão os três canais, **Resumo do dia**, **Emergências** e
-      **Emergências fora do expediente**.
+      **Emergências fora do expediente**. Um quarto, **Localização da equipe** (1.2.0), só aparece no aparelho em que a
+      coleta da posição da equipe já ligou.
 - [ ] Ainda nos ajustes, o som de **Emergências** é um som de alarme do aparelho (o Android mostra o nome do toque do
       despertador, ou algo como "Som de alarme padrão"), e não o som padrão de notificação. Se não for, o aparelho rodou um
       APK de depuração deste trabalho de antes do alarme (pela Release isso não acontece): o canal antigo não muda

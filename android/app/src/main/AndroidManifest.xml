@@ -90,6 +90,16 @@
         </service>
 
         <!--
+          A coleta da posição da equipe (spec 2026-11-08): um serviço em primeiro plano do tipo localização, com a
+          notificação fixa, das 6h às 22h, também com o app fechado (ServicoDaEquipe). Não exportado e sem filtro: só a
+          casca o liga, e nenhum outro app o alcança.
+        -->
+        <service
+            android:name=".ServicoDaEquipe"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!--
           Se um dia chegar uma mensagem com notificação (e não só dados), o próprio Firebase a mostra: no canal do resumo
           (o mais calmo dos três), e não no "Miscellaneous" que ele criaria, e com o G branco no lugar do quadrado cinza.
         -->
@@ -114,6 +124,12 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Android 13+: sem ela, nem o resumo nem a emergência aparecem. É pedida em tempo de execução. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- A coleta da equipe (spec 2026-11-08): o serviço em primeiro plano (Android 9+) do tipo localização (Android 14+),
+         e a localização "o tempo todo" (Android 10+), que a casca pede depois do aviso; sem ela o mapa mostra o técnico
+         como "sem permissão de localização". -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <!-- Sem o required="false", a permissão CAMERA faz a câmera parecer obrigatória (lint
          PermissionImpliesUnsupportedChromeOsHardware). As duas são pedidas em tempo de execução. -->

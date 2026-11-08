@@ -105,6 +105,11 @@ dependencies {
     // quando a dependência entrou (18/10/2026), e uma versão maior nova não vai aos ~50 aparelhos antes de assentar.
     implementation platform("com.google.firebase:firebase-bom:34.19.0")
     implementation "com.google.firebase:firebase-messaging"
+    // A coleta da posição da equipe (spec 2026-11-08): o FusedLocationProviderClient do Google Play services, que junta o
+    // GPS, o Wi-Fi e a rede do celular e, parado, pede a precisão equilibrada sem ligar o GPS (o LocationManager puro
+    // deixaria o GPS ligado o dia todo, e a bateria que acaba no meio do dia é o que leva o técnico a desinstalar).
+    // Número fixo, pelo mesmo motivo do Firebase.
+    implementation "com.google.android.gms:play-services-location:21.3.0"
     testImplementation "junit:junit:$junitVersion"
     testImplementation "org.robolectric:robolectric:4.17"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
