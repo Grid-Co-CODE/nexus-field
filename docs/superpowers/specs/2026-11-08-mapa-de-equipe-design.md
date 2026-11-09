@@ -70,12 +70,22 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   administradores do Nexus) e por quanto tempo (7 dias os pontos, 1 ano os deslocamentos). Os textos vão à prévia
   (`docs/previas/telas.html`), ao RH e ao jurídico, e só valem depois de aprovados.
 - **A permissão.** O Android pede a localização "o tempo todo" separada da de uso, e a partir do Android 11 manda o
-  técnico aos ajustes para isso. A casca leva até lá com a explicação. Sem ela, o app funciona como hoje e o mapa mostra
-  esse técnico como "sem permissão de localização".
+  técnico aos ajustes para isso. A casca leva até lá com a explicação. Depois de duas recusas o Android não abre mais o
+  pedido: a explicação passa a dizer o caminho pelos ajustes do app e os abre. Sem ela, o app funciona como hoje e o mapa
+  mostra esse técnico como "sem permissão de localização". O serviço confere a permissão ao ligar, no religamento do
+  sistema, a cada posição e a cada envio: tirada nos ajustes com a coleta ligada, a coleta para e não volta sem o
+  técnico abrir o app.
 - **A coleta.** Liga na primeira abertura do app no dia (entre 6h e 22h, na hora do celular), com um serviço em primeiro
   plano do tipo localização e uma notificação fixa (por exemplo, "Nexus Field: localização da equipe ligada até as
-  22h"). Segue com o app fechado. Às 22h para sozinha e a notificação sai. Envio a cada 2 minutos em deslocamento e
-  mais espaçado parado. Sem sinal, os pontos esperam no celular e saem quando o sinal voltar.
+  22h"). Segue com o app fechado, também quando o Android mata o processo e religa o serviço no mesmo dia. Às 22h para
+  sozinha, a notificação sai e o que ficou na fila sai num último envio. Envio a cada 2 minutos em deslocamento e mais
+  espaçado parado (o salto da posição de rede com o celular parado, dentro da precisão das leituras, não conta como
+  deslocamento). Sem sinal, os pontos esperam no celular e saem quando o sinal voltar. Sem a notificação fixa à vista,
+  a coleta não liga, e o mapa mostra o técnico como sem permissão.
+- **O que a casca faz com as respostas do Nexus.** O 200 só vale com o `coleta` booleano: o `true` tira os pontos da
+  fila, o `false` para; sem o campo, nulo ou de outro tipo, é como sem rede (nada sai da fila nem se apaga). O 4xx que
+  não é o 401 é o lote recusado, que sai da fila para não travar os seguintes; o 403, o 404, o 405 (o acesso ou a rota,
+  e não o lote), o 408 e o 429 esperam como sem rede. O ponto da fila que não se lê sai antes do lote.
 - **A identidade do aparelho.** Com o app fechado não há o login da página para mandar as posições. Na carga com o
   técnico logado, a casca pede ao Nexus uma chave própria do aparelho, mostrando o login Microsoft da página; o Nexus
   confere esse login, sabe quem é a pessoa, diz se a coleta vale para ela e devolve a chave. O token Microsoft não sai da
@@ -90,14 +100,20 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   o `coleta:false` apagam tudo. Uma conta ilegível (Keystore invalidado, backup restaurado) conta como fila sem dona, e a
   fila é apagada.
 - **O envio espera a conta conferida.** A coleta liga com a chave guardada e guarda os pontos, mas nada sai (nem o aviso
-  de que falta a permissão) até esta partida do app conferir a conta: o pedido do aparelho da mesma conta, ou a chave nova
-  guardada. O custo: o app aberto sem token (sem sinal, sessão vencida) coleta e só envia depois da conferência; a fila
-  guarda 24 h e no máximo 1000 pontos. A revogação do Sair não espera.
+  de que falta a permissão) até a página da tela que abriu conferir a conta: o pedido do aparelho da mesma conta, ou a
+  chave nova guardada. O custo: o app aberto sem token (sem sinal, sessão vencida) coleta e só envia depois da
+  conferência; a fila guarda 24 h e no máximo 1000 pontos. A revogação do Sair não espera. A conferência vai ao disco
+  (um sim ou não, sem dizer de quem): o processo que o Android religa sem tela no mesmo dia envia com ela, e a tela que
+  abre a desfaz até a página dela conferir. O cofre do aparelho que falha na conferência não deixa o dia parado: o envio
+  e a volta ao app conferem de novo quando ele voltar.
 - **A nova tentativa da página.** O que não terminou (o token ainda sem login, a falha do nativo ou do Nexus) tenta de novo
-  no online e na volta ao app, no máximo a cada 10 min contados do pedido ao nativo; com o pedido no ar nada começa outro,
-  e depois do Sair nada. Terminou: há chave (`temChave`), ou a chave ou o `coleta:false` foi entregue ao nativo. As falhas
-  que só aparecem no aparelho (o token sem id, a página sem `crypto.subtle`) e as do nativo e do Nexus saem como aviso
-  `equipe` no log, sem coordenada nem chave.
+  no online e na volta ao app, no máximo a cada 10 min contados do pedido ao nativo; com o pedido no ar nada começa outro
+  (o token ou o POST que não respondem em 10 min contam como falha), e depois do Sair nada. Terminou: há chave
+  (`temChave`), ou a chave ou o `coleta:false` foi entregue ao nativo. Depois de terminar com a chave, a volta ao app
+  pergunta de novo ao nativo se ela ainda está lá (o 401 do envio a apaga), no máximo a cada 10 min, e só então vai ao
+  Nexus. As falhas que só aparecem no aparelho (o token sem id, a página sem `crypto.subtle`) e as do nativo e do Nexus
+  saem como aviso `equipe` no log, com um motivo de lista fechada (o token sem id, o 401, a rede ou o CORS...) e sem
+  coordenada nem chave.
 - **Xiaomi e afins.** A coleta com o app fechado depende do "Início automático" e da bateria sem restrições, que o guia
   de instalação já manda ligar para os avisos (`docs/instalacao/`). O guia ganha a linha da localização.
 
@@ -146,7 +162,7 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 - Entre os 7 dias e a limpeza da T.I., o ponto velho continua no banco, cifrado, sem uso.
 - Sem a notificação fixa à vista não há coleta: no Android 13 ou mais novo com a notificação do Nexus Field negada, ou com
   as notificações ou o canal da localização da equipe desligados nos ajustes, a coleta não liga (e para, se estava ligada).
-  O mapa mostra esse aparelho como sem sinal.
+  O mapa mostra esse aparelho como sem permissão.
 - O técnico pode negar a localização "o tempo todo" nos ajustes do Android: o mapa mostra quem está sem permissão, e
   resolver isso é com o supervisor.
 

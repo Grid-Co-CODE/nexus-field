@@ -338,35 +338,69 @@ para ver as posições chegarem. Os textos do aviso, da explicação e da notifi
 da equipe de `docs/previas/telas.html`) e valem só depois de aprovados. Nenhuma coordenada, e-mail ou chave vai para
 este arquivo: anote o que se viu em palavras.
 
+### Os aparelhos do piloto
+
+O Android muda a permissão "o tempo todo" e a notificação de versão para versão, e um aparelho só não prova as outras.
+O piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote o modelo e a versão, sem dono):
+
+- [ ] Android 10: o pedido do próprio Android oferece o **Permitir o tempo todo**, sem a explicação da casca.
+- [ ] Android 11 ou 12: a explicação **Localização o tempo todo** leva aos ajustes; no 12, o pedido oferece a
+      localização **Aproximada**.
+- [ ] Android 13: a notificação do Nexus Field é uma permissão, que se pode negar.
+- [ ] Android 14 ou mais novo: a notificação de primeiro plano pode ser arrastada para o lado.
+- [ ] De preferência, um Xiaomi, Redmi ou afim (o que mata o app ao tirar dos recentes), com o Início automático e a
+      bateria sem restrições do guia de instalação.
+
 ### A janela, a bateria e a notificação fixa
 
 - [ ] Antes das 6h (hora do celular): abrir o Nexus Field com a conta do piloto: nem o aviso nem a coleta aparecem. Depois
       das 6h, abrir de novo: aparece o aviso **Localização da equipe**. O aviso não fecha tocando fora nem pelo Voltar, e
       não tem botão de recusar.
+- [ ] Android 10: o **Continuar** do aviso abre o pedido do Android, que já oferece o **Permitir o tempo todo**; a
+      explicação da casca não aparece.
 - [ ] Android 11 ou mais novo: o **Continuar** do aviso mostra a explicação **Localização o tempo todo**, e o dela leva
-      aos ajustes da localização do Nexus Field; escolher **Permitir o tempo todo**. No Android 10, o próprio pedido do
-      Android oferece o Permitir o tempo todo e a explicação não aparece.
-- [ ] A coleta liga: a notificação fixa **Localização da equipe ligada** fica na barra, sem som e sem vibração. No Android
-      14 ou mais novo, arrastá-la para o lado: ela volta na hora, e a coleta segue.
+      aos ajustes da localização do Nexus Field; escolher **Permitir o tempo todo**.
+- [ ] A coleta liga: a notificação fixa **Localização da equipe ligada** fica na barra, sem som e sem vibração.
+- [ ] Android 14 ou mais novo: arrastar a notificação fixa para o lado: ela volta na hora, e a coleta segue.
 - [ ] A bateria das 6h às 22h: com a coleta ligada, usar o aparelho normalmente por um dia de trabalho (ou o que der de
       tempo) e ver em Configurações, Bateria, o consumo do Nexus Field. Anotar a porcentagem e quanto tempo o aparelho
-      passou parado: é o número que o piloto decide se aceita.
+      passou parado: é o número que o piloto decide se aceita. Parado longe do Wi-Fi (numa usina rural), o ritmo fica
+      no de parado (uns 10 min entre posições): o salto da posição de rede não religa o GPS.
 - [ ] A parada às 22h: com a coleta ligada, esperar as 22h (ou pôr o relógio do aparelho em 21h59, com o horário
-      automático desligado): a notificação fixa sai sozinha, e o Nexus não recebe mais pontos até a primeira abertura do
-      dia seguinte. Voltar o horário automático. Às 22h em ponto não vale, e às 6h em ponto vale.
+      automático desligado): a notificação fixa sai sozinha, os pontos de até as 22h chegam ao mapa logo depois (o
+      último envio), e o Nexus não recebe mais pontos até a primeira abertura do dia seguinte. Voltar o horário
+      automático. Às 22h em ponto não vale, e às 6h em ponto vale.
 - [ ] A coleta com o Nexus Field fechado: com a coleta ligada, tirar o Nexus Field dos recentes e apagar a tela; andar
       com o aparelho por alguns minutos (ou deixá-lo parado em outro ponto): o mapa mostra posições novas, a cada uns 2
-      minutos em deslocamento e uns 10 parado. Com a tela apagada por 30 min ou mais o ritmo se mantém.
+      minutos em deslocamento e uns 10 parado. Com a tela apagada por 30 min ou mais o ritmo se mantém. No aparelho que
+      mata o app ao tirar dos recentes, a coleta volta sozinha (o log diz "religamento da coleta da equipe: a conta que
+      a página conferiu vale, e o envio sai") e as posições continuam chegando sem abrir o app.
+- [ ] Sem abrir o app no dia, nada é coletado (o anti-objetivo da folga e das férias). Com a coleta ligada: (1)
+      reiniciar o celular; (2) noutro dia, Forçar parada do Nexus Field nos ajustes; (3) noutro dia, tirar o app dos
+      recentes no aparelho que o mata. Em cada caso, depois das 6h do dia seguinte e sem abrir o Nexus Field até o
+      meio da manhã: a notificação fixa não aparece, e o mapa não recebe nenhum ponto novo do aparelho. Abrir o Nexus
+      Field: a coleta liga.
 - [ ] A notificação desligada: nos ajustes do Android, desligar o canal **Localização da equipe** (ou as notificações do
-      Nexus Field): a coleta para, e o mapa mostra o aparelho sem sinal. No Android 13 ou mais novo, negar a notificação
-      do Nexus Field numa instalação nova: a coleta não liga (sem a notificação à vista não há coleta). Religar e ver a
-      coleta voltar na próxima volta ao app.
+      Nexus Field): a coleta para, e o mapa mostra o aparelho sem permissão (o aviso sai no máximo a cada 30 minutos).
+      Religar e ver a coleta voltar na próxima volta ao app.
+- [ ] Android 13 ou mais novo: negar a notificação do Nexus Field numa instalação nova: a coleta não liga (sem a
+      notificação à vista não há coleta), e o mapa mostra o aparelho sem permissão.
 
 ### O técnico sem a permissão o tempo todo e o Sair
 
 - [ ] Negar o **Permitir o tempo todo** (ou deixar só **Durante o uso**): o Nexus Field funciona como antes, sem coletar,
       e o mapa mostra "sem permissão de localização" para o aparelho (o aviso sai no máximo a cada 30 minutos). Voltar ao
       app não repete a explicação na mesma tela; a próxima abertura pergunta de novo.
+- [ ] Android 11 ou mais novo, duas recusas: negar o **Permitir o tempo todo** em duas aberturas seguidas. Na terceira, a
+      explicação diz o caminho pelos ajustes (**Permissões**, **Localização**, **Permitir o tempo todo**) e o
+      **Continuar** abre os ajustes do Nexus Field. Escolher **Permitir o tempo todo** e voltar ao app: a coleta liga.
+- [ ] Android 12 ou mais novo, a **Aproximada**: no pedido da localização do **Antes de começar**, escolher **Aproximada**:
+      aparece o aviso **Localização precisa desligada**, a coleta não liga e o mapa mostra o aparelho sem permissão.
+      Ligar **Usar localização precisa** nos ajustes e voltar ao app: a coleta liga.
+- [ ] A permissão tirada com a coleta ligada: nos ajustes do Android, trocar **Permitir o tempo todo** por **Permitir só
+      durante o uso** (o Android costuma matar o processo nessa hora). Sem abrir o app: a notificação fixa sai (na hora
+      ou na próxima posição) e não volta, nem pelo religamento do sistema, e o mapa para de receber pontos. Repetir
+      negando a localização inteira. Abrir o app: a explicação aparece de novo.
 - [ ] O Sair que revoga: com a coleta ligada, **Sair**: a notificação fixa some na hora, a coleta para e o mapa deixa de
       receber pontos; o aparelho não recebe mais nada em nome da conta de antes. Entrar de novo na mesma conta: o aviso
       aparece de novo (a chave é nova).
@@ -374,6 +408,19 @@ este arquivo: anote o que se viu em palavras.
       saiu e nenhum ponto sobe. Entrar com a conta do piloto: o aviso aparece de novo.
 - [ ] Um aparelho fora do piloto (conta de teste que o Nexus não escolheu, ou a conta Admin): nem o aviso nem a
       coleta aparecem, e a 1.2.0 se comporta como a 1.1.1.
+
+### O Nexus que muda de ideia com a coleta ligada
+
+- [ ] O 401 no meio do dia: com a coleta ligada e o app aberto, pedir ao chat do Nexus para revogar a chave do aparelho.
+      No envio seguinte (até uns 2 minutos em deslocamento, 10 parado) a coleta para sozinha e a notificação fixa sai.
+      Ir à tela inicial e voltar ao Nexus Field passados 10 minutos do último pedido da página: a página pede a chave
+      nova sozinha (sem recarregar), o aviso aparece de novo (a chave é nova) e o **Continuar** religa a coleta. Os
+      pontos que estavam na fila sobem com a chave nova. As voltas seguintes não pedem outra chave.
+- [ ] O `coleta:false` no meio do dia: com a coleta ligada, pedir ao chat do Nexus para tirar o aparelho do piloto. No
+      envio seguinte a coleta para, a notificação sai, e a fila é apagada. A volta ao app não religa a coleta (a página
+      pergunta ao Nexus uma vez e ele responde que a coleta não vale), nem a abertura seguinte.
+- [ ] O 401 com a fila cheia: com a chave revogada no Nexus e pontos na fila, abrir o Nexus Field com a mesma conta: a
+      chave nova entra e a fila antiga sobe com ela; com outra conta, a fila não sobe.
 
 ### A troca de conta e a abertura sem sinal
 
@@ -388,24 +435,29 @@ este arquivo: anote o que se viu em palavras.
 - [ ] A nova tentativa ao voltar o sinal: abrir o Nexus Field em modo avião com o aparelho sem chave, tirar o modo avião
       e esperar: a página pede a chave sozinha quando a rede volta (ou na volta ao app), no máximo a cada 10 minutos, e a
       coleta liga com o aviso.
-- [ ] O 401 com a fila cheia: com a chave revogada no Nexus (peça ao chat do Nexus) e pontos na fila, abrir o Nexus
-      Field com a mesma conta: a chave nova entra e a fila antiga sobe com ela; com outra conta, a fila não sobe.
 - [ ] A partida a frio: tirar o Nexus Field dos recentes e abrir com a chave guardada: nenhum envio de pontos antes do
       log "a conta da chave da equipe conferida nesta partida".
 
 ### Os avisos `equipe` do log
 
 Só se lê o log do Nexus Field (o logcat do aparelho de prova, filtrado ao app) e só o texto: coordenadas, chaves, e-mails
-e ids de aparelho nunca aparecem, e se aparecerem é defeito. Os avisos `equipe` que a página manda e o que cada um quer
-dizer:
+e ids de aparelho nunca aparecem, e se aparecerem é defeito. Cada aviso que a página manda chega como
+`equipe: erro da página, motivo <motivo> (N nesta partida)`, e o motivo diz o que foi (o texto do aviso não vai ao log):
 
-- [ ] O token da página que não diz de quem é a conta (sem `oid` nem `sub`): a chave da equipe não é pedida e o aparelho
-      não entra na coleta; uma vez por carga.
-- [ ] A página sem `crypto.subtle` (WebView antiga) ou o resumo da conta que falhou ou saiu fora do formato: mesmo efeito,
-      uma vez por carga cada.
-- [ ] As falhas do nativo e do Nexus (rota fora do ar, 404, 5xx, a chave que o nativo não guardou): um aviso por
-      tentativa, e a página tenta de novo no online e na volta ao app, a cada 10 minutos no máximo. Enquanto as rotas do
-      Nexus não estiverem no ar, cada carga com o técnico logado manda um (o 404): é esperado.
+- [ ] `semId`: o token da página não diz de quem é a conta (sem `oid` nem `sub`; é do site). A chave da equipe não é
+      pedida e o aparelho não entra na coleta; uma vez por carga.
+- [ ] `semResumo`: a página sem `crypto.subtle` (WebView antiga), ou o resumo da conta que falhou ou saiu fora do
+      formato. Mesmo efeito, uma vez por carga.
+- [ ] `http401`: o Nexus recusou o token (vencido, ou o público ou o tenant que o Nexus confere não batem com os do App
+      de Campo). `http404`: a rota do registro não está no ar. `http5xx`: a Microsoft fora ou o Nexus sem configuração.
+      `httpOutro`: outro status.
+- [ ] `rede`: sem rede, o tempo esgotado (o registro que não respondeu em 10 minutos) ou o CORS. Enquanto o Nexus
+      responder o OPTIONS da rota com o redirecionamento ao login (medido em 08/11/2026), cada carga com o técnico logado
+      manda um `rede` (o TypeError do fetch), e não um `http404`: é esperado até o chat do Nexus pôr a rota no ar.
+- [ ] `contrato`: o 200 do Nexus fora do contrato (sem a chave, sem o `coleta`, que não se lê). `nativo`: o nativo
+      respondeu sem o id do aparelho. `canal`: a mensagem ao nativo não saiu.
+- [ ] Cada falha do nativo ou do Nexus avisa uma vez por tentativa, e a página tenta de novo no online e na volta ao
+      app, a cada 10 minutos no máximo.
 - [ ] O Bearer que não vem (sem login) não avisa: é a conta ainda sem sessão, e a nova tentativa vem no login.
 
 ## O que não se vê no aparelho sem ferramenta
