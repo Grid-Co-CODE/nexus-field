@@ -105,7 +105,7 @@
       português).
     -->
     <string name="casca_equipe_termo_titulo">Termo de uso da localização</string>
-    <string name="casca_equipe_termo_texto">Para o mapa da equipe, o Nexus Field envia ao Nexus a posição deste celular das 6h às 22h, a partir da primeira abertura do dia, também com o aplicativo fechado. Serve para ver onde a equipe está e abrir rotas até as usinas. Quem vê: PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus. As posições ficam guardadas por 7 dias, e o resumo dos deslocamentos entre usinas, por 1 ano. Enquanto a coleta estiver ligada, uma notificação fica na barra, e no Sair do aplicativo ela para. Na próxima tela, escolha Durante o uso do app.</string>
+    <string name="casca_equipe_termo_texto">Para o mapa da equipe, o Nexus Field envia ao Nexus a posição deste celular das 6h às 22h, a partir da primeira abertura do dia, também com o aplicativo fechado. Serve para ver onde a equipe está e abrir rotas até as usinas. Quem vê: PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus. As posições ficam guardadas por 7 dias, e o resumo dos deslocamentos entre usinas, por 1 ano. Enquanto a coleta estiver ligada, uma notificação fica na barra, e no Sair do aplicativo ela para. Se o Android perguntar, escolha Durante o uso do app.</string>
     <string name="casca_equipe_termo_aceitar">Li e aceito</string>
 
     <!--
