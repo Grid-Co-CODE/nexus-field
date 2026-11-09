@@ -12,9 +12,11 @@ import android.Manifest;
 import android.app.Application;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
@@ -79,6 +81,10 @@ public class EquipeNaCascaTest {
         Runnable noMeioDoIniciar;
         /** Roda a cada parar, quando ele vale. */
         Runnable aoParar;
+        /** O parar que lança (a coleta que não parou agora): o resto do Sair não pode depender dele. */
+        boolean lancarNoParar;
+        /** A notificação fixa ficaria à vista (as notificações do Nexus Field e o canal da equipe ligados). */
+        boolean notificacao = true;
 
         @Override
         public void iniciar() {
@@ -91,6 +97,7 @@ public class EquipeNaCascaTest {
 
         @Override
         public void parar() {
+            if (lancarNoParar) throw new IllegalStateException("o serviço não parou agora");
             parados++;
             rodando = false;
             chamadas.add("parar");
@@ -101,14 +108,26 @@ public class EquipeNaCascaTest {
         public boolean rodando() {
             return rodando;
         }
+
+        @Override
+        public boolean notificacaoAVista() {
+            return notificacao;
+        }
     }
 
     /** A tela de mentira: guarda o Continuar de cada diálogo e os pedidos ao Android; com {@code saindo}, nada abre. */
     private static final class TelaFalsa implements EquipeNaCasca.Tela {
         int avisos;
         int explicacoes;
+        /** As explicações que mandam aos ajustes do app (o Android que não abre mais o pedido dele). */
+        int explicacoesPelosAjustes;
+        int ajustesAbertos;
         int fechadas;
         boolean saindo;
+        /** O fechar que lança (o diálogo que a tela não tirou agora). */
+        boolean lancarNoFechar;
+        /** O que o Android diria do pedido da permissão: ainda pede (true) ou não abre mais nada (false). */
+        boolean oAndroidPedeDeNovo = true;
         Runnable continuarDoAviso;
         Runnable continuarDaExplicacao;
         final List<List<String>> pedidos = new ArrayList<>();
@@ -122,9 +141,10 @@ public class EquipeNaCascaTest {
         }
 
         @Override
-        public boolean explicarOTempoTodo(Runnable continuar) {
+        public boolean explicarOTempoTodo(boolean pelosAjustes, Runnable continuar) {
             if (saindo) return false;
             explicacoes++;
+            if (pelosAjustes) explicacoesPelosAjustes++;
             continuarDaExplicacao = continuar;
             return true;
         }
@@ -137,7 +157,20 @@ public class EquipeNaCascaTest {
         }
 
         @Override
+        public boolean abrirOsAjustes() {
+            if (saindo) return false;
+            ajustesAbertos++;
+            return true;
+        }
+
+        @Override
+        public boolean oAndroidPedeDeNovo(String permissao) {
+            return oAndroidPedeDeNovo;
+        }
+
+        @Override
         public void fechar() {
+            if (lancarNoFechar) throw new IllegalStateException("o diálogo não fechou agora");
             fechadas++;
         }
     }
@@ -232,33 +265,65 @@ public class EquipeNaCascaTest {
 
     @Test
     public void decidirSegueARegraDaColeta() {
-        // (coleta, temChave, avisoAceito, permissaoDeUso, permissaoOTempoTodo, dentroDaJanela, rodando)
+        // (coleta, temChave, avisoAceito, permissaoDeUso, permissaoOTempoTodo, notificacaoAVista, dentroDaJanela,
+        // rodando)
         assertEquals("tudo em dia e parado", EquipeNaCasca.Acao.INICIAR,
-            EquipeNaCasca.decidir(true, true, true, true, true, true, false));
+            EquipeNaCasca.decidir(true, true, true, true, true, true, true, false));
         assertEquals("tudo em dia e rodando", EquipeNaCasca.Acao.NADA,
-            EquipeNaCasca.decidir(true, true, true, true, true, true, true));
+            EquipeNaCasca.decidir(true, true, true, true, true, true, true, true));
         for (boolean rodando : new boolean[] {false, true}) {
             assertEquals("o coleta:false do Nexus", EquipeNaCasca.Acao.PARAR,
-                EquipeNaCasca.decidir(false, true, true, true, true, true, rodando));
+                EquipeNaCasca.decidir(false, true, true, true, true, true, true, rodando));
             assertEquals("o coleta:false fora da janela", EquipeNaCasca.Acao.PARAR,
-                EquipeNaCasca.decidir(false, false, true, true, true, false, rodando));
+                EquipeNaCasca.decidir(false, false, true, true, true, true, false, rodando));
             assertEquals("sem a chave não há para onde mandar", EquipeNaCasca.Acao.PARAR,
-                EquipeNaCasca.decidir(true, false, true, true, true, true, rodando));
+                EquipeNaCasca.decidir(true, false, true, true, true, true, true, rodando));
             assertEquals("sem o aviso aceito", EquipeNaCasca.Acao.MOSTRAR_AVISO,
-                EquipeNaCasca.decidir(true, true, false, true, true, true, rodando));
+                EquipeNaCasca.decidir(true, true, false, true, true, true, true, rodando));
             assertEquals("sem a permissão o tempo todo", EquipeNaCasca.Acao.PEDIR_PERMISSAO,
-                EquipeNaCasca.decidir(true, true, true, true, false, true, rodando));
+                EquipeNaCasca.decidir(true, true, true, true, false, true, true, rodando));
             assertEquals("sem a de uso também", EquipeNaCasca.Acao.PEDIR_PERMISSAO,
-                EquipeNaCasca.decidir(true, true, true, false, false, true, rodando));
+                EquipeNaCasca.decidir(true, true, true, false, false, true, true, rodando));
+            assertEquals("sem a notificação fixa à vista", EquipeNaCasca.Acao.SEM_A_NOTIFICACAO,
+                EquipeNaCasca.decidir(true, true, true, true, true, false, true, rodando));
+            assertEquals("a permissão vem antes da notificação", EquipeNaCasca.Acao.PEDIR_PERMISSAO,
+                EquipeNaCasca.decidir(true, true, true, true, false, false, true, rodando));
+            assertEquals("e o aviso antes das duas", EquipeNaCasca.Acao.MOSTRAR_AVISO,
+                EquipeNaCasca.decidir(true, true, false, true, true, false, true, rodando));
         }
         assertEquals("fora da janela e parado", EquipeNaCasca.Acao.NADA,
-            EquipeNaCasca.decidir(true, true, true, true, true, false, false));
+            EquipeNaCasca.decidir(true, true, true, true, true, true, false, false));
         assertEquals("fora da janela e rodando", EquipeNaCasca.Acao.PARAR,
-            EquipeNaCasca.decidir(true, true, true, true, true, false, true));
+            EquipeNaCasca.decidir(true, true, true, true, true, true, false, true));
         // Fora da janela nada aparece ao técnico: nem o aviso nem o pedido da permissão (às 23h não há o que ligar).
-        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, false, true, true, false, false));
-        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, true, true, false, false, false));
-        assertEquals(EquipeNaCasca.Acao.PARAR, EquipeNaCasca.decidir(true, true, false, false, false, false, true));
+        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, false, true, true, true, false, false));
+        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, true, true, false, true, false, false));
+        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, true, true, true, false, false, false));
+        assertEquals(EquipeNaCasca.Acao.PARAR, EquipeNaCasca.decidir(true, true, false, false, false, true, false, true));
+    }
+
+    @Test
+    public void semANotificacaoAVistaAColetaParaEONexusSabeComoSemAPermissao() throws Exception {
+        // O caso: a notificação do Nexus Field negada no Android 13+ (ou o canal desligado). A casca mandava ligar, o serviço
+        // não ligava, e o mapa mostrava o aparelho só como "sem sinal", sem dizer que falta algo do técnico.
+        comChaveEAviso(CHAVE_A);
+        servico.notificacao = false;
+        servico.rodando = true;
+        EquipeNaCasca c = casca(ANDROID_11);
+        c.reavaliar();
+        assertEquals("a coleta ligada para", 1, servico.parados);
+        assertEquals(0, servico.iniciados);
+        assertEquals("nada aparece ao técnico", 0, tela.avisos + tela.explicacoes + tela.pedidos.size());
+        assertEquals(1, pedidosAoNexus.size());
+        assertEquals("sem", new JSONObject(pedidosAoNexus.get(0)[2]).optString("permissao"));
+        // A marca dos 30 minutos é a mesma do "sem" da permissão.
+        agora += MINUTO;
+        c.reavaliar();
+        assertEquals(1, pedidosAoNexus.size());
+        // A notificação de volta: a coleta liga.
+        servico.notificacao = true;
+        c.reavaliar();
+        assertEquals(1, servico.iniciados);
     }
 
     @Test
@@ -458,6 +523,82 @@ public class EquipeNaCascaTest {
     }
 
     @Test
+    public void oAvisoSemPermissaoQueONexusRecusaContaComoRespondidoENaoParaNada() {
+        // O 4xx (o Nexus recusou o lote vazio): mandar de novo a cada volta ao app não muda a resposta.
+        tirar(O_TEMPO_TODO);
+        comChaveEAviso(CHAVE_A);
+        resposta = new EnvioDePontos.Resposta(400, "");
+        EquipeNaCasca c = casca(ANDROID_11);
+        c.reavaliar();
+        tela.continuarDaExplicacao.run();
+        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        assertEquals(1, pedidosAoNexus.size());
+        assertTrue("a marca dos 30 minutos", daCasca().contains("sem_permissao_em"));
+        assertEquals("a chave fica", CHAVE_A, chave.chave());
+        assertEquals(0, servico.parados);
+        agora += MINUTO;
+        c.reavaliar();
+        assertEquals(1, pedidosAoNexus.size());
+    }
+
+    @Test
+    public void noAndroid11DepoisQueOAndroidNaoAbreMaisOPedidoAExplicacaoLevaAosAjustesDoApp() {
+        // Depois de duas recusas, o Android 11+ não abre mais a tela da permissão: o Continuar da explicação, que promete
+        // "a próxima tela", não fazia nada. A casca nota (o Android diz que não pede de novo) e, dali em diante, explica o
+        // caminho pelos ajustes do app e os abre.
+        tirar(O_TEMPO_TODO);
+        comChaveEAviso(CHAVE_A);
+        EquipeNaCasca primeira = casca(ANDROID_11);
+        primeira.reavaliar();
+        tela.continuarDaExplicacao.run();
+        primeira.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false)); // a primeira recusa: o Android ainda pede
+        EquipeNaCasca segunda = casca(ANDROID_11); // a abertura seguinte
+        segunda.reavaliar();
+        assertEquals("ainda a explicação da tela do Android", 2, tela.explicacoes);
+        assertEquals(0, tela.explicacoesPelosAjustes);
+        tela.continuarDaExplicacao.run();
+        assertEquals(2, tela.pedidos.size());
+        tela.oAndroidPedeDeNovo = false; // a segunda recusa: o Android não abre mais o pedido
+        segunda.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+
+        EquipeNaCasca terceira = casca(ANDROID_11);
+        terceira.reavaliar();
+        assertEquals("a explicação dos ajustes do app", 1, tela.explicacoesPelosAjustes);
+        tela.continuarDaExplicacao.run();
+        assertEquals("o Continuar abre os ajustes", 1, tela.ajustesAbertos);
+        assertEquals("e não pede ao Android o que ele não abriria", 2, tela.pedidos.size());
+        terceira.reavaliar(); // a volta dos ajustes sem o tempo todo: não pergunta de novo nesta tela
+        assertEquals(3, tela.explicacoes);
+        assertEquals(0, servico.iniciados);
+
+        // Com o tempo todo dado nos ajustes, a coleta liga, e a marca sai: tirado de novo, volta a tela do Android.
+        dar(O_TEMPO_TODO);
+        terceira.reavaliar();
+        assertEquals(1, servico.iniciados);
+        tirar(O_TEMPO_TODO);
+        tela.oAndroidPedeDeNovo = true;
+        casca(ANDROID_11).reavaliar();
+        assertEquals(4, tela.explicacoes);
+        assertEquals("a explicação da tela do Android de novo", 1, tela.explicacoesPelosAjustes);
+    }
+
+    @Test
+    public void osAjustesQueNaoAbremNaoDeixamACascaEsperando() {
+        tirar(O_TEMPO_TODO);
+        comChaveEAviso(CHAVE_A);
+        daCasca().edit().putBoolean("tempo_todo_pelos_ajustes", true).commit();
+        EquipeNaCasca c = casca(ANDROID_11);
+        c.reavaliar();
+        assertEquals(1, tela.explicacoesPelosAjustes);
+        tela.saindo = true;
+        tela.continuarDaExplicacao.run();
+        tela.saindo = false;
+        assertEquals(0, tela.ajustesAbertos);
+        c.reavaliar();
+        assertEquals("a volta seguinte pergunta de novo", 2, tela.explicacoesPelosAjustes);
+    }
+
+    @Test
     public void oAvisoSemPermissaoQueNaoChegouAoNexusTentaNaProximaVolta() {
         tirar(O_TEMPO_TODO);
         comChaveEAviso(CHAVE_A);
@@ -593,6 +734,28 @@ public class EquipeNaCascaTest {
         assertEquals(aparelho, new JSONObject(pedidosAoNexus.get(0)[2]).getString("aparelho"));
         assertEquals("o aparelho fica: é a identidade dele, não o segredo", aparelho, chave.aparelho());
         assertEquals(1, tela.fechadas);
+    }
+
+    @Test
+    public void oSairApagaAChaveEAFilaMesmoComAColetaEODialogoQueNaoParamAgora() {
+        // O parar e o fechar do diálogo ficavam fora do que garante o Sair: um deles lançando, a chave de quem saiu e a fila
+        // ficavam no aparelho, e a marca do Sair nunca saía (a conta seguinte não ligava a coleta).
+        comChaveEAviso(CHAVE_A);
+        encher(2);
+        servico.lancarNoParar = true;
+        tela.lancarNoFechar = true;
+        EquipeNaCasca c = casca(ANDROID_11);
+        c.sair();
+        assertNull("a chave de quem saiu não fica", chave.chave());
+        assertEquals("nem a fila", 0, fila.tamanho());
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
+        assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
+
+        servico.lancarNoParar = false;
+        tela.lancarNoFechar = false;
+        c.receberChave(true, CHAVE_B, CONTA_B);
+        tela.continuarDoAviso.run();
+        assertEquals("a marca do Sair saiu com a chave: a conta seguinte liga", 1, servico.iniciados);
     }
 
     @Test
@@ -966,7 +1129,10 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void oCofreQueNaoLeAContaDizQueTemAChaveMasNadaSai() throws Exception {
+    public void oCofreQueNaoLeAContaDizQueTemAChaveENadaSaiAteOEnvioConferirDeNovo() throws Exception {
+        // R9: o soluço do Keystore no pedido do aparelho. A resposta diz que há a chave (pedir outra revogaria à toa a que o
+        // cofre guarda), nada sai com o cofre fora, e o cofre que volta deixa o próximo envio conferir e subir a fila. Antes,
+        // só a próxima carga da página conferia, e ela pode ser no dia seguinte (a fila perde o que passa de 24 h).
         comChaveEAviso(CHAVE_A);
         encher(2);
         partidaNova();
@@ -974,14 +1140,81 @@ public class EquipeNaCascaTest {
         List<String> respostas = new ArrayList<>();
         casca(ANDROID_11).pedirAparelho(CONTA_A, respostas::add);
         assertTrue("pedir outra chave revogaria à toa a que o cofre guarda", new JSONObject(respostas.get(0)).getBoolean("temChave"));
-        cifra.keystoreFora = false; // o cofre voltou, e a chave se lê de novo
-        assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
-        assertTrue("nada sai sem a conta conferida", pedidosAoNexus.isEmpty());
+        assertEquals("o cofre ainda fora: nada sai", EnvioDePontos.Resultado.NADA, envio().enviar());
+        assertTrue(pedidosAoNexus.isEmpty());
         assertEquals(2, fila.tamanho());
-        // A conferência seguinte (a próxima carga), com o cofre de pé, solta o envio.
-        casca(ANDROID_11).pedirAparelho(CONTA_A, json -> true);
+        cifra.keystoreFora = false;
+        assertEquals("o cofre voltou: o envio confere e sobe a fila", EnvioDePontos.Resultado.ENVIADO, envio().enviar());
+        assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
+        assertEquals(2, new JSONObject(pedidosAoNexus.get(0)[2]).getJSONArray("pontos").length());
+        assertTrue(chave.conferida());
+    }
+
+    @Test
+    public void aVoltaAoAppConfereDeNovoAContaQueOCofreNaoDeixouConferir() {
+        comChaveEAviso(CHAVE_A);
+        partidaNova();
+        EquipeNaCasca c = casca(ANDROID_11);
+        cifra.keystoreFora = true;
+        c.pedirAparelho(CONTA_A, json -> true);
+        assertFalse(chave.conferida());
+        c.reavaliar();
+        assertFalse("o cofre ainda fora", chave.conferida());
+        cifra.keystoreFora = false;
+        c.reavaliar();
+        assertTrue("a volta ao app conferiu", chave.conferida());
+        assertTrue("nada revogado: é a mesma conta", pedidosAoNexus.isEmpty());
+        assertEquals(CHAVE_A, chave.chave());
+    }
+
+    @Test
+    public void oCofreQueVoltaComOutraContaGuardadaNaoMandaEAVoltaAoAppFazATroca() throws Exception {
+        // B usou o aparelho sem o Sair, e o cofre não respondeu no pedido do aparelho de A: a resposta disse que há a chave,
+        // e a página de A não pediu outra. O cofre volta: o envio confere, acha a conta de B e nada sai, e a volta ao app faz
+        // a troca de conta da R5 (fora do envio do serviço).
+        chave.guardar(CHAVE_B, CONTA_B);
+        chave.aceitarAviso();
+        encher(2);
+        partidaNova();
+        servico.rodando = true;
+        EquipeNaCasca c = casca(ANDROID_11);
+        cifra.keystoreFora = true;
+        List<String> respostas = new ArrayList<>();
+        c.pedirAparelho(CONTA_A, respostas::add);
+        assertTrue(new JSONObject(respostas.get(0)).getBoolean("temChave"));
+        cifra.keystoreFora = false;
+        assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
+        assertTrue("nada em nome de B", pedidosAoNexus.isEmpty());
+        assertEquals(2, fila.tamanho());
+
+        c.reavaliar();
+        assertEquals("só o revogar da chave de B", 1, pedidosAoNexus.size());
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
+        assertEquals(CHAVE_B, pedidosAoNexus.get(0)[1]);
+        assertNull(chave.chave());
+        assertNull(chave.conta());
+        assertEquals("a fila de B saiu", 0, fila.tamanho());
+        assertEquals("parar", servico.chamadas.get(servico.chamadas.size() - 1));
+        assertEquals(0, servico.iniciados);
+    }
+
+    @Test
+    public void aTelaQueAbreDesfazAConferenciaAteAPaginaDelaConferir() throws Exception {
+        // A abertura com tela (o load do plugin) é o caso da R8: outra conta pode estar entrando. Nada sai até a página desta
+        // tela conferir, nem pelo religamento sem tela que viesse depois dela.
+        comChaveEAviso(CHAVE_A);
+        encher(1);
+        EquipeNaCasca c = casca(ANDROID_11);
+        assertTrue(chave.conferida());
+        c.aTelaAbriu();
+        assertFalse(chave.conferida());
+        assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
+        ChaveDaEquipe religada = new ChaveDaEquipe(app, cifra);
+        religada.retomarConferencia();
+        assertFalse("o religamento depois da tela também espera", religada.conferida());
+        c.pedirAparelho(CONTA_A, json -> true);
         assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
-        assertEquals(1, pedidosAoNexus.size());
+        assertTrue(pedidosAoNexus.size() == 1);
     }
 
     @Test
@@ -1135,7 +1368,7 @@ public class EquipeNaCascaTest {
         assertTrue(seguiu[0]);
         assertFalse(aviso.isShowing());
 
-        t.explicarOTempoTodo(() -> t.pedir(new String[] {O_TEMPO_TODO}));
+        t.explicarOTempoTodo(false, () -> t.pedir(new String[] {O_TEMPO_TODO}));
         AlertDialog explicacao = ultimoDialogo();
         assertNotEquals(aviso, explicacao);
         conferirDialogo(explicacao, R.string.casca_equipe_permissao_titulo, R.string.casca_equipe_permissao_texto,
@@ -1154,6 +1387,27 @@ public class EquipeNaCascaTest {
     }
 
     @Test
+    public void aTelaDeVerdadeExplicaOCaminhoPelosAjustesEOsAbre() {
+        AppCompatActivity activity = activity();
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada pedido ao Android"));
+        t.explicarOTempoTodo(true, t::abrirOsAjustes);
+        AlertDialog explicacao = ultimoDialogo();
+        conferirDialogo(explicacao, R.string.casca_equipe_permissao_titulo, R.string.casca_equipe_permissao_texto_ajustes,
+            R.string.casca_equipe_permissao_continuar);
+        explicacao.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        shadowOf(Looper.getMainLooper()).idle();
+        Intent aberta = shadowOf(activity).getNextStartedActivity();
+        assertEquals("os ajustes do app", Settings.ACTION_APPLICATION_DETAILS_SETTINGS, aberta.getAction());
+        assertEquals("package:" + app.getPackageName(), aberta.getDataString());
+
+        // O que o Android diz do pedido: ainda pede (a primeira recusa) ou não abre mais nada (a segunda).
+        shadowOf(app.getPackageManager()).setShouldShowRequestPermissionRationale(O_TEMPO_TODO, true);
+        assertTrue(t.oAndroidPedeDeNovo(O_TEMPO_TODO));
+        shadowOf(app.getPackageManager()).setShouldShowRequestPermissionRationale(O_TEMPO_TODO, false);
+        assertFalse(t.oAndroidPedeDeNovo(O_TEMPO_TODO));
+    }
+
+    @Test
     public void osTextosDoAvisoDizemOQueQuandoPorQueQuemVeEPorQuantoTempo() {
         // O que a seção 4.1 do desenho manda o aviso dizer (o texto ainda vai à aprovação do dono, do RH e do jurídico).
         String aviso = app.getString(R.string.casca_equipe_aviso_texto);
@@ -1163,5 +1417,10 @@ public class EquipeNaCascaTest {
             assertTrue("o aviso não diz \"" + trecho + "\"", aviso.contains(trecho));
         }
         assertTrue(app.getString(R.string.casca_equipe_permissao_texto).contains("Permitir o tempo todo"));
+        // O caminho pelos ajustes do app: os nomes que o Android dá, como no aviso da localização aproximada.
+        String pelosAjustes = app.getString(R.string.casca_equipe_permissao_texto_ajustes);
+        for (String trecho : new String[] {"Permissões", "Localização", "Permitir o tempo todo"}) {
+            assertTrue("a explicação pelos ajustes não diz \"" + trecho + "\"", pelosAjustes.contains(trecho));
+        }
     }
 }

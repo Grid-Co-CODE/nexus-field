@@ -19,6 +19,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
+import android.os.Build;
 import android.os.Looper;
 import android.os.PowerManager;
 
@@ -39,6 +40,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.android.controller.ServiceController;
+import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLog;
 import org.robolectric.shadows.ShadowPendingIntent;
 import org.robolectric.shadows.ShadowPowerManager;
@@ -95,6 +97,7 @@ public class ServicoDaEquipeTest {
     private FonteFalsa fonte;
     private EnvioDePontos envio;
     private final List<String> pedidosAoNexus = new ArrayList<>();
+    private String ultimoCorpo;
     private EnvioDePontos.Resposta resposta = new EnvioDePontos.Resposta(200, "{\"aceitos\":1,\"coleta\":true}");
     private final List<ServiceController<ServicoDaEquipe>> servicos = new ArrayList<>();
 
@@ -118,6 +121,7 @@ public class ServicoDaEquipeTest {
     private void montarAsPecas() {
         envio = new EnvioDePontos(chave, fila, (url, k, corpo) -> {
             pedidosAoNexus.add(url);
+            ultimoCorpo = corpo;
             return resposta;
         }, () -> agora);
         // O disco e a rede na thread do teste: a fila e o envio rodam na hora, sem outra thread para esperar.
@@ -377,6 +381,277 @@ public class ServicoDaEquipeTest {
         assertFalse(ServicoDaEquipe.rodando());
         assertTrue(logou("sem a permissão de localização"));
         assertFalse("o log não leva o texto da exceção", logou("Client must have"));
+    }
+
+    // ---- A localização o tempo todo, tirada com a coleta ligada -------------------------------------------------------
+
+    @Test
+    public void oReligamentoDoSistemaSemALocalizacaoOTempoTodoNaoVoltaNemPedeOGps() {
+        // O caso: com a coleta ligada, o técnico troca o "Permitir o tempo todo" por "Permitir só durante o uso" nos ajustes;
+        // o Android mata o processo e religa o serviço (START_STICKY). Sem conferir, a coleta voltava (no Android 10, até
+        // as 22h com o app fechado) justo de quem acabou de negar o "o tempo todo".
+        agora = em(10, 0);
+        ligar();
+        morrerOProcesso();
+        int pedidosAntes = fonte.pedidos;
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+
+        ServicoDaEquipe s = religarPeloSistema();
+        assertEquals("nem entra em primeiro plano", 0, shadowOf(s).getLastForegroundNotificationId());
+        assertTrue(shadowOf(s).isStoppedBySelf());
+        assertFalse(ServicoDaEquipe.rodando());
+        assertEquals("nada pedido ao GPS", pedidosAntes, fonte.pedidos);
+        assertTrue(logou("sem a permissão de localização"));
+
+        // E o prazo do dia foi esquecido: com a permissão de volta, só a próxima abertura do app liga.
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        morrerOProcesso();
+        assertEquals(0, shadowOf(religarPeloSistema()).getLastForegroundNotificationId());
+    }
+
+    @Test
+    public void aPosicaoQueChegaSemALocalizacaoOTempoTodoNaoEntraNaFilaEOServicoPara() {
+        // O aparelho em que o processo não morre ao tirar a permissão: a coleta seguia até a próxima volta ao app.
+        agora = em(10, 0);
+        ServicoDaEquipe s = ligar();
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
+
+        assertEquals("a posição não entra", 0, fila.tamanho());
+        assertTrue(shadowOf(s).isStoppedBySelf());
+        assertTrue(shadowOf(s).getNotificationShouldRemoved());
+        assertFalse(ServicoDaEquipe.rodando());
+        assertTrue("o GPS foi solto", fonte.parada);
+        assertTrue(logou("sem a permissão de localização"));
+        morrerOProcesso();
+        assertEquals("o religamento não volta", 0, shadowOf(religarPeloSistema()).getLastForegroundNotificationId());
+    }
+
+    @Test
+    public void oEnvioSemALocalizacaoOTempoTodoNaoMandaEOServicoPara() {
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia", CONTA);
+        fila.guardar(new PontoDaEquipe(System.currentTimeMillis(), LAT, LON, 8f, 0f, false));
+        ServicoDaEquipe s = ligar();
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
+        assertTrue("nada foi ao Nexus", pedidosAoNexus.isEmpty());
+        assertTrue(shadowOf(s).isStoppedBySelf());
+        assertFalse(ServicoDaEquipe.rodando());
+    }
+
+    @Test
+    public void semALocalizacaoOTempoTodoOIniciarNaoPedeOServicoEOInicioQueJaVinhaEntraESaiLogo() {
+        agora = em(10, 0);
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        ServicoDaEquipe.iniciar(app);
+        assertNull("o iniciar não pede o serviço", shadowOf(app).getNextStartedService());
+
+        // A permissão tirada entre o iniciar e o onStartCommand: o serviço pedido em primeiro plano entra e sai (parar antes
+        // do startForeground derruba o app), sem pedir o GPS, e o prazo do dia é esquecido.
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        ServicoDaEquipe.iniciar(app);
+        Intent pedido = shadowOf(app).getNextStartedService();
+        assertNotNull(pedido);
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        ServicoDaEquipe s = entregar(pedido);
+        assertEquals("entrou em primeiro plano", ServicoDaEquipe.ID_DA_NOTIFICACAO, shadowOf(s).getLastForegroundNotificationId());
+        assertTrue("e saiu", shadowOf(s).isForegroundStopped());
+        assertTrue(shadowOf(s).isStoppedBySelf());
+        assertEquals("nada pedido ao GPS", 0, fonte.pedidos);
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        morrerOProcesso();
+        assertEquals("o prazo saiu: o religamento não volta", 0,
+            shadowOf(religarPeloSistema()).getLastForegroundNotificationId());
+    }
+
+    @Test
+    @Config(sdk = Build.VERSION_CODES.N)
+    public void antesDoAndroid10ALocalizacaoPrecisaBastaParaAColeta() {
+        // Antes do Android 10 não existe a permissão o tempo todo: a de uso já vale com o app fechado. Pedir a que não
+        // existe deixaria sem coleta todo Android 7 a 9.
+        agora = em(10, 0);
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        ligar();
+        assertTrue(ServicoDaEquipe.rodando());
+        fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
+        assertEquals(1, fila.tamanho());
+        morrerOProcesso();
+        assertTrue("o religamento também volta", shadowOf(religarPeloSistema()).getLastForegroundNotificationId() != 0);
+    }
+
+    // ---- O religamento do sistema manda com a conta que a página conferiu ----------------------------------------------
+
+    @Test
+    public void oReligamentoDoSistemaMandaComAContaQueAPaginaConferiuAntesDeOProcessoMorrer() {
+        // O caso: o processo morto no meio do dia com a coleta ligada (a falta de memória, o "tirar dos recentes" de quem mata
+        // o app, com o Início automático ligado). O serviço volta sem tela e sem página, e nada subia até o técnico abrir o
+        // app de novo (às vezes no dia seguinte): o mapa dizia "sem sinal" a tarde inteira com o GPS ligado.
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia", CONTA); // a página conferiu (a chave nova que ela entregou)
+        ligar();
+        morrerOProcesso();
+        chave = new ChaveDaEquipe(app, new CifraFalsa()); // o processo novo
+        montarAsPecas();
+
+        agora = em(13, 0);
+        religarPeloSistema();
+        assertTrue(ServicoDaEquipe.rodando());
+        long t0 = System.currentTimeMillis() - 60_000;
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
+        fonte.receptor.posicao(posicao(t0, LAT, LON, 0.2f));
+        assertEquals("o lote sai sem a página", Arrays.asList(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_POSICOES),
+            pedidosAoNexus);
+        rodarOLacoPrincipal();
+        assertEquals(0, fila.tamanho());
+    }
+
+    @Test
+    public void aTelaQueNasceDesfazAConferenciaEOReligamentoSeguinteNaoMandaSemAPaginaConferir() {
+        // A abertura com tela é o caso da R8 (outra conta pode estar entrando): a tela desfaz a conferência até a página
+        // dela conferir, e o religamento que vier depois, sem a página ter conferido, também espera.
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia", CONTA);
+        chave.aTelaAbriu(); // o técnico abriu o app, e a página ainda não conferiu
+        ligar();
+        morrerOProcesso();
+        chave = new ChaveDaEquipe(app, new CifraFalsa());
+        montarAsPecas();
+
+        agora = em(13, 0);
+        religarPeloSistema();
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
+        fonte.receptor.posicao(posicao(System.currentTimeMillis() - 60_000, LAT, LON, 0.2f));
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
+        assertTrue("nada sai sem a conferência", pedidosAoNexus.isEmpty());
+        assertEquals("e a posição fica na fila", 1, fila.tamanho());
+    }
+
+    @Test
+    public void oEnvioQueEsperaAContaNaoAcordaOCelularNemRecomecaAContaDoEnvio() {
+        // Na partida a frio com a tela, à espera da página: nem o Handler nem a posição com o envio vencido acordam o
+        // celular, e a conta do envio não recomeça, para o primeiro lote depois da conferência não esperar mais 2 min.
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia", CONTA);
+        chave = new ChaveDaEquipe(app, new CifraFalsa());
+        montarAsPecas();
+        ligar();
+        long t0 = System.currentTimeMillis() - 300_000;
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
+        fonte.receptor.posicao(posicao(t0, LAT, LON, 0.2f));
+        assertTrue(pedidosAoNexus.isEmpty());
+        assertEquals("o celular nem foi acordado", 0, shadowOf(ShadowPowerManager.getLatestWakeLock()).getTimesHeld());
+
+        // A página confere 30 s depois: a posição seguinte manda na hora.
+        assertTrue(chave.conferir(CONTA));
+        desdeOBoot += 30_000;
+        fonte.receptor.posicao(posicao(t0 + 30_000, LAT, LON, 0.2f));
+        assertEquals(Arrays.asList(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_POSICOES), pedidosAoNexus);
+        rodarOLacoPrincipal();
+        assertEquals(0, fila.tamanho());
+
+        // E o Handler seguiu de pé durante a espera: com o app aberto, ele manda de novo 2 min depois do envio.
+        fila.guardar(new PontoDaEquipe(System.currentTimeMillis(), LAT, LON, 8f, 0f, false));
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
+        assertEquals(2, pedidosAoNexus.size());
+    }
+
+    @Test
+    public void comOAppAbertoOHandlerMandaACada2Minutos() {
+        // O reagendamento: cada envio do Handler marca o seguinte, sem precisar de posição.
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia", CONTA);
+        ligar();
+        for (int i = 1; i <= 3; i++) {
+            fila.guardar(new PontoDaEquipe(System.currentTimeMillis(), LAT, LON, 8f, 0f, false));
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS - 1_000));
+            assertEquals("antes dos 2 min do " + i + "º", i - 1, pedidosAoNexus.size());
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+            assertEquals("o " + i + "º envio, aos " + (2 * i) + " min", i, pedidosAoNexus.size());
+            assertEquals(0, fila.tamanho());
+        }
+        assertTrue(ServicoDaEquipe.rodando());
+    }
+
+    // ---- As 22h: o último envio ---------------------------------------------------------------------------------------
+
+    @Test
+    public void as22hOQueFicouNaFilaSaiNumUltimoEnvio() {
+        // Os pontos entre o último envio e as 22h esperavam a primeira abertura do dia seguinte.
+        agora = em(21, 59);
+        chave.guardar("chave-ficticia", CONTA);
+        ServicoDaEquipe s = ligar();
+        long t0 = System.currentTimeMillis() - 60_000;
+        fonte.receptor.posicao(posicao(t0, LAT, LON, 0.2f));
+        fonte.receptor.posicao(posicao(t0 + 30_000, LAT, LON, 0.2f));
+        assertTrue(pedidosAoNexus.isEmpty());
+        assertEquals(2, fila.tamanho());
+
+        agora = em(22, 0) + 1_000;
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(61));
+        assertEquals("um envio depois das 22h", Arrays.asList(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_POSICOES),
+            pedidosAoNexus);
+        assertEquals("o que ficou subiu", 0, fila.tamanho());
+        assertTrue(shadowOf(s).isStoppedBySelf());
+        assertTrue(shadowOf(s).getNotificationShouldRemoved());
+        assertFalse(ServicoDaEquipe.rodando());
+        assertFalse("e o celular volta a dormir", ShadowPowerManager.getLatestWakeLock().isHeld());
+
+        // A posição que chega depois das 22h não entra (só o que era do dia sobe).
+        assertTrue(fonte.parada);
+    }
+
+    @Test
+    public void aPosicaoDepoisDas22hNaoEntraEOUltimoEnvioLevaSoAsDeAntes() throws Exception {
+        agora = em(21, 59);
+        chave.guardar("chave-ficticia", CONTA);
+        ligar();
+        long t0 = System.currentTimeMillis() - 60_000;
+        fonte.receptor.posicao(posicao(t0, LAT, LON, 0.2f));
+        agora = em(22, 0) + 1_000;
+        fonte.receptor.posicao(posicao(t0 + 60_000, LAT, LON, 0.2f));
+        assertEquals(1, pedidosAoNexus.size());
+        assertEquals("só o ponto de antes das 22h", 1,
+            new JSONObject(ultimoCorpo).getJSONArray("pontos").length());
+        assertEquals(0, fila.tamanho());
+        assertFalse(ServicoDaEquipe.rodando());
+    }
+
+    @Test
+    public void oPararQueEsqueceOPrazoNaoFazOUltimoEnvio() {
+        // O Sair e a troca de conta param pelo parar(), que esquece o prazo: a fila é de quem saiu, e não sobe.
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia", CONTA);
+        ligar();
+        fonte.receptor.posicao(posicao(System.currentTimeMillis() - 60_000, LAT, LON, 0.2f));
+        ServicoDaEquipe.parar(app);
+        // A posição que chega antes do encerrar postado: fora do prazo, e nada sai.
+        fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
+        rodarOLacoPrincipal();
+        assertTrue(pedidosAoNexus.isEmpty());
+        assertFalse(ServicoDaEquipe.rodando());
+    }
+
+    // ---- A leitura sem número válido -----------------------------------------------------------------------------------
+
+    @Test
+    public void aLeituraSemNumeroValidoEDescartadaEAColetaSegue() {
+        // O NaN ou o infinito de uma leitura (o provedor de posição com defeito): o ponto não vai à fila, que não escreve
+        // esses números, e a coleta segue com a leitura seguinte.
+        agora = em(10, 0);
+        ligar();
+        long t0 = System.currentTimeMillis() - 60_000;
+        fonte.receptor.posicao(posicao(t0, Double.NaN, LON, 0.2f));
+        fonte.receptor.posicao(posicao(t0 + 1_000, LAT, Double.POSITIVE_INFINITY, 0.2f));
+        fonte.receptor.posicao(posicao(t0 + 2_000, LAT, LON, 0.2f, Float.NaN));
+        fonte.receptor.posicao(posicao(t0 + 3_000, LAT, LON, Float.NaN));
+        assertEquals(0, fila.tamanho());
+        assertTrue(ServicoDaEquipe.rodando());
+        assertTrue(logou("descartada"));
+        fonte.receptor.posicao(posicao(t0 + 4_000, LAT, LON, 0.2f));
+        assertEquals(1, fila.tamanho());
+        assertFalse("nada de coordenada no log", logou("-56.1"));
     }
 
     @Test
@@ -710,5 +985,32 @@ public class ServicoDaEquipeTest {
         fonte.receptor.posicao(posicao(t0 + 6_000, LAT + norte200m + 0.0012, LON, null));
 
         assertEquals(Arrays.asList(false, false, true, true, false, false, false), movsDaFila());
+    }
+
+    @Test
+    public void oSaltoDaAntenaComOCelularParadoNaoReligaOGps() {
+        // O ritmo usa a mesma régua do mov: a distância que cabe na precisão das duas leituras não é deslocamento. Caso que
+        // criou a regra: parado o dia todo numa usina longe do Wi-Fi, a precisão equilibrada vem da antena (erro de
+        // centenas de metros), a leitura dela passava dos 150 m da última do GPS, o ritmo voltava à alta precisão, e a volta
+        // do GPS à posição certa passava de novo: um ciclo de uns 18 min com o GPS ligado perto de metade do tempo.
+        agora = em(10, 0);
+        ligar();
+        long t0 = System.currentTimeMillis() - 60_000;
+        for (int i = 0; i < 4; i++) fonte.receptor.posicao(posicao(t0 + i * 1_000L, LAT, LON, 0.2f));
+        assertEquals(RitmoDaColeta.PARADO_MS, fonte.intervalo);
+        assertFalse(fonte.emDeslocamento);
+        int pedidos = fonte.pedidos;
+
+        // A leitura da antena a uns 800 m, com 1,5 km de precisão, e a volta ao Wi-Fi (30 m) na posição certa.
+        fonte.receptor.posicao(posicao(t0 + 4_000, LAT + 0.0072, LON, null, 1_500f));
+        fonte.receptor.posicao(posicao(t0 + 5_000, LAT, LON, null, 30f));
+        assertEquals("o pedido segue na precisão equilibrada de 10 min", RitmoDaColeta.PARADO_MS, fonte.intervalo);
+        assertFalse(fonte.emDeslocamento);
+        assertEquals("sem pedir o GPS de novo", pedidos, fonte.pedidos);
+
+        // O deslocamento de verdade (200 m com o GPS, além da precisão) volta ao ritmo curto.
+        fonte.receptor.posicao(posicao(t0 + 6_000, LAT + 0.0018, LON, null));
+        assertEquals(RitmoDaColeta.EM_DESLOCAMENTO_MS, fonte.intervalo);
+        assertTrue(fonte.emDeslocamento);
     }
 }

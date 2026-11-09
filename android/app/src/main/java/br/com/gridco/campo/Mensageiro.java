@@ -36,7 +36,7 @@ import org.json.JSONObject;
  * <pre>
  *   ls {k, v} · lsDel {k} · idbPut {k, tipo, v} · idbDel {k} · idbPedaco {k, id, i, n, mime, b64} · sentinela
  *   precisoRetrato {motivo: 'perda' | 'fila'} · restaurado {chaves, naoCouberam, fila}
- *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg} · pushPedirToken · pushSaiu · pushRegistrado
+ *   idbPedir {motivo: 'perda' | 'idb'} · fora {url} · erro {onde, msg, motivo?} · pushPedirToken · pushSaiu · pushRegistrado
  *   pushAdmin {admin} · pushTeste {ok, status, aparelhos, pedido} · osAberta {os}
  *   equipePedirAparelho {conta} · equipeChave {coleta, chave, conta}
  * </pre>
@@ -51,9 +51,9 @@ import org.json.JSONObject;
  * <ul>
  *   <li><b>Nada do técnico vai ao log.</b> Os nomes das chaves têm e-mail (gc_ronda_&lt;email&gt;...), e o
  *       {@code naoCouberam} do restaurado é uma lista deles. Todo aviso sai por {@link Acoes#erro} com um rótulo nosso e
- *       contagens. Do erro que vem da página, só o {@code onde} (da lista {@link #ONDES_DA_PAGINA}) e a contagem; o
- *       texto nunca, porque o QuotaExceededError do Chromium cita a chave entre aspas ("Setting the value of '...'
- *       exceeded the quota") e o do JSON.parse, o próprio texto.</li>
+ *       contagens. Do erro que vem da página, só o {@code onde} (da lista {@link #ONDES_DA_PAGINA}), o {@code motivo} (da
+ *       lista {@link #MOTIVOS_DA_PAGINA}) e a contagem; o texto nunca, porque o QuotaExceededError do Chromium cita a chave
+ *       entre aspas ("Setting the value of '...' exceeded the quota") e o do JSON.parse, o próprio texto.</li>
  *   <li><b>Nunca lança.</b> As escritas do armazém lançam RuntimeException (disco cheio, pedaço com índice impossível):
  *       o canal engole, conta e devolve false. Uma exceção aqui derrubaria o app inteiro, e a página não tem o que fazer
  *       com ela.</li>
@@ -101,6 +101,15 @@ public final class Mensageiro {
         "push",
         "abrirOS",
         "equipe")));
+
+    /**
+     * Os motivos ({@code motivo}) que a seção 10 do www/casca/inicio.js (a chave da equipe) põe no {@code {t:'erro'}}:
+     * o que deixa o piloto, com o APK da Release e sem o inspetor da WebView, separar o token que não diz de quem é (o
+     * site), o 401 do Nexus (o público ou o tenant errados) e o CORS (a rede). Lista fechada, como a dos rótulos: o motivo
+     * fora dela não vai ao log, e o texto do erro nunca. O testes/canal.test.mjs confere que é a mesma do script.
+     */
+    static final Set<String> MOTIVOS_DA_PAGINA = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+        "semId", "semResumo", "nativo", "http401", "http404", "http5xx", "httpOutro", "rede", "contrato", "canal")));
 
     /**
      * A chave da equipe que o Nexus deu (o equipeChave): vai no Authorization dos envios ("Bearer &lt;chave&gt;"), então
@@ -606,13 +615,15 @@ public final class Mensageiro {
                     return true;
                 }
                 case "erro": {
-                    // Só o rótulo e a contagem. O texto do erro nunca vai ao log: o QuotaExceededError do Chromium cita
-                    // a chave entre aspas, e o do JSON.parse, o próprio texto (um nome, num rascunho que não é JSON).
-                    // Nenhuma limpeza alcança tudo isso.
+                    // Só o rótulo, o motivo da lista fechada e a contagem. O texto do erro nunca vai ao log: o
+                    // QuotaExceededError do Chromium cita a chave entre aspas, e o do JSON.parse, o próprio texto (um nome,
+                    // num rascunho que não é JSON). Nenhuma limpeza alcança tudo isso.
                     errosDaPagina++;
                     String onde = texto(m, "onde");
+                    String motivo = texto(m, "motivo");
                     avisar(onde != null && ONDES_DA_PAGINA.contains(onde) ? onde : "outro",
-                        "erro da página (" + errosDaPagina + " nesta partida)");
+                        "erro da página" + (motivo != null && MOTIVOS_DA_PAGINA.contains(motivo) ? ", motivo " + motivo : "")
+                            + " (" + errosDaPagina + " nesta partida)");
                     return true;
                 }
                 default:

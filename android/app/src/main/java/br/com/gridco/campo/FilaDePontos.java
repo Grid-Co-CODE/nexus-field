@@ -60,17 +60,64 @@ final class FilaDePontos {
         return ids;
     }
 
-    /** O corpo (JSON) dos pontos desses ids, na ordem de gravação. */
+    /** O corpo (JSON) dos pontos desses ids, na ordem de gravação; o ponto que não se lê fica de fora ({@link #legivel}). */
     synchronized JSONArray lote(List<Long> ids) {
-        JSONArray saida = new JSONArray();
-        if (ids.isEmpty()) return saida;
+        return legivel(ids).pontos;
+    }
+
+    /**
+     * Os pontos desses ids, na ordem de gravação, separados em os que vão ao Nexus e os que não se leem: a linha que não é
+     * JSON (o disco que corrompeu), a que não tem a hora, a posição, a precisão ou o mov, e a com um número que não é
+     * finito (o NaN e o infinito, que o org.json do Android lê de volta como número e não escreve: o corpo do lote saía
+     * null). Caso que criou a regra: o lote mais antigo é sempre o mesmo, e um ponto assim na frente da fila quebrava todo
+     * envio, e nada mais subia até as 24 h da fila.
+     */
+    synchronized Lote legivel(List<Long> ids) {
+        Lote lote = new Lote();
+        if (ids.isEmpty()) return lote;
         try (Cursor c = helper.getReadableDatabase().rawQuery(
-                "SELECT corpo FROM pontos WHERE id IN (" + lista(ids) + ") ORDER BY id", null)) {
-            while (c.moveToNext()) saida.put(new JSONObject(c.getString(0)));
-        } catch (JSONException e) {
-            throw new IllegalStateException("ponto ilegível na fila");
+                "SELECT id, corpo FROM pontos WHERE id IN (" + lista(ids) + ") ORDER BY id", null)) {
+            while (c.moveToNext()) {
+                long id = c.getLong(0);
+                JSONObject ponto = pontoValido(c.getString(1));
+                if (ponto == null) {
+                    lote.ruins.add(id);
+                } else {
+                    lote.ids.add(id);
+                    lote.pontos.put(ponto);
+                }
+            }
         }
-        return saida;
+        return lote;
+    }
+
+    /** Os pontos de um lote: os que vão (os ids e o corpo, na mesma ordem) e os ids dos que não se leem. */
+    static final class Lote {
+        final List<Long> ids = new ArrayList<>();
+        final JSONArray pontos = new JSONArray();
+        final List<Long> ruins = new ArrayList<>();
+    }
+
+    // O ponto no formato do PontoDaEquipe.json, ou null. Sem o conteúdo em exceção nem em log: é coordenada.
+    private static JSONObject pontoValido(String corpo) {
+        JSONObject o;
+        try {
+            o = new JSONObject(corpo);
+        } catch (JSONException | RuntimeException e) {
+            return null;
+        }
+        if (!(o.opt("mov") instanceof Boolean)) return null;
+        for (String campo : new String[] {"t", "lat", "lon", "prec"}) {
+            if (!finito(o.opt(campo))) return null;
+        }
+        if (o.has("vel") && !finito(o.opt("vel"))) return null;
+        return o;
+    }
+
+    private static boolean finito(Object valor) {
+        if (!(valor instanceof Number)) return false;
+        double d = ((Number) valor).doubleValue();
+        return !Double.isNaN(d) && !Double.isInfinite(d);
     }
 
     synchronized void remover(List<Long> ids) {

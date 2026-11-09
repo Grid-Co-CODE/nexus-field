@@ -247,6 +247,161 @@ public class ChaveDaEquipeTest {
         assertTrue(c.conferir(CONTA_A));
     }
 
+    // --- a conferência no disco, para o religamento sem tela ------------------------------------------------------------
+
+    /** O processo que o Android religa sem tela (o serviço da coleta): uma ChaveDaEquipe nova que retoma a do disco. */
+    private ChaveDaEquipe religadaPeloSistema() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.retomarConferencia();
+        return c;
+    }
+
+    @Test
+    public void oReligamentoSemTelaRetomaAConferenciaDaPaginaEATelaQueAbreADesfaz() {
+        // O caso: a coleta ligada, o processo morto no meio do dia (a falta de memória, o "tirar dos recentes" de quem mata
+        // o app) e o serviço religado pelo sistema, sem tela e sem página: nada subia até o técnico abrir o app de novo.
+        new ChaveDaEquipe(ctx, cifra).guardar("k1", CONTA_A);
+        ChaveDaEquipe religada = new ChaveDaEquipe(ctx, cifra);
+        assertFalse("o processo novo começa sem conferir", religada.conferida());
+        religada.retomarConferencia();
+        assertTrue("o religamento sem tela retoma a conferência que a página fez", religada.conferida());
+
+        // A tela que nasce (o load do plugin) desfaz, na memória e no disco, até a página dela conferir.
+        religada.aTelaAbriu();
+        assertFalse(religada.conferida());
+        assertFalse("o religamento seguinte não acha a conferência de antes da tela", religadaPeloSistema().conferida());
+
+        // A página da tela confere de novo: volta ao disco.
+        ChaveDaEquipe comTela = new ChaveDaEquipe(ctx, cifra);
+        comTela.aTelaAbriu();
+        assertTrue(comTela.conferir(CONTA_A));
+        assertTrue(religadaPeloSistema().conferida());
+
+        // A marca não diz de quem é: nem a conta nem a chave em claro no disco.
+        for (Object v : ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).getAll().values()) {
+            assertFalse(String.valueOf(v).contains(CONTA_A));
+            assertFalse(String.valueOf(v).contains("k1"));
+        }
+    }
+
+    @Test
+    public void tudoQueDesfazAConferenciaTiraTambemADoDisco() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        assertFalse("a conferência de outra conta", c.conferir(CONTA_B));
+        assertFalse(religadaPeloSistema().conferida());
+
+        assertTrue(c.conferir(CONTA_A));
+        cifra.keystoreFora = true;
+        try {
+            c.conferir(CONTA_A);
+            fail("o cofre que não respondeu agora não confere");
+        } catch (IllegalStateException esperado) {
+            // a chave e a conta continuam guardadas
+        }
+        cifra.keystoreFora = false;
+        assertFalse("o cofre fora", religadaPeloSistema().conferida());
+
+        assertTrue(c.conferir(CONTA_A));
+        c.apagarAChave();
+        assertFalse("o 401", religadaPeloSistema().conferida());
+
+        c.guardar("k2", CONTA_A);
+        c.apagar();
+        assertFalse("o Sair, a troca de conta e o coleta:false", religadaPeloSistema().conferida());
+
+        // Sem a chave no disco, a marca que sobrasse não confere nada.
+        c.guardar("k3", CONTA_A);
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("chave").commit();
+        assertFalse(religadaPeloSistema().conferida());
+    }
+
+    // --- R9: a conferência que o cofre não deixou fazer ---------------------------------------------------------------
+
+    @Test
+    public void oCofreQueFalhaNaConferenciaDeixaAContaDaPaginaParaConferirDeNovo() {
+        new ChaveDaEquipe(ctx, cifra).guardar("k1", CONTA_A);
+        ChaveDaEquipe partida = new ChaveDaEquipe(ctx, cifra);
+        assertFalse("nada a refazer sem a página", partida.precisaReconferir());
+        cifra.keystoreFora = true;
+        try {
+            partida.conferir(CONTA_A);
+            fail("o cofre que não respondeu agora não confere");
+        } catch (IllegalStateException esperado) {
+            // a conta fica por conferir
+        }
+        assertFalse(partida.conferida());
+        assertTrue("o envio e a volta ao app conferem de novo", partida.precisaReconferir());
+        assertEquals(CONTA_A, partida.contaDaPagina());
+        try {
+            partida.reconferir();
+            fail("o cofre ainda fora");
+        } catch (IllegalStateException esperado) {
+            // segue por refazer
+        }
+        assertTrue(partida.precisaReconferir());
+
+        cifra.keystoreFora = false;
+        assertTrue("o cofre voltou: a mesma conta confere", partida.reconferir());
+        assertTrue(partida.conferida());
+        assertFalse(partida.precisaReconferir());
+        assertTrue("e vai ao disco, como a conferência da página", religadaPeloSistema().conferida());
+    }
+
+    @Test
+    public void aReconferenciaComOutraContaGuardadaNaoConfereESegueAteATroca() {
+        // B usou o aparelho sem o Sair; o cofre não respondeu no pedido do aparelho de A, e voltou com a conta de B guardada.
+        new ChaveDaEquipe(ctx, cifra).guardar("k1", CONTA_B);
+        ChaveDaEquipe partida = new ChaveDaEquipe(ctx, cifra);
+        cifra.keystoreFora = true;
+        try {
+            partida.conferir(CONTA_A);
+            fail("o cofre que não respondeu agora não confere");
+        } catch (IllegalStateException esperado) {
+            // por refazer
+        }
+        cifra.keystoreFora = false;
+        assertFalse("outra conta guardada: nada sai", partida.reconferir());
+        assertFalse(partida.conferida());
+        assertTrue("segue por refazer até a troca de conta da volta ao app", partida.precisaReconferir());
+        assertFalse(religadaPeloSistema().conferida());
+        partida.apagar(); // a troca de conta
+        assertFalse(partida.precisaReconferir());
+        assertNull(partida.contaDaPagina());
+    }
+
+    @Test
+    public void aConferenciaDefinitivaOuAChaveNovaTiramOQueEstavaPorRefazer() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        cifra.keystoreFora = true;
+        try {
+            c.conferir(CONTA_A);
+            fail("o cofre fora");
+        } catch (IllegalStateException esperado) {
+            // por refazer
+        }
+        cifra.keystoreFora = false;
+        assertTrue(c.precisaReconferir());
+        c.guardar("k2", CONTA_A); // a chave nova que a página entregou
+        assertFalse(c.precisaReconferir());
+        assertTrue(c.conferida());
+
+        cifra.keystoreFora = true;
+        try {
+            c.conferir(CONTA_A);
+            fail("o cofre fora");
+        } catch (IllegalStateException esperado) {
+            // por refazer
+        }
+        cifra.keystoreFora = false;
+        assertFalse("a conferência seguinte, de outra conta, é definitiva", c.conferir(CONTA_B));
+        assertFalse(c.precisaReconferir());
+
+        c.aTelaAbriu();
+        assertNull("a tela nova traz a conta dela", c.contaDaPagina());
+    }
+
     @Test
     public void aContaIlegivelContaComoSemContaEOCofreForaNaoEUmaContaQueFalta() {
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);

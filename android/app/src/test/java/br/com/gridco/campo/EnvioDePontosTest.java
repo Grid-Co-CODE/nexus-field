@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
+import android.database.sqlite.SQLiteDatabase;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -141,6 +142,137 @@ public class EnvioDePontosTest {
         assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidos.get(1)[0]);
         assertEquals("k1", pedidos.get(1)[1]);
         assertNull(chave.chave());
+    }
+
+    @Test
+    public void oDuzentosSemOColetaOuComOColetaQueNaoEBooleanoNaoApagaNada() {
+        // O 200 fora do contrato (o chat do Nexus mudou um nome, ou um tratador de erro do servidor devolveu 200 {erro}):
+        // só o coleta:false para e apaga, e só o coleta:true tira os pontos da fila. Sem isso, o primeiro envio de cada
+        // aparelho apagava a chave e o dia guardado sem sinal.
+        chave.guardar("k1", CONTA);
+        encher(3);
+        for (String corpo : new String[] {"{\"aceitos\":3}", "{\"coleta\":null}", "{\"coleta\":\"false\"}",
+                "{\"coleta\":0}", "{\"erro\":\"interno\"}", "{\"coletar\":false}", "{}"}) {
+            resposta = new EnvioDePontos.Resposta(200, corpo);
+            assertEquals(corpo, EnvioDePontos.Resultado.SEM_REDE, envio().enviar());
+            assertEquals(corpo, 3, fila.tamanho());
+            assertEquals(corpo, "k1", chave.chave());
+            assertEquals(corpo, CONTA, chave.conta());
+            assertTrue(corpo, chave.conferida());
+        }
+        resposta = new EnvioDePontos.Resposta(200, "{\"aceitos\":0}");
+        assertEquals("o aviso sem permissão, igual", EnvioDePontos.Resultado.SEM_REDE, envio().avisarSemPermissao());
+        assertEquals("k1", chave.chave());
+    }
+
+    @Test
+    public void oQuatrocentosQueNaoEOQuatrocentoEUmDescartaOLoteRecusadoEOEnvioSegue() {
+        // O lote que o Nexus recusa (o 400 de um ponto torto, o 413, o 422) não passa se mandado de novo: sem o descarte ele
+        // ficava na frente da fila, e nenhum ponto novo subia até as 24 h da fila.
+        chave.guardar("k1", CONTA);
+        encher(250);
+        resposta = new EnvioDePontos.Resposta(400, "{\"erro\":\"lote\"}");
+        assertEquals(EnvioDePontos.Resultado.DESCARTADO, envio().enviar());
+        assertEquals("os 200 recusados saem da fila", 50, fila.tamanho());
+        assertEquals("e a chave fica", "k1", chave.chave());
+        resposta = new EnvioDePontos.Resposta(200, "{\"aceitos\":50,\"coleta\":true}");
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
+        assertEquals(0, fila.tamanho());
+        for (int status : new int[] {402, 409, 410, 413, 422, 499}) {
+            encher(2);
+            resposta = new EnvioDePontos.Resposta(status, "");
+            assertEquals(String.valueOf(status), EnvioDePontos.Resultado.DESCARTADO, envio().enviar());
+            assertEquals(String.valueOf(status), 0, fila.tamanho());
+        }
+        // O 403, o 404 e o 405 falam do acesso ou da rota, e não do lote (o caminho que o chat do Nexus mudou, a rota que
+        // caiu num deploy): descartar ali levaria o dia inteiro. O 408 e o 429 (o tempo esgotado e o excesso de pedidos)
+        // também são de espera, como sem rede; o 3xx também (a resposta que não é do Nexus): o lote fica.
+        for (int status : new int[] {403, 404, 405, 408, 429, 302}) {
+            encher(2);
+            resposta = new EnvioDePontos.Resposta(status, "");
+            assertEquals(String.valueOf(status), EnvioDePontos.Resultado.SEM_REDE, envio().enviar());
+            assertEquals(String.valueOf(status), 2, fila.tamanho());
+            fila.limpar();
+        }
+        assertEquals("k1", chave.chave());
+        resposta = new EnvioDePontos.Resposta(400, "");
+        assertEquals("o aviso sem permissão recusado", EnvioDePontos.Resultado.DESCARTADO, envio().avisarSemPermissao());
+        assertEquals("k1", chave.chave());
+    }
+
+    /** Uma linha gravada direto no banco da fila: a que o disco corrompeu, ou com um número que o JSON não escreve. */
+    private void gravarLinhaCrua(String corpo) {
+        SQLiteDatabase db = SQLiteDatabase.openDatabase(ctx.getDatabasePath(FilaDePontos.NOME_DO_BANCO).getPath(), null,
+            SQLiteDatabase.OPEN_READWRITE);
+        try {
+            db.execSQL("INSERT INTO pontos(t, corpo) VALUES (?, ?)", new Object[] {System.currentTimeMillis(), corpo});
+        } finally {
+            db.close();
+        }
+    }
+
+    @Test
+    public void oPontoQueNaoSeLeNaFilaSaiEOLoteSegueComOsOutros() throws Exception {
+        // O NaN que o org.json do Android lê de volta como número (e que o toString não escreve: o corpo saía null) e a linha
+        // que não é JSON: sem o descarte, todo envio quebrava nelas (o lote mais antigo é sempre o mesmo) e nada mais subia.
+        chave.guardar("k1", CONTA);
+        encher(2);
+        gravarLinhaCrua("{\"t\":1,\"lat\":NaN,\"lon\":-46.6,\"prec\":8,\"mov\":false}");
+        gravarLinhaCrua("isto não é JSON");
+        gravarLinhaCrua("{\"t\":1,\"lat\":-23.5,\"lon\":Infinity,\"prec\":8,\"mov\":false}");
+        encher(1);
+        assertEquals(6, fila.tamanho());
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
+        assertEquals("os três pontos bons subiram", 3,
+            new JSONObject(pedidos.get(0)[2]).getJSONArray("pontos").length());
+        assertEquals("e os ruins saíram da fila", 0, fila.tamanho());
+
+        // O lote só com pontos ruins (a linha cortada no meio, a que não tem a posição): eles saem, e nada vai ao Nexus.
+        gravarLinhaCrua("{\"t\":1,\"lat\":");
+        gravarLinhaCrua("{\"t\":1,\"prec\":8,\"mov\":false}");
+        assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
+        assertEquals(1, pedidos.size());
+        assertEquals(0, fila.tamanho());
+    }
+
+    @Test
+    public void podeEnviarSoComAContaConferidaOuPorConferirDeNovo() {
+        // O serviço pergunta antes de acordar o celular (a thread principal, sem o cofre).
+        assertFalse(envio().podeEnviar());
+        chave.guardar("k1", CONTA);
+        assertTrue(envio().podeEnviar());
+        chave = new ChaveDaEquipe(ctx, new CifraFalsa());
+        assertFalse("a partida a frio, antes da página", envio().podeEnviar());
+        CifraFalsa fora = new CifraFalsa();
+        fora.keystoreFora = true;
+        chave = new ChaveDaEquipe(ctx, fora);
+        try {
+            chave.conferir(CONTA);
+        } catch (IllegalStateException esperado) {
+            // o cofre fora
+        }
+        assertTrue("a conferência por refazer (R9): o envio tenta", envio().podeEnviar());
+    }
+
+    @Test
+    public void oEnvioConfereDeNovoAContaQueOCofreNaoDeixouConferir() throws Exception {
+        // R9: o soluço do Keystore justo no pedido do aparelho; o cofre volta, e o próximo envio confere e sobe a fila.
+        chave.guardar("k1", CONTA);
+        encher(2);
+        CifraFalsa cofre = new CifraFalsa();
+        chave = new ChaveDaEquipe(ctx, cofre);
+        cofre.keystoreFora = true;
+        try {
+            chave.conferir(CONTA);
+        } catch (IllegalStateException esperado) {
+            // o cofre fora
+        }
+        assertEquals("o cofre ainda fora: nada sai", EnvioDePontos.Resultado.NADA, envio().enviar());
+        assertTrue(pedidos.isEmpty());
+        cofre.keystoreFora = false;
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
+        assertEquals(2, new JSONObject(pedidos.get(0)[2]).getJSONArray("pontos").length());
+        assertTrue(chave.conferida());
     }
 
     @Test

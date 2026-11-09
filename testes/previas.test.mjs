@@ -100,9 +100,10 @@ const DIALOGOS = [
     botoes: ['casca_atualizacao_depois', 'casca_atualizacao_atualizar'] },
   { titulo: 'casca_instalar_titulo', textos: ['casca_instalar_texto'], botoes: ['casca_abrir_ajustes'] },
   // A localização da equipe (1.2.0, pendentes; o EquipeNaCasca): o aviso antes de ligar a coleta e a explicação da
-  // localização o tempo todo, antes de o Android 11 ou mais novo levar aos ajustes. Os quadros estão na seção da equipe.
+  // localização o tempo todo, antes de o Android 11 ou mais novo levar aos ajustes (ou, depois de duas recusas, com o
+  // caminho pelos ajustes do app). Os quadros estão na seção da equipe.
   { titulo: 'casca_equipe_aviso_titulo', textos: ['casca_equipe_aviso_texto'], botoes: ['casca_equipe_aviso_continuar'] },
-  { titulo: 'casca_equipe_permissao_titulo', textos: ['casca_equipe_permissao_texto'],
+  { titulo: 'casca_equipe_permissao_titulo', textos: ['casca_equipe_permissao_texto', 'casca_equipe_permissao_texto_ajustes'],
     botoes: ['casca_equipe_permissao_continuar'] },
 ];
 // Os toasts, na ordem da prévia: o do download que começou e o da atualização que não deu certo; depois, os do resultado
@@ -423,7 +424,7 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   }
   // Cada item leva ao quadro certo, que existe.
   for (const [item, quadro] of [['ok-equipe-aviso', 't-equipe-aviso'], ['ok-equipe-permissao', 't-equipe-permissao'],
-    ['ok-equipe-notificacao', 't-equipe-notificacao']]) {
+    ['ok-equipe-permissao-ajustes', 't-equipe-permissao-ajustes'], ['ok-equipe-notificacao', 't-equipe-notificacao']]) {
     const li = d.getElementById(item)?.closest('li');
     assert.ok(li, `o item ${item} da lista "O que aprovar"`);
     assert.equal(li.querySelector('a.ver')?.getAttribute('href'), `#${quadro}`);

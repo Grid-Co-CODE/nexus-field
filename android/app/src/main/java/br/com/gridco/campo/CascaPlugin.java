@@ -213,7 +213,7 @@ public class CascaPlugin extends Plugin {
         // equipeChave da página), pelo aviso, pela permissão o tempo todo e pela janela das 6h às 22h, na volta ao app e
         // no Sair. O pedido da permissão vai pelo registro da AndroidX, que só aceita registrar antes de a tela começar (o
         // load() roda dentro do onCreate), e a resposta volta à EquipeNaCasca. Antes do canal: a página só fala com ela
-        // depois de carregar.
+        // depois de carregar. A tela que nasce desfaz a conta conferida antes dela (R8), até a página desta tela conferir.
         try {
             ActivityResultLauncher<String[]> pedidoDaEquipe = bridge.registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(), resultado -> {
@@ -221,6 +221,7 @@ public class CascaPlugin extends Plugin {
                     if (daEquipe != null && !encerrado) daEquipe.aposOPedido(resultado);
                 });
             equipe = EquipeNaCasca.daTela(getActivity(), this::naUi, pedidoDaEquipe::launch, BuildConfig.VERSION_NAME);
+            equipe.aTelaAbriu();
         } catch (RuntimeException e) {
             // A coleta da equipe nunca impede o App de abrir: o load() que lança derrubaria a tela inteira. Sem ela, o
             // Nexus Field funciona como antes, e a próxima abertura tenta de novo.
@@ -962,11 +963,15 @@ public class CascaPlugin extends Plugin {
             push.pediuToken(mensagem -> responder(ponte, mensagem));
         }
 
-        // O Sair também desliga a coleta da equipe e revoga a chave do aparelho (EquipeNaCasca.sair), mesmo sem rede.
+        // O Sair também desliga a coleta da equipe e revoga a chave do aparelho (EquipeNaCasca.sair), mesmo sem rede, e
+        // também se o das notificações lançar: senão a coleta de quem saiu seguia até as 22h.
         @Override
         public void pushSaiu() {
-            push.saiu();
-            if (equipe != null) equipe.sair();
+            try {
+                push.saiu();
+            } finally {
+                if (equipe != null) equipe.sair();
+            }
         }
 
         // A resposta (o equipeAparelho) vai pela ponte da mensagem que pediu, da thread do envio da equipe, depois do que

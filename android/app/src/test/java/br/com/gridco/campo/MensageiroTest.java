@@ -990,6 +990,29 @@ public class MensageiroTest {
     }
 
     @Test
+    public void oMotivoDoAvisoDaPaginaVaiAoLogSoSeForDaListaFechada() {
+        // O piloto, com o APK da Release e sem o inspetor da WebView, separa pelo motivo o token sem id (o site), o 401 do
+        // Nexus (o público ou o tenant errados) e o CORS: o texto do aviso nunca vai ao log; um código da lista fechada vai.
+        assertTrue(m.tratar("{\"t\":\"erro\",\"onde\":\"equipe\",\"motivo\":\"http401\",\"msg\":\"401 " + EMAIL + "\"}"));
+        assertTrue(m.tratar("{\"t\":\"erro\",\"onde\":\"equipe\",\"motivo\":\"" + EMAIL + "\",\"msg\":\"x\"}"));
+        assertTrue(m.tratar("{\"t\":\"erro\",\"onde\":\"equipe\",\"motivo\":42,\"msg\":\"x\"}"));
+        assertTrue(m.tratar("{\"t\":\"erro\",\"onde\":\"" + NOME + "\",\"motivo\":\"rede\",\"msg\":\"x\"}"));
+        assertEquals(Arrays.asList("equipe: erro da página, motivo http401 (1 nesta partida)",
+            "equipe: erro da página (2 nesta partida)", "equipe: erro da página (3 nesta partida)",
+            "outro: erro da página, motivo rede (4 nesta partida)"), acoes.erros);
+        semDadosDoTecnico();
+
+        int n = acoes.erros.size();
+        assertEquals("a lista do inicio.js (o canal.test.mjs compara as duas)", 10, Mensageiro.MOTIVOS_DA_PAGINA.size());
+        for (String motivo : Mensageiro.MOTIVOS_DA_PAGINA) {
+            assertTrue(motivo, m.tratar("{\"t\":\"erro\",\"onde\":\"equipe\",\"motivo\":\"" + motivo + "\",\"msg\":\"x\"}"));
+            n++;
+            assertEquals("equipe: erro da página, motivo " + motivo + " (" + n + " nesta partida)",
+                acoes.erros.get(acoes.erros.size() - 1));
+        }
+    }
+
+    @Test
     public void nenhumaMensagemDaEquipeLevaAChaveOuOAparelhoAoLog() {
         ChaveDaEquipe chave = chaveDaEquipe(new CifraFalsa());
         String aparelho = chave.aparelho();

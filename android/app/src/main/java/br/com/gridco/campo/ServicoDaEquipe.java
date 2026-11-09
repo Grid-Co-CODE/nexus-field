@@ -46,16 +46,29 @@ import java.util.function.LongSupplier;
  * {@link #parar} (o Sair), sem a permissão de localização ou sem a notificação fixa à vista.
  *
  * <ul>
- *   <li>Liga pelo {@link #iniciar}, só dentro da janela, com a localização precisa e com a notificação fixa à vista
- *       ({@link #notificacaoAVista}). O prazo do dia (as 22h do dia em que o app abriu) vai ao disco antes do pedido, e o
- *       religamento do sistema ({@code START_STICKY}, o processo que o Android matou) só volta a coletar até ele: sem o
- *       prazo, um religamento no dia seguinte coletaria sem o técnico ter aberto o app, e o desenho chama isso de fracasso
- *       (a folga, as férias).</li>
+ *   <li>Liga pelo {@link #iniciar}, só dentro da janela, com a localização precisa e a o tempo todo
+ *       ({@link #temAPermissao}) e com a notificação fixa à vista ({@link #notificacaoAVista}). O prazo do dia (as 22h do
+ *       dia em que o app abriu) vai ao disco antes do pedido, e o religamento do sistema ({@code START_STICKY}, o processo
+ *       que o Android matou) só volta a coletar até ele: sem o prazo, um religamento no dia seguinte coletaria sem o
+ *       técnico ter aberto o app, e o desenho chama isso de fracasso (a folga, as férias).</li>
+ *   <li>A permissão é conferida ao ligar, no religamento, a cada posição e a cada envio, e não só pela casca na volta ao
+ *       app. Caso que criou a regra: o técnico troca "Permitir o tempo todo" por "Permitir só durante o uso" nos ajustes, o
+ *       Android mata o processo e religa o serviço; sem conferir, no Android 10 a coleta voltava até as 22h com o app
+ *       fechado, justo de quem acabou de negar, e no aparelho em que o processo não morre ela seguia até a próxima volta
+ *       ao app. Faltando, o prazo é esquecido e o serviço para ({@link #semPermissao}).</li>
  *   <li>Coleta no ritmo do {@link RitmoDaColeta}: 2 min com a alta precisão em deslocamento, 10 min com a precisão
- *       equilibrada parado. Cada posição vai à {@link FilaDePontos} com o "mov" da própria leitura
- *       ({@link #movDaLeitura}), e o {@link EnvioDePontos} manda o lote mais antigo a cada {@link #ENVIO_MS}, numa thread
- *       só para o disco e a rede. Na partida a frio a coleta segue igual e o lote espera na fila até a página desta
- *       partida conferir a conta da chave ({@link ChaveDaEquipe#conferida}).</li>
+ *       equilibrada parado. O ritmo e o "mov" de cada ponto usam a mesma distância, a que passa da precisão das duas
+ *       leituras ({@link #metrosAlemDaPrecisao}): parado longe do Wi-Fi, a precisão equilibrada vem da antena, com erro de
+ *       centenas de metros, e com a distância crua cada leitura dela religava o GPS (um ciclo de uns 18 min, com o GPS
+ *       ligado perto de metade do tempo). A leitura com um número que não é finito (o NaN de um provedor com defeito) é
+ *       descartada: a fila não a escreve. Cada posição vai à {@link FilaDePontos}, e o {@link EnvioDePontos} manda o lote
+ *       mais antigo a cada {@link #ENVIO_MS}, numa thread só para o disco e a rede.</li>
+ *   <li>Na partida a frio a coleta segue igual e o lote espera na fila até a página conferir a conta da chave
+ *       ({@link ChaveDaEquipe#conferida}); enquanto isso o envio nem acorda o celular nem recomeça a contar
+ *       ({@link EnvioDePontos#podeEnviar}), e o primeiro lote depois da conferência sai com a posição seguinte. O
+ *       religamento sem tela retoma a conferência que a página fez antes de o processo morrer
+ *       ({@link ChaveDaEquipe#retomarConferencia}): sem ela, coletava a tarde inteira sem mandar nada até o técnico abrir o
+ *       app.</li>
  *   <li>O envio não depende só do Handler, que conta o tempo de CPU acordada: com a tela apagada (no bolso, no suporte do
  *       carro) o celular dorme entre uma posição e outra, e os 2 min do Handler levariam horas no relógio (o mapa diria
  *       "sem sinal" com o técnico trabalhando). Por isso a posição que chega com o envio vencido, contado no relógio que
@@ -66,8 +79,10 @@ import java.util.function.LongSupplier;
  *       aparecer na barra; por isso ela é conferida ao ligar, a cada posição e a cada envio, e a coleta não liga ou para.
  *       A arrastada para o lado (Android 14+) volta na hora, pelo deleteIntent ({@link #REPOR}).</li>
  *   <li>Para às 22h: o relógio é conferido no prazo, a cada envio e a cada posição, porque o Handler não conta o tempo em
- *       que o celular dorme. O {@link EnvioDePontos.Resultado#PARAR} (o 401 ou o coleta:false do Nexus) e a permissão
- *       tirada esquecem o prazo: o religamento não volta, e a próxima abertura do app decide de novo.</li>
+ *       que o celular dorme. O que ficou na fila sai num último envio ({@link #fimDoDia}): antes, os pontos entre o último
+ *       envio e as 22h esperavam a primeira abertura do dia seguinte. O {@link EnvioDePontos.Resultado#PARAR} (o 401 ou o
+ *       coleta:false do Nexus) e a permissão tirada esquecem o prazo: o religamento não volta, e a próxima abertura do app
+ *       decide de novo. O prazo esquecido (o Sair, a troca de conta) não faz o último envio: a fila é de quem saiu.</li>
  *   <li>O Android 8+ derruba o app cujo serviço pedido em primeiro plano para antes do startForeground. Por isso o
  *       {@link #parar} nunca para o serviço antes dele (esquece o prazo, e o onStartCommand que ainda vier entra em
  *       primeiro plano e sai logo), e o stopSelf leva o número do último início (o iniciar que chegou depois de um parar
@@ -189,9 +204,9 @@ public class ServicoDaEquipe extends Service {
     }
 
     /**
-     * Liga a coleta, se a hora do celular está na janela, a localização precisa foi dada e a notificação fixa vai ficar à
-     * vista ({@link #notificacaoAVista}). Quem decide se a coleta vale para o técnico é a casca, antes (o Nexus, pela chave
-     * do aparelho). Chamar de novo com ela ligada não faz outra.
+     * Liga a coleta, se a hora do celular está na janela, a localização precisa e a o tempo todo foram dadas
+     * ({@link #temAPermissao}) e a notificação fixa vai ficar à vista ({@link #notificacaoAVista}). Quem decide se a coleta
+     * vale para o técnico é a casca, antes (o Nexus, pela chave do aparelho). Chamar de novo com ela ligada não faz outra.
      */
     static void iniciar(Context contexto) {
         Context app = contexto.getApplicationContext();
@@ -201,9 +216,9 @@ public class ServicoDaEquipe extends Service {
             Log.i(TAG, "coleta da equipe não ligada: fora da janela das 6h às 22h");
             return;
         }
-        if (!temLocalizacaoPrecisa(app)) {
-            // Do Android 14 em diante o primeiro plano de localização sem ela lança, e o serviço pedido em primeiro plano
-            // que não chega a ele derruba o app.
+        if (!temAPermissao(app)) {
+            // Do Android 14 em diante o primeiro plano de localização sem a precisa lança, e o serviço pedido em primeiro
+            // plano que não chega a ele derruba o app. Sem a o tempo todo, o serviço entraria e sairia logo.
             Log.w(TAG, "coleta da equipe não ligada: sem a permissão de localização");
             return;
         }
@@ -281,6 +296,14 @@ public class ServicoDaEquipe extends Service {
             stopSelf(startId);
             return START_NOT_STICKY;
         }
+        if (intent == null && !temOTempoTodo(this)) {
+            // O religamento depois de o técnico tirar a o tempo todo nos ajustes (o Android mata o processo ao tirar uma
+            // permissão e religa o START_STICKY): sai antes do primeiro plano, e sem o prazo a próxima abertura decide.
+            esquecerOPrazo(this);
+            Log.w(TAG, "sem a permissão de localização o tempo todo: o religamento da coleta da equipe não volta");
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
         // Também no REPOR (a notificação arrastada para o lado): o startForeground de novo a põe de volta na barra.
         if (!entrarEmPrimeiroPlano()) {
             stopSelf(startId);
@@ -291,6 +314,12 @@ public class ServicoDaEquipe extends Service {
             encerrar("coleta da equipe fora do prazo: não ligou");
             return START_NOT_STICKY;
         }
+        if (!temOTempoTodo(this)) {
+            // Depois do startForeground, como a notificação abaixo: o serviço pedido pelo startForegroundService que para
+            // antes dele derruba o app. É a o tempo todo tirada entre o iniciar e este início.
+            semPermissao();
+            return START_NOT_STICKY;
+        }
         if (!notificacaoAVista(this)) {
             // Conferida depois do startForeground, e não antes: o serviço pedido pelo startForegroundService que para
             // antes dele derruba o app. O iniciar já conferiu; aqui é a notificação desligada entre o pedido e este
@@ -299,6 +328,7 @@ public class ServicoDaEquipe extends Service {
             return START_NOT_STICKY;
         }
         if (!coletando) {
+            if (intent == null) retomarAConferencia();
             ligarColeta(agora);
         } else if (REPOR.equals(intent == null ? null : intent.getAction())) {
             Log.i(TAG, "a notificação fixa da coleta da equipe foi arrastada para o lado e voltou");
@@ -404,6 +434,18 @@ public class ServicoDaEquipe extends Service {
         encerrar("sem a permissão de localização: a coleta da equipe parou");
     }
 
+    // O processo religado sem tela: o envio vale com a conferência que a página fez antes de ele morrer (na thread do disco,
+    // antes de qualquer envio, que vai pela mesma).
+    private void retomarAConferencia() {
+        executar(() -> {
+            if (pecas.chave.retomarConferencia()) {
+                Log.i(TAG, "religamento da coleta da equipe: a conta que a página conferiu vale, e o envio sai");
+            } else {
+                Log.i(TAG, "religamento da coleta da equipe sem a conta conferida: o envio espera a abertura do app");
+            }
+        });
+    }
+
     private final FonteDePosicoes.Receptor receptor = new FonteDePosicoes.Receptor() {
         @Override
         public void posicao(Location posicao) {
@@ -426,7 +468,12 @@ public class ServicoDaEquipe extends Service {
     private void aoReceber(Location l) {
         if (!coletando) return;
         if (!valeColetar(pecas.relogio.getAsLong())) {
-            encerrar(FORA_DO_PRAZO);
+            fimDoDia();
+            return;
+        }
+        if (!temAPermissao(this)) {
+            // A permissão tirada com a coleta ligada, no aparelho em que o processo não morreu: esta posição já não entra.
+            semPermissao();
             return;
         }
         if (!notificacaoAVista(this)) {
@@ -434,10 +481,16 @@ public class ServicoDaEquipe extends Service {
             encerrar(SEM_A_NOTIFICACAO);
             return;
         }
+        if (!leituraValida(l)) {
+            // Sem o valor no log: é coordenada.
+            Log.w(TAG, "uma leitura de posição sem número válido foi descartada");
+            return;
+        }
         // O ritmo: sem a velocidade do aparelho, a distância decide sozinha (ele pede as duas: abaixo de 1 m/s e a menos de
-        // 150 m); a primeira leitura não tem com quem comparar e conta como deslocamento (o ritmo começa no curto).
+        // 150 m), e só a que passa da precisão das duas leituras conta, como no mov; a primeira leitura não tem com quem
+        // comparar e conta como deslocamento (o ritmo começa no curto).
         Float velocidade = l.hasSpeed() ? l.getSpeed() : null;
-        double metros = ultima == null ? Double.POSITIVE_INFINITY : ultima.distanceTo(l);
+        double metros = ultima == null ? Double.POSITIVE_INFINITY : metrosAlemDaPrecisao(l, ultima);
         boolean mov = movDaLeitura(l, ultima);
         ultima = new Location(l);
         long intervalo = ritmo.proximoIntervaloMs(velocidade == null ? 0 : velocidade, metros);
@@ -449,8 +502,24 @@ public class ServicoDaEquipe extends Service {
             if (!pedirPosicoes()) return;
         }
         // Com a tela apagada o Handler não anda, e é a posição que acorda o celular: com o envio vencido, manda agora
-        // (o ponto de agora vai junto, porque a fila grava antes, na mesma thread).
-        if (pecas.desdeOBoot.getAsLong() - ultimoEnvio >= ENVIO_MS - FOLGA_DO_ENVIO_MS) mandarOLote();
+        // (o ponto de agora vai junto, porque a fila grava antes, na mesma thread). À espera da conta conferida, nada:
+        // nem o celular acordado à toa nem a conta do envio recomeçada.
+        if (pecas.desdeOBoot.getAsLong() - ultimoEnvio >= ENVIO_MS - FOLGA_DO_ENVIO_MS && pecas.envio.podeEnviar()) {
+            mandarOLote();
+        }
+    }
+
+    /** A leitura que a fila pode guardar: a posição, a precisão e a velocidade (quando vêm) são números finitos. */
+    static boolean leituraValida(Location l) {
+        double lat = l.getLatitude();
+        double lon = l.getLongitude();
+        if (!finito(lat) || !finito(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
+        if (l.hasAccuracy() && !finito(l.getAccuracy())) return false;
+        return !l.hasSpeed() || finito(l.getSpeed());
+    }
+
+    private static boolean finito(double d) {
+        return !Double.isNaN(d) && !Double.isInfinite(d);
     }
 
     /**
@@ -465,12 +534,17 @@ public class ServicoDaEquipe extends Service {
      */
     static boolean movDaLeitura(Location leitura, @Nullable Location anterior) {
         double velocidade = leitura.hasSpeed() ? leitura.getSpeed() : 0;
-        double metros = 0;
-        if (anterior != null) {
-            double distancia = anterior.distanceTo(leitura);
-            if (distancia > precisao(anterior) + precisao(leitura)) metros = distancia;
-        }
-        return !RitmoDaColeta.leituraParada(velocidade, metros);
+        return !RitmoDaColeta.leituraParada(velocidade, metrosAlemDaPrecisao(leitura, anterior));
+    }
+
+    /**
+     * A distância da leitura anterior que conta para o mov e para o ritmo: a que não cabe na precisão das duas leituras
+     * (dentro dela, é o salto da posição de rede com o celular parado), ou zero; sem a anterior, zero.
+     */
+    static double metrosAlemDaPrecisao(Location leitura, @Nullable Location anterior) {
+        if (anterior == null) return 0;
+        double distancia = anterior.distanceTo(leitura);
+        return distancia > precisao(anterior) + precisao(leitura) ? distancia : 0;
     }
 
     private static double precisao(Location l) {
@@ -482,16 +556,52 @@ public class ServicoDaEquipe extends Service {
         public void run() {
             if (!coletando) return;
             if (!valeColetar(pecas.relogio.getAsLong())) {
-                encerrar(FORA_DO_PRAZO);
+                fimDoDia();
+                return;
+            }
+            if (!temAPermissao(ServicoDaEquipe.this)) {
+                semPermissao();
                 return;
             }
             if (!notificacaoAVista(ServicoDaEquipe.this)) {
                 encerrar(SEM_A_NOTIFICACAO);
                 return;
             }
+            if (!pecas.envio.podeEnviar()) {
+                // À espera da conta conferida: o Handler segue de pé, sem acordar o celular e sem recomeçar a contar o
+                // envio, e a posição que chegar depois da conferência manda na hora.
+                principal.postDelayed(envioPeriodico, ENVIO_MS);
+                return;
+            }
             mandarOLote();
         }
     };
+
+    /**
+     * As 22h (ou o prazo do dia em que o app abriu): a coleta para, e o que ficou na fila sai num último envio, com o
+     * celular acordado até a resposta (o serviço já saiu; o prazo do acordado solta sozinho). O prazo esquecido pelo
+     * {@link #parar} (o Sair, a troca de conta) não manda: a fila é de quem saiu. A conta ainda não conferida também não.
+     */
+    private void fimDoDia() {
+        boolean ultimo = prazo(this) > 0 && pecas.envio.podeEnviar();
+        encerrar(FORA_DO_PRAZO);
+        if (!ultimo) return;
+        PowerManager energia = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        PowerManager.WakeLock noFim = energia == null ? null
+            : energia.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, NOME_DO_ACORDADO);
+        if (noFim != null) {
+            noFim.setReferenceCounted(false);
+            noFim.acquire(ACORDADO_NO_ENVIO_MS);
+        }
+        Log.i(TAG, "o fim da coleta da equipe: o que ficou na fila sai num último envio");
+        executar(() -> {
+            try {
+                pecas.envio.enviar();
+            } finally {
+                if (noFim != null && noFim.isHeld()) noFim.release();
+            }
+        });
+    }
 
     /**
      * Manda o lote mais antigo na thread do disco e da rede, com o celular acordado até a resposta. O Handler recomeça a
@@ -531,7 +641,7 @@ public class ServicoDaEquipe extends Service {
             if (valeColetar(agora)) {
                 agendarOFim(agora); // o Handler acordou antes: o fuso do celular mudou
             } else {
-                encerrar(FORA_DO_PRAZO);
+                fimDoDia();
             }
         }
     };
@@ -593,6 +703,20 @@ public class ServicoDaEquipe extends Service {
     private static boolean temLocalizacaoPrecisa(Context contexto) {
         return ContextCompat.checkSelfPermission(contexto, Manifest.permission.ACCESS_FINE_LOCATION)
             == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /**
+     * A localização o tempo todo, a que vale com o app fechado: antes do Android 10 ela não existe, e a de uso já vale
+     * (como no {@link EquipeNaCasca#oTempoTodo}).
+     */
+    static boolean temOTempoTodo(Context contexto) {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+            || ContextCompat.checkSelfPermission(contexto, EquipeNaCasca.O_TEMPO_TODO) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** As duas permissões da coleta: a localização precisa e a o tempo todo. */
+    static boolean temAPermissao(Context contexto) {
+        return temLocalizacaoPrecisa(contexto) && temOTempoTodo(contexto);
     }
 
     private static SharedPreferences preferencias(Context contexto) {

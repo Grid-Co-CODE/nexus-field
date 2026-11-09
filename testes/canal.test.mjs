@@ -110,7 +110,7 @@ test('a ligação nativa das notificações: o canal, o token novo e a volta ao 
   assert.match(plugin, /protected void handleOnResume\(\) \{[\s\S]*?threadDoEspelho\(\)\.execute\(\(\) -> \{\s*if \(!encerrado\) conversa\.voltouAoApp\(\);/);
   // As mensagens da página.
   assert.match(plugin, /public void pushPedirToken\(\) \{[^}]*push\.pediuToken\(mensagem -> responder\(ponte, mensagem\)\);/);
-  assert.match(plugin, /public void pushSaiu\(\) \{\s*push\.saiu\(\);/);
+  assert.match(plugin, /public void pushSaiu\(\) \{\s*try \{\s*push\.saiu\(\);/);
   assert.match(plugin, /public void pushRegistrado\(\) \{\s*push\.registrado\(\);/);
   assert.match(plugin, /public void osAberta\(String os\) \{\s*push\.osAberta\(os\);/);
   // A OS do toque e a regra dos 10 s do teste são as do processo (atravessam a tela recriada).
@@ -124,12 +124,40 @@ test('a ligação nativa da equipe: a volta ao app reavalia, o Sair desliga e as
   // A da tela, com o pedido da permissão registrado no load() (o registro da AndroidX só vale antes de a tela começar).
   assert.match(plugin, /ActivityResultLauncher<String\[\]> pedidoDaEquipe = bridge\.registerForActivityResult\(\s*new ActivityResultContracts\.RequestMultiplePermissions\(\), resultado -> \{[^}]*daEquipe\.aposOPedido\(resultado\);/);
   assert.match(plugin, /equipe = EquipeNaCasca\.daTela\(getActivity\(\), this::naUi, pedidoDaEquipe::launch, BuildConfig\.VERSION_NAME\);/);
+  // A tela que nasce desfaz a conta conferida antes dela (R8), também a do disco, que o religamento sem tela lê.
+  assert.match(plugin, /equipe = EquipeNaCasca\.daTela\([^;]*\);\s*equipe\.aTelaAbriu\(\);/);
   // A primeira abertura e a volta ao app (o onResume), o Sair, a tela que sai.
   assert.match(plugin, /protected void handleOnResume\(\) \{[\s\S]*?if \(daEquipe != null\) daEquipe\.reavaliar\(\);/);
-  assert.match(plugin, /public void pushSaiu\(\) \{\s*push\.saiu\(\);\s*if \(equipe != null\) equipe\.sair\(\);/);
+  // O Sair da equipe também quando o das notificações lança: senão a coleta de quem saiu seguia até as 22h.
+  assert.match(plugin, /public void pushSaiu\(\) \{\s*try \{\s*push\.saiu\(\);\s*\} finally \{\s*if \(equipe != null\) equipe\.sair\(\);\s*\}/);
   assert.match(plugin, /protected void handleOnDestroy\(\) \{[^}]*if \(equipe != null\) equipe\.encerrar\(\);/);
   // As mensagens da página, com a conta (o hash que a página calcula do token dela): a resposta do aparelho pela ponte
   // da mensagem que pediu, e o que o Nexus respondeu.
   assert.match(plugin, /public void equipePedirAparelho\(String conta\) \{[^}]*daEquipe\.pedirAparelho\(conta, mensagem -> responder\(ponte, mensagem\)\);/);
   assert.match(plugin, /public void equipeChave\(boolean coleta, String chave, String conta\) \{\s*if \(equipe != null\) equipe\.receberChave\(coleta, chave, conta\);/);
+});
+
+// Os motivos dos avisos da chave da equipe (seção 10): o nativo leva ao log só o motivo que está na lista dele
+// (Mensageiro.MOTIVOS_DA_PAGINA), e o texto nunca. Motivo novo no script sem a lista chegaria ao log como "erro da
+// página" sem dizer qual; o que a lista guardar e o script não usar deixa de ser o do script. Caso que criou a regra: o
+// piloto, com o APK da Release, via só "equipe (3)" e não separava o token sem id, o 401 do Nexus e o CORS.
+function motivosDoScript() {
+  const lista = script.match(/var MOTIVOS_DA_EQUIPE = \[([^\]]*)\];/);
+  assert.ok(lista, 'o inicio.js declara MOTIVOS_DA_EQUIPE');
+  return todos(lista[1], /'([^']+)'/g).sort();
+}
+
+test('os motivos dos avisos da equipe são os da lista do nativo, e cada um é usado pela seção 10', () => {
+  const doScript = motivosDoScript();
+  const bloco = mensageiro.match(/MOTIVOS_DA_PAGINA = [\s\S]*?\)\)\);/);
+  assert.ok(bloco, 'o Mensageiro.java declara MOTIVOS_DA_PAGINA');
+  assert.deepEqual([...new Set(todos(bloco[0], /"([^"]+)"/g))].sort(), doScript);
+  const secao = script.slice(script.indexOf('// 10. A chave da equipe'), script.indexOf('// Ponto único de entrada'));
+  const usados = new Set([
+    ...todos(secao, /\b(?:avisar|avisarUmaVez|falhar)\(\s*'([^']+)'/g),
+    ...todos(secao, /return '([A-Za-z0-9]+)';/g),
+    ...todos(secao, /\benviar\(\{[^}]*\},\s*'equipe',\s*'([^']+)'\)/g),
+  ]);
+  for (const motivo of usados) assert.ok(doScript.includes(motivo), `a seção 10 usa o motivo ${motivo}, fora da lista`);
+  for (const motivo of doScript) assert.ok(usados.has(motivo), `o motivo ${motivo} está na lista e a seção 10 não o usa`);
 });

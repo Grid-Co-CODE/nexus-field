@@ -1,5 +1,7 @@
 package br.com.gridco.campo;
 
+import android.util.Log;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -19,15 +21,25 @@ import org.json.JSONObject;
  * chave do aparelho no Authorization.
  *
  * <ul>
- *   <li>Nada sai antes de a página desta partida conferir a conta da chave ({@link ChaveDaEquipe#conferida}): o lote e o
- *       aviso sem permissão devolvem {@link Resultado#NADA} sem pedido ao Nexus, e a fila e a chave ficam. A revogação do
- *       Sair não espera.</li>
+ *   <li>Nada sai antes de a página conferir a conta da chave ({@link ChaveDaEquipe#conferida}, ou a conferência que o
+ *       religamento sem tela retomou do disco): o lote e o aviso sem permissão devolvem {@link Resultado#NADA} sem pedido
+ *       ao Nexus, e a fila e a chave ficam. A conferência que o cofre não deixou fazer (R9) é refeita antes de cada envio.
+ *       A revogação do Sair não espera.</li>
  *   <li>Só o 401 e o {@code coleta:false} do Nexus param o serviço e apagam a chave. O 401 apaga só a chave: a conta
  *       fica, dona da fila que sobrou ({@link ChaveDaEquipe#apagarAChave}). O coleta:false apaga a chave, a conta e a
  *       fila. Todo 5xx (o 503, com a Microsoft fora ou o servidor sem configuração, em especial) e a rede que cai dão
  *       {@link Resultado#SEM_REDE}: fila e chave ficam, e o serviço tenta de novo no ritmo seguinte.</li>
- *   <li>Resposta 200 que não é JSON legível também vale como sem rede: sem a confirmação do Nexus, os pontos não saem
- *       da fila.</li>
+ *   <li>O 200 só vale com o {@code coleta} booleano: o {@code true} tira o lote da fila, o {@code false} para. O 200 que
+ *       não é JSON legível, sem o campo, com ele nulo ou de outro tipo (o chat do Nexus mudou um nome, ou um tratador de
+ *       erro devolveu 200 {erro}) vale como sem rede: sem a confirmação do Nexus os pontos não saem da fila, e sem o
+ *       coleta:false dele nada se apaga. Antes, a ausência valia como coleta:false, e o primeiro envio de cada aparelho
+ *       apagava a chave e o dia guardado sem sinal.</li>
+ *   <li>O lote que o Nexus recusa (o 4xx que não é o 401: o 400 de um ponto torto, o 413, o 422) sai da fila
+ *       ({@link Resultado#DESCARTADO}), e a chave fica: mandado de novo, ele seria recusado de novo, e na frente da fila
+ *       não deixava subir nenhum ponto novo. O 403, o 404 e o 405 (o acesso ou a rota, e não o lote: o caminho que o chat
+ *       do Nexus mudou, a rota que caiu num deploy), o 408 e o 429 (o tempo e o excesso de pedidos) e o 3xx (a resposta
+ *       que não é do Nexus) esperam como sem rede.</li>
+ *   <li>O ponto da fila que não se lê ({@link FilaDePontos#legivel}) sai dela antes do lote, que segue com os outros.</li>
  *   <li>Nada de coordenada, chave ou id de aparelho no log: nem a mensagem das exceções leva o corpo.</li>
  * </ul>
  */
@@ -40,7 +52,12 @@ final class EnvioDePontos {
     static final int MAXIMO_DE_BYTES = 64 * 1024;
     static final int PRAZO_MS = 15_000;
 
-    enum Resultado { NADA, ENVIADO, PARAR, SEM_REDE }
+    /**
+     * NADA: nada a mandar, ou a conta ainda não conferida (sem pedido ao Nexus). ENVIADO: o Nexus aceitou. PARAR: o 401 ou
+     * o coleta:false. SEM_REDE: tenta de novo depois, com a fila e a chave intactas. DESCARTADO: o Nexus recusou o lote
+     * (o 4xx que não é o 401), que saiu da fila.
+     */
+    enum Resultado { NADA, ENVIADO, PARAR, SEM_REDE, DESCARTADO }
 
     static final class Resposta {
         final int status;
@@ -76,29 +93,54 @@ final class EnvioDePontos {
         this.maximoDeBytes = maximoDeBytes;
     }
 
+    /**
+     * Vale tentar o envio agora: a conta conferida, ou a conferência por refazer (R9), que o {@link #enviar} refaz. Não
+     * passa pela cifra nem pelo disco: o serviço pergunta na thread principal, antes de acordar o celular e de recomeçar a
+     * contar o envio (o primeiro lote depois da conferência não espera mais 2 min).
+     */
+    boolean podeEnviar() {
+        return chave.conferida() || chave.precisaReconferir();
+    }
+
     /** Manda o lote mais antigo da fila. */
     Resultado enviar() {
         String k = chaveConferida();
         if (k == null) return Resultado.NADA;
         List<Long> ids = fila.idsDoLote(MAXIMO_DE_PONTOS);
         if (ids.isEmpty()) return Resultado.NADA;
-        JSONArray pontos = fila.lote(ids);
+        FilaDePontos.Lote lote = fila.legivel(ids);
+        if (!lote.ruins.isEmpty()) {
+            // Só a contagem: o ponto é coordenada.
+            fila.remover(lote.ruins);
+            Log.w(CascaPlugin.TAG, "a fila da equipe tinha " + lote.ruins.size()
+                + " ponto(s) que não se leem: saíram, e o lote segue com os outros");
+        }
+        ids = lote.ids;
+        if (ids.isEmpty()) return Resultado.NADA;
+        JSONArray pontos = lote.pontos;
         String corpo = corpo(pontos, null);
         // Corta o lote antes de mandar: o servidor recusa corpo acima do limite.
         while (ids.size() > 1 && bytes(corpo) > maximoDeBytes) {
-            int n = (int) Math.min(ids.size() - 1L, (long) ids.size() * maximoDeBytes / bytes(corpo));
-            ids = ids.subList(0, Math.max(1, n));
-            pontos = fila.lote(ids);
+            int n = Math.max(1, (int) Math.min(ids.size() - 1L, (long) ids.size() * maximoDeBytes / bytes(corpo)));
+            ids = ids.subList(0, n);
+            pontos = primeiros(pontos, n);
             corpo = corpo(pontos, null);
         }
         Resultado r = postarPosicoes(k, corpo);
-        if (r == Resultado.ENVIADO) fila.remover(ids);
+        if (r == Resultado.ENVIADO || r == Resultado.DESCARTADO) fila.remover(ids);
         return r;
     }
 
+    private static JSONArray primeiros(JSONArray pontos, int n) {
+        JSONArray saida = new JSONArray();
+        for (int i = 0; i < n && i < pontos.length(); i++) saida.put(pontos.opt(i));
+        return saida;
+    }
+
     /**
-     * Sem a permissão "o tempo todo" não há ponto a mandar, mas o Nexus precisa saber (o mapa separa quem negou de
-     * quem nunca abriu o app): lote vazio com {@code permissao: "sem"}, as mesmas respostas do envio normal.
+     * Sem a permissão "o tempo todo" (ou sem a notificação fixa à vista, que o Android 13+ trata como permissão) não há
+     * ponto a mandar, mas o Nexus precisa saber (o mapa separa quem negou de quem nunca abriu o app): lote vazio com
+     * {@code permissao: "sem"}, as mesmas respostas do envio normal.
      */
     Resultado avisarSemPermissao() {
         String k = chaveConferida();
@@ -106,9 +148,17 @@ final class EnvioDePontos {
         return postarPosicoes(k, corpo(new JSONArray(), "sem"));
     }
 
-    // A chave para o envio: só a da conta que a página desta partida conferiu (ChaveDaEquipe#conferida). Antes disso o
-    // lote espera na fila, sem pedido ao Nexus: nada sai em nome de uma conta que esta partida não conferiu.
+    // A chave para o envio: só a da conta que a página conferiu (ChaveDaEquipe#conferida). Antes disso o lote espera na
+    // fila, sem pedido ao Nexus: nada sai em nome de uma conta que não foi conferida. A conferência que o cofre não deixou
+    // fazer (R9) é refeita aqui; com o cofre ainda fora, ou com a chave de outra conta, nada sai.
     private String chaveConferida() {
+        if (!chave.conferida() && chave.precisaReconferir()) {
+            try {
+                if (chave.reconferir()) Log.i(CascaPlugin.TAG, "a conta da chave da equipe conferida de novo: o envio sai");
+            } catch (RuntimeException e) {
+                return null;
+            }
+        }
         return chave.conferida() ? chave.chave() : null;
     }
 
@@ -143,19 +193,40 @@ final class EnvioDePontos {
             chave.apagarAChave();
             return Resultado.PARAR;
         }
+        if (loteRecusado(resp.status)) return Resultado.DESCARTADO;
         if (resp.status != 200) return Resultado.SEM_REDE;
-        boolean coleta;
+        Object coleta;
         try {
-            coleta = new JSONObject(resp.corpo).optBoolean("coleta", false);
+            coleta = new JSONObject(resp.corpo).opt("coleta");
         } catch (JSONException e) {
             return Resultado.SEM_REDE;
         }
-        if (!coleta) {
+        if (Boolean.FALSE.equals(coleta)) {
             chave.apagar();
             fila.limpar();
             return Resultado.PARAR;
         }
-        return Resultado.ENVIADO;
+        // Só o coleta:true confirma; sem o campo, nulo ou de outro tipo, é a resposta fora do contrato: nada sai nem se apaga.
+        return Boolean.TRUE.equals(coleta) ? Resultado.ENVIADO : Resultado.SEM_REDE;
+    }
+
+    /**
+     * O Nexus recusou o lote: o 4xx que não é o 401 (que para) nem um dos que não falam do lote: o 403, o 404 e o 405 (o
+     * acesso ou a rota), o 408 e o 429 (o tempo e o excesso de pedidos).
+     */
+    static boolean loteRecusado(int status) {
+        if (status < 400 || status >= 500) return false;
+        switch (status) {
+            case 401:
+            case 403:
+            case 404:
+            case 405:
+            case 408:
+            case 429:
+                return false;
+            default:
+                return true;
+        }
     }
 
     private String corpo(JSONArray pontos, String permissao) {

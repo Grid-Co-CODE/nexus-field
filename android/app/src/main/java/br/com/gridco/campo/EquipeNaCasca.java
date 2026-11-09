@@ -4,12 +4,16 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 import android.util.Log;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import java.util.Map;
@@ -37,10 +41,17 @@ import java.util.function.LongSupplier;
  *       as de localização, num pedido só do Android; do 11 em diante o Android só a dá nos ajustes, e a casca explica
  *       antes. A de uso (a localização precisa) quem pede é o "Antes de começar" da MainActivity, a cada abertura: dois
  *       pedidos de uma vez empilhariam as telas. A explicação aparece uma vez por tela: negada, a volta ao app não pergunta
- *       de novo (a volta da câmera também é uma volta ao app), e a próxima abertura do Nexus Field pergunta.</li>
- *   <li><b>Sem ela, o Nexus sabe</b>: o lote vazio com {@code permissao: "sem"} ({@link EnvioDePontos#avisarSemPermissao}),
+ *       de novo (a volta da câmera também é uma volta ao app), e a próxima abertura do Nexus Field pergunta. Do Android 11
+ *       em diante, depois de duas recusas o Android não abre mais o pedido: a casca nota (a recusa sem o Android dizer que
+ *       pede de novo) e, dali em diante, a explicação diz o caminho pelos ajustes do app e o Continuar os abre. Antes, o
+ *       Continuar prometia "a próxima tela" e não abria nada. A marca sai quando a permissão é dada.</li>
+ *   <li><b>Sem a notificação fixa à vista não há coleta</b> ({@link ServicoDaEquipe#notificacaoAVista}): a regra também a
+ *       confere, e falta o mesmo que falta a permissão (a coleta ligada para, e o Nexus sabe). Antes, a casca mandava
+ *       ligar, o serviço não ligava, e o mapa mostrava o aparelho só como "sem sinal".</li>
+ *   <li><b>Sem elas, o Nexus sabe</b>: o lote vazio com {@code permissao: "sem"} ({@link EnvioDePontos#avisarSemPermissao}),
  *       no máximo um a cada 30 minutos no aparelho (a marca atravessa a tela recriada), para o mapa separar quem negou de
- *       quem não abriu o app. O aviso que não chegou ao Nexus (sem rede) não conta: a próxima volta ao app tenta.</li>
+ *       quem não abriu o app. O aviso que não chegou ao Nexus (sem rede) não conta: a próxima volta ao app tenta; o que o
+ *       Nexus recusou (o 4xx) conta, porque mandar de novo não muda a resposta.</li>
  *   <li><b>O Sair</b> para a coleta na hora, apaga a fila (os pontos de quem saiu não podem subir com a chave de quem
  *       entrar depois) e revoga e apaga a chave, mesmo sem rede, com o aviso aceito e a marca dos 30 minutos (a conta
  *       seguinte não espera a de quem saiu para o mapa saber que falta a permissão). Até a chave sair, a decisão que já
@@ -54,11 +65,13 @@ import java.util.function.LongSupplier;
  *       ficava com a chave, o aviso aceito e a fila de A, e as posições de B iam ao Nexus em nome de A (ou o dia de A em
  *       nome de B). A mesma conta, depois do 401, fica com a fila, que sobe com a chave nova. O cofre que não respondeu
  *       agora não muda nada: a próxima carga confere de novo.</li>
- *   <li><b>Nada sai em nome de uma conta que esta partida não conferiu</b> ({@link ChaveDaEquipe#conferida}, só na
- *       memória): na partida a frio a coleta liga com a chave guardada e guarda na fila (a abertura sem sinal também
- *       coleta), e o envio, o aviso sem permissão inclusive, espera até o pedido do aparelho achar a chave da mesma conta
- *       ou a chave nova entrar. O cofre que não lê a conta não confere: a resposta diz que há a chave, e nada sai até a
- *       próxima conferência. O Sair e a troca de conta voltam a "não conferida"; a revogação do Sair não espera.</li>
+ *   <li><b>Nada sai em nome de uma conta que a página não conferiu</b> ({@link ChaveDaEquipe#conferida}): a tela que
+ *       nasce ({@link #aTelaAbriu}) volta a "não conferida", e na partida a frio a coleta liga com a chave guardada e
+ *       guarda na fila (a abertura sem sinal também coleta); o envio, o aviso sem permissão inclusive, espera até o pedido
+ *       do aparelho achar a chave da mesma conta ou a chave nova entrar. O cofre que não lê a conta não confere: a
+ *       resposta diz que há a chave, e o envio e a volta ao app conferem de novo até o cofre voltar (R9); a conta guardada
+ *       que então se mostra de outra conta faz a troca de conta na volta ao app. O Sair e a troca de conta voltam a "não
+ *       conferida"; a revogação do Sair não espera.</li>
  *   <li><b>Uma thread só</b> para o disco, a cifra e a rede: a do serviço ({@link ServicoDaEquipe.Pecas#execucao}), na
  *       ordem em que tudo chegou. O pedido do aparelho que vem depois de um Sair só é respondido depois de a chave sair (e
  *       a página pede outra), e a chave que chega enquanto um envio leva o 401 não é apagada por ele. O que mexe na tela
@@ -78,6 +91,8 @@ final class EquipeNaCasca {
         MOSTRAR_AVISO,
         /** Pede a permissão o tempo todo ou, se não for pedi-la agora, avisa o Nexus que falta; a coleta ligada para antes. */
         PEDIR_PERMISSAO,
+        /** A notificação fixa não ficaria à vista: a coleta ligada para, e o Nexus sabe que falta, como a permissão. */
+        SEM_A_NOTIFICACAO,
         /** Nada muda. */
         NADA
     }
@@ -96,6 +111,8 @@ final class EquipeNaCasca {
     // Quando o Nexus soube, pela última vez, que falta a permissão (epoch ms). Fora do backup, como tudo (regras_dados.xml).
     private static final String PREFERENCIAS = "equipe_casca";
     private static final String CHAVE_SEM_PERMISSAO = "sem_permissao_em";
+    // O Android 11+ que não abre mais o pedido da o tempo todo (duas recusas): a explicação leva aos ajustes do app.
+    private static final String CHAVE_PELOS_AJUSTES = "tempo_todo_pelos_ajustes";
 
     /** O serviço da coleta: o {@link ServicoDaEquipe} ({@link ServicoDoAndroid}); no teste, um falso. */
     interface Servico {
@@ -104,6 +121,9 @@ final class EquipeNaCasca {
         void parar();
 
         boolean rodando();
+
+        /** A notificação fixa ficaria à vista ({@link ServicoDaEquipe#notificacaoAVista}). */
+        boolean notificacaoAVista();
     }
 
     /**
@@ -114,8 +134,20 @@ final class EquipeNaCasca {
         /** O aviso antes de ligar a coleta, que não fecha tocando fora nem pelo Voltar; o Continuar roda {@code continuar}. */
         boolean mostrarAviso(Runnable continuar);
 
-        /** A explicação da permissão o tempo todo (Android 11+), que também só fecha pelo Continuar. */
-        boolean explicarOTempoTodo(Runnable continuar);
+        /**
+         * A explicação da permissão o tempo todo (Android 11+), que também só fecha pelo Continuar. {@code pelosAjustes}:
+         * o Android não abre mais o pedido, e ela diz o caminho pelos ajustes do app.
+         */
+        boolean explicarOTempoTodo(boolean pelosAjustes, Runnable continuar);
+
+        /** Abre os ajustes do Nexus Field no Android (onde fica a permissão de localização). */
+        boolean abrirOsAjustes();
+
+        /**
+         * O Android ainda mostraria o pedido dessa permissão: depois de uma recusa, true; depois de duas (do Android 11 em
+         * diante, o "não perguntar de novo" implícito), false.
+         */
+        boolean oAndroidPedeDeNovo(String permissao);
 
         /** Pede as permissões ao Android; a resposta volta pelo {@link EquipeNaCasca#aposOPedido}. */
         boolean pedir(String[] permissoes);
@@ -183,14 +215,16 @@ final class EquipeNaCasca {
     /**
      * A regra, nesta ordem: sem a coleta do Nexus (o coleta:false) ou sem a chave, para; fora da janela das 6h às 22h,
      * nada (e para o que sobrou rodando), sem mostrar nada ao técnico; sem o aviso aceito, o aviso; sem a permissão de uso
-     * ou a o tempo todo, a permissão; tudo em dia, liga, ou nada se já está rodando.
+     * ou a o tempo todo, a permissão; sem a notificação fixa à vista, o mesmo que sem a permissão, sem pedido; tudo em
+     * dia, liga, ou nada se já está rodando.
      */
     static Acao decidir(boolean coleta, boolean temChave, boolean avisoAceito, boolean permissaoDeUso,
-            boolean permissaoOTempoTodo, boolean dentroDaJanela, boolean rodando) {
+            boolean permissaoOTempoTodo, boolean notificacaoAVista, boolean dentroDaJanela, boolean rodando) {
         if (!coleta || !temChave) return Acao.PARAR;
         if (!dentroDaJanela) return rodando ? Acao.PARAR : Acao.NADA;
         if (!avisoAceito) return Acao.MOSTRAR_AVISO;
         if (!permissaoDeUso || !permissaoOTempoTodo) return Acao.PEDIR_PERMISSAO;
+        if (!notificacaoAVista) return Acao.SEM_A_NOTIFICACAO;
         return rodando ? Acao.NADA : Acao.INICIAR;
     }
 
@@ -254,7 +288,9 @@ final class EquipeNaCasca {
      */
     void sair() {
         saidasPendentes.incrementAndGet(); // antes do parar: a decisão que vier depois dele já vê a marca
-        servico.parar();
+        // O parar que lança não segura o resto: a chave e a fila de quem saiu têm de sair, e a marca do Sair com elas
+        // (senão a conta seguinte nunca liga a coleta). A tarefa abaixo para de novo.
+        pararAColeta();
         trabalhar(() -> {
             esquecerAConta();
             // A marca do Sair sai com a chave (que sai também quando o revogar falha): se a chave não saiu do disco, a
@@ -295,6 +331,10 @@ final class EquipeNaCasca {
 
     /** A resposta do Android ao pedido da permissão (o launcher do plugin, na thread de UI). */
     void aposOPedido(Map<String, Boolean> resultado) {
+        // Do Android 11 em diante, a recusa depois da qual o Android não mostraria mais o pedido (a segunda): a tela é
+        // consultada aqui, na thread de UI, e a marca vai ao disco na thread do trabalho.
+        boolean negada = resultado != null && Boolean.FALSE.equals(resultado.get(O_TEMPO_TODO));
+        boolean deVez = negada && sdk >= Build.VERSION_CODES.R && !oAndroidPedeDeNovo();
         trabalhar(() -> {
             esperandoOTecnico = false;
             if (resultado == null || resultado.isEmpty()) {
@@ -303,8 +343,28 @@ final class EquipeNaCasca {
                 return;
             }
             Log.i(TAG, "a localização o tempo todo " + (Boolean.TRUE.equals(resultado.get(O_TEMPO_TODO)) ? "dada" : "não dada"));
+            if (deVez) {
+                Log.i(TAG, "o Android não mostra mais o pedido da localização o tempo todo: a explicação leva aos ajustes");
+                prefs().edit().putBoolean(CHAVE_PELOS_AJUSTES, true).apply();
+            }
             reavaliarAgora();
         });
+    }
+
+    private boolean oAndroidPedeDeNovo() {
+        try {
+            return tela.oAndroidPedeDeNovo(O_TEMPO_TODO);
+        } catch (RuntimeException e) {
+            return true; // sem saber, o caminho de sempre (o pedido do Android)
+        }
+    }
+
+    /**
+     * A tela que nasce (o load do plugin): a conta conferida antes dela não vale até a página desta tela conferir (R8),
+     * também no processo que sobreviveu à noite e no religamento que viesse depois.
+     */
+    void aTelaAbriu() {
+        trabalhar(chave::aTelaAbriu);
     }
 
     /** A tela saindo (o handleOnDestroy do plugin, na thread de UI): o diálogo aberto vai junto. */
@@ -319,6 +379,7 @@ final class EquipeNaCasca {
             Log.i(TAG, "o Sair a caminho: a casca não decide nada com a chave de quem saiu");
             return;
         }
+        if (chave.precisaReconferir()) reconferirNaVolta();
         boolean temChave;
         try {
             temChave = chave.chave() != null;
@@ -328,10 +389,13 @@ final class EquipeNaCasca {
             return;
         }
         boolean deUso = tem(DE_USO);
+        boolean doTempoTodo = oTempoTodo(sdk, deUso, tem(O_TEMPO_TODO));
+        // A o tempo todo dada (nos ajustes ou no pedido): a explicação volta a ser a do pedido do Android, se faltar de novo.
+        if (doTempoTodo && prefs().contains(CHAVE_PELOS_AJUSTES)) prefs().edit().remove(CHAVE_PELOS_AJUSTES).apply();
         boolean rodando = servico.rodando();
         // Sem a resposta do Nexus na mão, a coleta vale enquanto houver a chave: ele só a dá com o coleta:true, e o
         // coleta:false (no registro ou num envio), o 401 e o Sair a apagam.
-        Acao acao = decidir(temChave, temChave, chave.avisoAceito(), deUso, oTempoTodo(sdk, deUso, tem(O_TEMPO_TODO)),
+        Acao acao = decidir(temChave, temChave, chave.avisoAceito(), deUso, doTempoTodo, servico.notificacaoAVista(),
             JanelaDaEquipe.dentro(relogio.getAsLong(), TimeZone.getDefault()), rodando);
         switch (acao) {
             case INICIAR:
@@ -350,8 +414,29 @@ final class EquipeNaCasca {
                 if (rodando) servico.parar();
                 pedirAPermissao(deUso);
                 break;
+            case SEM_A_NOTIFICACAO:
+                // Quem pede a notificação é o Antes de começar da MainActivity, uma vez: aqui só o Nexus fica sabendo.
+                if (rodando) servico.parar();
+                avisarSemPermissao("sem a notificação fixa à vista");
+                break;
             default:
                 break;
+        }
+    }
+
+    // R9: a conferência que o cofre não deixou fazer, de novo na volta ao app. A conta guardada que se mostra de outra
+    // conta faz aqui a troca de conta da R5, fora do envio do serviço; com o cofre ainda fora, nada muda.
+    private void reconferirNaVolta() {
+        String conta = chave.contaDaPagina();
+        if (conta == null) return;
+        if (deOutraConta(conta)) {
+            esquecerAContaAnterior();
+            return;
+        }
+        try {
+            if (chave.reconferir()) Log.i(TAG, "a conta da chave da equipe conferida de novo na volta ao app: o envio sai");
+        } catch (RuntimeException e) {
+            Log.w(TAG, "a conta da chave da equipe ainda não pôde ser conferida (" + e.getClass().getSimpleName() + ")");
         }
     }
 
@@ -377,15 +462,26 @@ final class EquipeNaCasca {
         if (esperandoOTecnico) return; // a resposta dele decide
         String[] pedidas = permissoesAPedir(sdk, deUso);
         if (jaPediu || pedidas.length == 0) {
-            avisarSemPermissao();
+            avisarSemPermissao("sem a localização o tempo todo");
             return;
         }
         jaPediu = true;
         esperandoOTecnico = true;
-        if (sdk >= Build.VERSION_CODES.R) {
+        if (sdk >= Build.VERSION_CODES.R && prefs().getBoolean(CHAVE_PELOS_AJUSTES, false)) {
+            // O Android não abre mais o pedido (duas recusas): a explicação diz o caminho pelos ajustes do app, e o
+            // Continuar os abre. A volta dos ajustes é uma volta ao app, e esta tela não pergunta de novo.
+            Log.i(TAG, "a explicação da localização o tempo todo, pelos ajustes do app");
+            naTela(() -> {
+                boolean abriu = tela.explicarOTempoTodo(true, () -> {
+                    if (tela.abrirOsAjustes()) trabalhar(this::ajustesAbertos);
+                    else trabalhar(this::naoApareceu);
+                });
+                if (!abriu) trabalhar(this::naoApareceu);
+            });
+        } else if (sdk >= Build.VERSION_CODES.R) {
             Log.i(TAG, "a explicação da localização o tempo todo, antes dos ajustes do Android");
             naTela(() -> {
-                boolean abriu = tela.explicarOTempoTodo(() -> {
+                boolean abriu = tela.explicarOTempoTodo(false, () -> {
                     if (!tela.pedir(pedidas)) trabalhar(this::naoApareceu);
                 });
                 if (!abriu) trabalhar(this::naoApareceu);
@@ -404,9 +500,20 @@ final class EquipeNaCasca {
         jaPediu = false;
     }
 
-    private void avisarSemPermissao() {
+    // Os ajustes do app abertos: não há resposta do Android a esperar (a volta deles é uma volta ao app, que decide), e
+    // esta tela não explica de novo.
+    private void ajustesAbertos() {
+        esperandoOTecnico = false;
+    }
+
+    private SharedPreferences prefs() {
+        return app.getSharedPreferences(PREFERENCIAS, Context.MODE_PRIVATE);
+    }
+
+    /** O "sem" ao Nexus, no máximo a cada 30 minutos; {@code falta} é o que o log diz que falta. */
+    private void avisarSemPermissao(String falta) {
         long agora = relogio.getAsLong();
-        SharedPreferences prefs = app.getSharedPreferences(PREFERENCIAS, Context.MODE_PRIVATE);
+        SharedPreferences prefs = prefs();
         long ultimo;
         try {
             ultimo = prefs.getLong(CHAVE_SEM_PERMISSAO, -1L);
@@ -416,24 +523,29 @@ final class EquipeNaCasca {
         // A marca "do futuro" (a hora do aparelho voltou) não segura: seguraria pelo tempo que a hora voltou.
         if (ultimo >= 0 && ultimo <= agora && agora - ultimo < INTERVALO_SEM_PERMISSAO_MS) return;
         EnvioDePontos.Resultado r = envio.avisarSemPermissao();
-        if (r == EnvioDePontos.Resultado.ENVIADO || r == EnvioDePontos.Resultado.PARAR) {
+        // O que o Nexus respondeu conta (também a recusa: mandar de novo não muda a resposta); a rede que caiu, não.
+        if (r == EnvioDePontos.Resultado.ENVIADO || r == EnvioDePontos.Resultado.PARAR
+                || r == EnvioDePontos.Resultado.DESCARTADO) {
             prefs.edit().putLong(CHAVE_SEM_PERMISSAO, agora).apply();
         }
         switch (r) {
             case ENVIADO:
-                Log.i(TAG, "sem a localização o tempo todo: o Nexus sabe");
+                Log.i(TAG, falta + ": o Nexus sabe");
                 break;
             case PARAR:
                 // O 401 ou o coleta:false: o EnvioDePontos já apagou a chave.
                 servico.parar();
-                Log.i(TAG, "sem a localização o tempo todo: o Nexus desligou a coleta neste aparelho");
+                Log.i(TAG, falta + ": o Nexus desligou a coleta neste aparelho");
+                break;
+            case DESCARTADO:
+                Log.i(TAG, falta + ": o Nexus recusou o aviso");
                 break;
             case SEM_REDE:
-                Log.i(TAG, "sem a localização o tempo todo: o aviso ao Nexus fica para a próxima volta ao app");
+                Log.i(TAG, falta + ": o aviso ao Nexus fica para a próxima volta ao app");
                 break;
             default:
-                // O NADA: a página desta partida ainda não conferiu a conta da chave, e o aviso espera como o lote.
-                Log.i(TAG, "sem a localização o tempo todo: o aviso ao Nexus espera a página conferir a conta");
+                // O NADA: a página ainda não conferiu a conta da chave, e o aviso espera como o lote.
+                Log.i(TAG, falta + ": o aviso ao Nexus espera a página conferir a conta");
                 break;
         }
     }
@@ -521,8 +633,14 @@ final class EquipeNaCasca {
     // chave da próxima); a chave é revogada no Nexus e apagada daqui, com a conta e o aviso aceito, e a marca dos 30
     // minutos vai junto. Só lança se a chave não sair do disco.
     private void esquecerAConta() {
-        servico.parar();
-        pararDeEsperar();
+        // O parar e o fechar do diálogo que lançam não seguram a fila nem a chave (que é o que o Sair garante).
+        pararAColeta();
+        try {
+            pararDeEsperar();
+        } catch (RuntimeException e) {
+            esperandoOTecnico = false;
+            Log.w(TAG, "o diálogo da equipe não fechou agora (" + e.getClass().getSimpleName() + ")");
+        }
         jaPediu = false;
         limparAFila();
         try {
@@ -539,7 +657,17 @@ final class EquipeNaCasca {
     // A marca dos 30 minutos é do aviso da conta que saiu: a seguinte avisa o Nexus que falta a permissão sem esperar por
     // ela.
     private void esquecerAMarcaSemPermissao() {
-        app.getSharedPreferences(PREFERENCIAS, Context.MODE_PRIVATE).edit().remove(CHAVE_SEM_PERMISSAO).apply();
+        prefs().edit().remove(CHAVE_SEM_PERMISSAO).apply();
+    }
+
+    // O parar do serviço que lança (nunca no de verdade, que só posta à thread principal) fica no log: o que vem depois
+    // dele (a fila, a chave, a marca do Sair) não depende dele.
+    private void pararAColeta() {
+        try {
+            servico.parar();
+        } catch (RuntimeException e) {
+            Log.w(TAG, "a coleta da equipe não parou agora (" + e.getClass().getSimpleName() + ")");
+        }
     }
 
     private boolean tem(String permissao) {
@@ -568,6 +696,11 @@ final class EquipeNaCasca {
         public boolean rodando() {
             return ServicoDaEquipe.rodando();
         }
+
+        @Override
+        public boolean notificacaoAVista() {
+            return ServicoDaEquipe.notificacaoAVista(app);
+        }
     }
 
     /**
@@ -595,12 +728,32 @@ final class EquipeNaCasca {
                 .create());
         }
 
+        // Os ajustes do Nexus Field, como o "Abrir ajustes" da MainActivity: a permissão fica em Permissões, Localização.
         @Override
-        public boolean explicarOTempoTodo(Runnable continuar) {
+        public boolean abrirOsAjustes() {
+            if (!ativa()) return false;
+            try {
+                activity.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", activity.getPackageName(), null)));
+                return true;
+            } catch (RuntimeException e) {
+                Log.w(TAG, "os ajustes do Nexus Field não abriram (" + e.getClass().getSimpleName() + ")");
+                return false;
+            }
+        }
+
+        @Override
+        public boolean oAndroidPedeDeNovo(String permissao) {
+            return ActivityCompat.shouldShowRequestPermissionRationale(activity, permissao);
+        }
+
+        @Override
+        public boolean explicarOTempoTodo(boolean pelosAjustes, Runnable continuar) {
             if (!ativa()) return false;
             return mostrar(new AlertDialog.Builder(activity)
                 .setTitle(R.string.casca_equipe_permissao_titulo)
-                .setMessage(R.string.casca_equipe_permissao_texto)
+                .setMessage(pelosAjustes ? R.string.casca_equipe_permissao_texto_ajustes
+                    : R.string.casca_equipe_permissao_texto)
                 .setCancelable(false)
                 .setPositiveButton(R.string.casca_equipe_permissao_continuar, (d, qual) -> continuar.run())
                 .create());
