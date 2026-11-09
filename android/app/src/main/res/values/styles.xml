@@ -15,6 +15,19 @@
         <item name="android:background">@null</item>
     </style>
 
+    <!--
+      Os parágrafos do termo de uso e privacidade da localização (TermoDaEquipe): o texto no tamanho da mensagem de um
+      diálogo do AppCompat, e o título de cada seção (em negrito pelo <b> do strings.xml) com um respiro em cima, que
+      separa uma seção da outra. Em sp, pelo TextAppearance: a fonte grande do sistema aumenta o texto, e ele rola.
+    -->
+    <style name="TermoDaEquipe.Texto" parent="TextAppearance.AppCompat.Subhead">
+        <item name="android:paddingTop">4dp</item>
+    </style>
+
+    <style name="TermoDaEquipe.Titulo" parent="TextAppearance.AppCompat.Subhead">
+        <item name="android:paddingTop">16dp</item>
+    </style>
+
 
     <!--
       A abertura do Nexus Field: o navy do ícone com o G pequeno no centro. O Android 12+ desenha a abertura sozinho

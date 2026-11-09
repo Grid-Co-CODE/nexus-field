@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.util.Log;
+import android.view.View;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
@@ -665,15 +666,26 @@ final class EquipeNaCasca {
             this.pedido = pedido;
         }
 
+        // O texto vai no setView, e não no setMessage: é o TermoDaEquipe que o rola com o botão à vista e que só liga o Li
+        // e aceito depois do fim (R11). O botão nasce sem clique (o do AlertDialog fecharia o termo mesmo desligado): o
+        // clique é o do travar, que fecha e aceita só com ele ligado.
         @Override
         public boolean mostrarTermo(Runnable aceitar) {
             if (!ativa()) return false;
-            return mostrar(new AlertDialog.Builder(activity)
+            AlertDialog.Builder montar = new AlertDialog.Builder(activity);
+            View termo = TermoDaEquipe.vista(montar.getContext());
+            AlertDialog dialogo = montar
                 .setTitle(R.string.casca_equipe_termo_titulo)
-                .setMessage(R.string.casca_equipe_termo_texto)
+                .setView(termo)
                 .setCancelable(false)
-                .setPositiveButton(R.string.casca_equipe_termo_aceitar, (d, qual) -> aceitar.run())
-                .create());
+                .setPositiveButton(R.string.casca_equipe_termo_aceitar, null)
+                .create();
+            if (!mostrar(dialogo)) return false;
+            TermoDaEquipe.travar(termo, dialogo.getButton(AlertDialog.BUTTON_POSITIVE), () -> {
+                fechar();
+                aceitar.run();
+            });
+            return true;
         }
 
         @Override

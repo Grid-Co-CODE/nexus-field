@@ -64,17 +64,30 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   piloto só os técnicos escolhidos. Para os outros (supervisor, administrador, o aparelho de prova, quem não está no
   piloto) a casca não mostra o termo nem coleta. Assim a 1.2.0 pode ir a todos os aparelhos com a coleta desligada para
   quem não entrou.
-- **O termo de uso antes de ligar (R10, 08/11).** A única tela do Nexus Field para a coleta: o "Termo de uso da
-  localização", uma vez por conta (outra conta no mesmo celular o vê de novo; a chave refeita da mesma conta, não), com
-  um botão só, "Li e aceito" (sem o aceite nada coleta, e a próxima abertura mostra o termo de novo). Ele diz o que é
-  coletado (a posição do celular), quando (das 6h às 22h, a partir da primeira abertura do dia, também com o app
-  fechado), por quê (ver onde a equipe está e abrir rotas até as usinas), quem vê (PCM, COS, Performance, Supervisão
-  Campo, Responsáveis UFV e os administradores do Nexus), por quanto tempo (7 dias os pontos, 1 ano os deslocamentos),
-  que a notificação fica na barra e que o Sair para a coleta, e o que escolher no pedido do Android que vem em seguida
-  (Durante o uso do app). Os textos vão à prévia (`docs/previas/telas.html`), ao RH e ao jurídico, e só valem depois de
-  aprovados. Caso que criou a regra: o dono viu a prévia com o aviso e as duas explicações da localização "o tempo
-  todo" e pediu "só cria um termo de uso para eles darem ok, essa quantidade de telas e avisos atrapalham muito a
-  experiência".
+- **O termo de uso e privacidade antes de ligar (R10, 08/11; R11, 09/11).** A única tela do Nexus Field para a coleta:
+  o "Termo de uso e privacidade da localização", uma vez por conta (outra conta no mesmo celular o vê de novo; a chave
+  refeita da mesma conta, não) e por versão do texto, com um botão só, "Li e aceito" (sem o aceite nada coleta, e a
+  próxima abertura mostra o termo de novo). É o aviso de privacidade inteiro, pela LGPD, em 12 seções com o título em
+  negrito: quem é o responsável (a Grid Co.), quais dados (a posição, a precisão, a velocidade, o deslocamento, a hora e
+  o fuso, o código do aparelho e a conta; nada além disso), quando (das 6h às 22h, a partir da primeira abertura do dia,
+  também com o app fechado, sempre com a notificação fixa), para quê (ver onde a equipe de campo está, abrir a rota até
+  as usinas e planejar as rotas), a base legal (o legítimo interesse e a execução do contrato de trabalho, art. 7º, V e
+  IX), quem vê (PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus; parado fora de
+  usina, só a cidade e a distância; cada abertura do mapa ou da rota registrada), com quem é compartilhado (ninguém de
+  fora; o Google Play services calcula a posição e o Google Maps traça a rota aberta), por quanto tempo (7 dias os
+  pontos, 1 ano os deslocamentos, o registro de quem abriu o mapa para responder pela LGPD), a segurança (cifrado no
+  caminho e no Nexus, 24 h no máximo no celular, a chave que o Sair apaga), os direitos (art. 18, a ANPD, os pedidos pelo
+  RH), como parar (às 22h, o Sair, a permissão tirada) e que o texto novo pede um aceite novo; no fim, o que escolher no
+  pedido do Android que vem em seguida (Durante o uso do app). O texto rola dentro do diálogo e o "Li e aceito", sempre à
+  vista embaixo, só liga depois de o fim do texto aparecer na tela (com uma dica logo acima enquanto isso; o texto que
+  cabe inteiro libera na hora; o TalkBack e o teclado rolam igual). O aceite guarda a versão do texto (`TERMO_VERSAO`,
+  "1", o de 09/11/2026): o texto que mudar muda a versão, e quem aceitou a de antes vê o termo de novo. Os textos vão à
+  prévia (`docs/previas/telas.html`), ao RH e ao jurídico (do jurídico confirmar: a base legal e o RH como canal dos
+  direitos), e só valem depois de aprovados. Casos que criaram a regra: o dono viu a prévia com o aviso e as duas
+  explicações da localização "o tempo todo" e pediu "só cria um termo de uso para eles darem ok, essa quantidade de
+  telas e avisos atrapalham muito a experiência" (R10); ao aprovar os textos, pediu "Quero que o termo de notificação
+  inclua tudo referente a LGPD e seja que nem as empresas grandes fazem, aparece a pessoa tem que rolar até o final para
+  aceitar" (R11). Fica para depois (muda o contrato da seção 8): mandar ao Nexus a prova do aceite (a versão e a hora).
 - **A permissão.** A localização durante o uso, a precisa (a aproximada erra por quilômetros, e o ponto no mapa e o
   Abrir rota precisam dele): logo depois do aceite, o pedido do próprio Android (a precisa e a aproximada juntas), sem
   tela nossa antes; fora do aceite, quem a pede é o "Antes de começar" da casca, a cada abertura. A "o tempo todo" não é

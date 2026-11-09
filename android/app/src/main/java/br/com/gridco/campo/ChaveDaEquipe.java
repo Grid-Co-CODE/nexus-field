@@ -29,10 +29,15 @@ import java.util.UUID;
  *       ({@link #contaDaPagina}), e o envio e a volta ao app conferem de novo ({@link #reconferir}) até o cofre voltar.
  *       Caso que criou a regra: com a R8 e a R7 juntas, um soluço do Keystore na carga deixava o envio parado até a
  *       próxima carga, que pode ser no dia seguinte (a fila perde o que passa de 24 h).</li>
- *   <li>O termo de uso da localização aceito é da conta (R10): a chave nova da mesma conta (a revogada e refeita depois
- *       do 401) não pede o termo de novo; outra conta no mesmo aparelho, a chave de antes da conta e a conta que a cifra
- *       não lê pedem. Caso que criou a regra: o dono pediu menos telas ("essa quantidade de telas e avisos atrapalham muito
- *       a experiência"), e o Nexus que revoga as chaves mostraria o termo de novo a quem já o aceitou.</li>
+ *   <li>O termo de uso e privacidade da localização aceito é da conta (R10): a chave nova da mesma conta (a revogada e
+ *       refeita depois do 401) não pede o termo de novo; outra conta no mesmo aparelho, a chave de antes da conta e a
+ *       conta que a cifra não lê pedem. Caso que criou a regra: o dono pediu menos telas ("essa quantidade de telas e
+ *       avisos atrapalham muito a experiência"), e o Nexus que revoga as chaves mostraria o termo de novo a quem já o
+ *       aceitou.</li>
+ *   <li>E é da versão do texto ({@link #TERMO_VERSAO}, R11): o aceite guarda a versão, e só vale o da versão de agora.
+ *       Caso que criou a regra: o termo curto da R10 virou o aviso de privacidade inteiro (o pedido do dono, 09/11/2026),
+ *       e quem aceitou o curto num aparelho de prova não leu o novo; e o texto que mudar no futuro pede o aceite de novo,
+ *       como a seção 12 dele promete.</li>
  *   <li>Chave que a cifra de agora não lê ({@link Cifra.Ilegivel}) vale como sem chave: o serviço pede outra. A conta
  *       que ela não lê vale como sem conta.</li>
  *   <li>O id do aparelho é um UUID criado uma vez e sobrevive ao {@link #apagar}: é a identidade do aparelho, não o
@@ -45,8 +50,16 @@ final class ChaveDaEquipe {
     private static final String K_APARELHO = "aparelho";
     private static final String K_CHAVE = "chave";
     private static final String K_CONTA = "conta";
-    // O termo de uso da localização (R10), e não o "aviso_aceito" de antes dele: quem aceitou o aviso num aparelho de
-    // prova não leu o termo.
+    /**
+     * A versão do texto do termo de uso e privacidade (o casca_equipe_termo_texto, que diz "Versão 1" na primeira linha: o
+     * de 09/11/2026). Mudar o texto é mudar esta constante (e a primeira linha), e o aceite da versão de antes deixa de
+     * valer: o técnico vê o termo novo antes de a coleta ligar de novo.
+     */
+    static final String TERMO_VERSAO = "1";
+
+    // O aceite do termo (R10), e não o "aviso_aceito" de antes dele: quem aceitou o aviso num aparelho de prova não leu o
+    // termo. Guarda a versão aceita (R11); a marca booleana que a primeira versão desta chave guardava, só nos aparelhos
+    // de prova, não é uma versão e não vale.
     private static final String K_TERMO = "termo_aceito";
 
     private final SharedPreferences prefs;
@@ -75,8 +88,8 @@ final class ChaveDaEquipe {
 
     /**
      * Guarda a chave e a conta dela, as duas cifradas, de uma vez. True se é outra chave ou outra conta que as de antes.
-     * Outra conta que a guardada (ou sem conta guardada, ou com a que a cifra não lê) volta o termo aceito a "não"; a
-     * chave nova da mesma conta o mantém. Guardada (ou a mesma de antes), a conta fica conferida: é a chave que a página
+     * Outra conta que a guardada (ou sem conta guardada, ou com a que a cifra não lê) esquece o termo aceito; a chave nova
+     * da mesma conta o mantém. Guardada (ou a mesma de antes), a conta fica conferida: é a chave que a página
      * desta tela entregou, da conta que ela mandou. A cifra que falha lança antes, e a conferência fica como estava.
      */
     synchronized boolean guardar(String chave, String conta) {
@@ -88,7 +101,7 @@ final class ChaveDaEquipe {
         String cifrada = Base64.encodeToString(cifra.cifrar(chave), Base64.NO_WRAP);
         String contaCifrada = Base64.encodeToString(cifra.cifrar(conta), Base64.NO_WRAP);
         SharedPreferences.Editor gravacao = prefs.edit().putString(K_CHAVE, cifrada).putString(K_CONTA, contaCifrada);
-        if (!conta.equals(contaGuardada)) gravacao.putBoolean(K_TERMO, false);
+        if (!conta.equals(contaGuardada)) gravacao.remove(K_TERMO);
         gravacao.commit();
         conferidaPelaPagina(conta);
         return true;
@@ -208,16 +221,18 @@ final class ChaveDaEquipe {
         }
     }
 
-    /** O Li e aceito do termo de uso da localização, da conta da chave guardada. */
+    /** O Li e aceito do termo de uso e privacidade, da conta da chave guardada e da versão de agora do texto. */
     synchronized boolean termoAceito() {
         try {
-            return prefs.getBoolean(K_TERMO, false);
+            return TERMO_VERSAO.equals(prefs.getString(K_TERMO, null));
         } catch (ClassCastException e) {
+            // A marca booleana de antes da versão (aparelhos de prova): quem a tem leu o termo curto, não este.
             return false;
         }
     }
 
+    /** O Li e aceito: guarda a versão do texto que o técnico leu até o fim. */
     synchronized void aceitarTermo() {
-        prefs.edit().putBoolean(K_TERMO, true).commit();
+        prefs.edit().putString(K_TERMO, TERMO_VERSAO).commit();
     }
 }

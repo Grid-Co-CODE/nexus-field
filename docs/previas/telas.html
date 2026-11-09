@@ -40,6 +40,9 @@
     --dlg-fundo:#ffffff;
     --dlg-texto:#212121;
     --dlg-botao:#008577;
+    /* O texto secundário do diálogo (o textColorSecondary do AppCompat): a dica do termo da equipe e o botão desligado,
+       que o AppCompat pinta com ele no lugar da cor de destaque. */
+    --dlg-texto-suave:rgba(0, 0, 0, 0.54);
     --dlg-sombra:0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14), 0 9px 46px 8px rgba(0, 0, 0, 0.12);
     --toast-fundo:#323232;
     --toast-texto:#ffffff;
@@ -100,6 +103,7 @@
     --dlg-fundo:#424242;
     --dlg-texto:#ffffff;
     --dlg-botao:#80cbc4;
+    --dlg-texto-suave:rgba(255, 255, 255, 0.7);
     --ajustes-fundo:#121212;
     --ajustes-texto:#e3e3e3;
     --gaveta-fundo:#0e0f12;
@@ -139,6 +143,11 @@
   /* Alvo de toque de 44 px: o link é curto e fica no canto da linha, onde o dedo erra fácil. */
   .aprovar .ver { flex:none; display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; font-size:14px; }
   .cita { font-weight:700; }
+  /* O texto inteiro do termo da equipe na lista: em parágrafos, com o negrito só nos títulos das seções. */
+  .cita.termo-citado { display:block; margin-top:8px; padding-left:12px; border-left:3px solid var(--borda); font-weight:400; }
+  .termo-paragrafo { display:block; margin-top:8px; }
+  .termo-paragrafo b { display:block; }
+  .aprovar li:has(.termo-citado) { align-items:flex-start; }
   /* O item do som dos canais: um canal por linha, para o dono conferir um de cada vez. */
   .aprovar .canal-aviso { display:block; margin-top:6px; }
 
@@ -210,11 +219,20 @@
   }
   .dialogo-titulo { padding:0 24px 20px; font-size:20px; font-weight:500; line-height:1.3; }
   .dialogo-texto { margin:0; padding:0 24px 24px; font-size:16px; line-height:1.5; white-space:pre-line; }
+  /* O termo de uso e privacidade da localização da equipe (o TermoDaEquipe): o texto rola numa caixa de altura fixa, e o
+     botão fica à vista embaixo dela. Um parágrafo por linha do texto, o título de cada seção em negrito numa linha só. O
+     quadro do fim abre a caixa já rolada até o fim (o column-reverse começa a rolagem pelo fim), sem script. */
+  .dialogo-texto.termo { height:360px; overflow-y:auto; padding-bottom:16px; line-height:1.4; white-space:normal; }
+  .termo p { margin:4px 0 0; }
+  .termo b { display:block; margin-top:12px; }
+  .termo-fim { display:flex; flex-direction:column-reverse; }
+  .dialogo-dica { margin:0; padding:12px 24px 4px; color:var(--dlg-texto-suave); font-size:12px; line-height:1.4; }
   .dialogo-botoes { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:0 4px; padding:0 8px; }
   .dialogo-botao {
     display:inline-flex; align-items:center; min-height:48px; padding:0 8px; color:var(--dlg-botao);
     font-size:14px; font-weight:500; letter-spacing:0.09em; text-transform:uppercase;
   }
+  .dialogo-botao[aria-disabled="true"] { color:var(--dlg-texto-suave); }
   .toast {
     position:absolute; left:50%; bottom:56px; width:max-content; max-width:calc(100% - 48px); transform:translateX(-50%);
     padding:12px 24px; border-radius:24px; background:var(--toast-fundo); color:var(--toast-texto);
@@ -297,8 +315,33 @@
       <li><input type="checkbox" id="ok-notificacoes"><label for="ok-notificacoes">Novo: as notificações na barra do Android, com o G da Grid em branco como ícone pequeno e o nome <b class="cita">Nexus Field</b>: o resumo das 7h, o das 13h, a emergência que toca e a que chega em silêncio (a de fora do expediente, e também a enviada no expediente que chega depois dele a um celular que estava sem sinal). O texto de cada uma é escrito pelo servidor do App de Campo (os exemplos são os dele). E o toque na emergência: põe o número da OS na busca da aba Tarefas; se o técnico estiver na tela de entrada, no meio de uma OS, de uma ronda começada ou com outra tela aberta, ela fica pendente até ele ficar livre. A emergência fica na barra até a OS ser mostrada no Nexus Field.</label><a class="ver" href="#t-notif-manha">Ver</a></li>
       <li><input type="checkbox" id="ok-canais"><label for="ok-canais">Novo: os nomes dos canais das notificações, nos ajustes do Android: <b class="cita">Emergências</b>, <b class="cita">Emergências fora do expediente</b> e <b class="cita">Resumo do dia</b>; e, novo na 1.2.0 e pendente, <b class="cita">Localização da equipe</b>, que só aparece no aparelho em que a coleta da posição ligou.</label><a class="ver" href="#t-canais">Ver</a></li>
       <li><input type="checkbox" id="ok-canais-som"><label for="ok-canais-som">Novo, e não muda depois: como cada canal avisa. <span class="canal-aviso" data-canal="emergencia"><b class="cita">Emergências</b>: o alarme padrão do aparelho, no volume das notificações (não toca no silencioso nem no Não perturbe), três vibrações, e aparece por cima da tela.</span> <span class="canal-aviso" data-canal="resumo"><b class="cita">Resumo do dia</b>: o som padrão de notificação, sem aparecer por cima da tela.</span> <span class="canal-aviso" data-canal="emergencia_silenciosa"><b class="cita">Emergências fora do expediente</b>: nada, sem som, sem vibração e sem aparecer por cima da tela (fica só na barra).</span> <span class="canal-aviso" data-canal="equipe_localizacao"><b class="cita">Localização da equipe</b> (novo na 1.2.0, pendente): nada, sem som, sem vibração, sem aparecer por cima da tela e sem o ponto no ícone (a notificação fixa fica só na barra, das 6h às 22h).</span> <span class="canal-aviso">O Android grava o som, a vibração e a importância de cada canal na primeira abertura da 1.1.0 (o da localização da equipe, na primeira vez em que a coleta liga): depois que ela chegar aos aparelhos, mudar isto pede um canal novo (os nomes mudam com a versão).</span></label><a class="ver" href="#t-canais">Ver</a></li>
-      <li><input type="checkbox" id="ok-equipe-termo"><label for="ok-equipe-termo">Novo na 1.2.0, pendente (também do RH e do jurídico): o termo <b class="cita">Termo de uso da localização</b>, a única tela do Nexus Field antes de a coleta da posição ligar: o texto <b class="cita">Para o mapa da equipe, o Nexus Field envia ao Nexus a posição deste celular das 6h às 22h, a partir da primeira abertura do dia, também com o aplicativo fechado. Serve para ver onde a equipe está e abrir rotas até as usinas. Quem vê: PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus. As posições ficam guardadas por 7 dias, e o resumo dos deslocamentos entre usinas, por 1 ano. Enquanto a coleta estiver ligada, uma notificação fica na barra, e no Sair do aplicativo ela para. Se o Android perguntar, escolha Durante o uso do app.</b> e o botão <b class="cita">Li e aceito</b>, o único (sem recusar: sem o aceite nada é coletado, e a próxima abertura mostra o termo de novo).</label><a class="ver" href="#t-equipe-termo">Ver</a></li>
-      <li><input type="checkbox" id="ok-equipe-promessa"><label for="ok-equipe-promessa">Novo na 1.2.0, pendente: o que o termo promete ao técnico, conforme a seção 4.1 do desenho: <i>quando</i> (das 6h às 22h, a partir da primeira abertura do dia, também com o aplicativo fechado), <i>por quê</i> (ver onde a equipe está e abrir rotas até as usinas), <i>quem vê</i> (PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus) e <i>por quanto tempo</i> (7 dias as posições, 1 ano o resumo dos deslocamentos entre usinas); e que a coleta para no Sair do aplicativo. Logo depois do aceite vem o pedido do próprio Android da localização, em que o técnico escolhe Durante o uso do app. O que o aplicativo faz tem de ser exatamente isto.</label><a class="ver" href="#t-equipe-termo">Ver</a></li>
+      <li><input type="checkbox" id="ok-equipe-termo"><label for="ok-equipe-termo">Novo na 1.2.0, pendente (também do RH e do jurídico): o <b class="cita">Termo de uso e privacidade da localização</b>, a única tela do Nexus Field antes de a coleta da posição ligar. É o aviso de privacidade inteiro, pela LGPD, em 12 seções com o título de cada uma em negrito: o texto rola dentro do diálogo, e o técnico rola até o fim para o botão <b class="cita">Li e aceito</b> ligar; até lá ele fica desligado, com a dica <b class="cita">Role até o fim para liberar o Li e aceito</b> logo acima. É o único botão (sem recusar: sem o aceite nada é coletado, e a próxima abertura mostra o termo de novo). O aceite vale para esta versão do texto: o texto que mudar pede um aceite novo. Do jurídico confirmar: a base legal (seção 5) e o canal dos direitos (seção 10, o RH). O texto inteiro: <span class="cita termo-citado"><span class="termo-paragrafo">Versão 1, de 9 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.</span>
+<span class="termo-paragrafo"><b>1. Quem é o responsável</b>
+A Grid Co. é a controladora dos dados deste termo, nos termos da Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018, a LGPD).</span>
+<span class="termo-paragrafo"><b>2. Quais dados</b>
+A posição deste celular (latitude e longitude), a precisão de cada leitura, a velocidade, se o celular está em deslocamento, a data, a hora e o fuso horário do celular. Junto vão um código do aparelho, criado pelo próprio Nexus Field, e a sua conta da Grid Co., para saber de quem é cada posição. O Nexus Field não coleta contatos, fotos, mensagens, arquivos, áudio nem o uso de outros aplicativos.</span>
+<span class="termo-paragrafo"><b>3. Quando</b>
+Das 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o aplicativo fechado depois disso. Em férias ou folga, sem abrir o aplicativo, nada é coletado. Antes das 6h e depois das 22h, nada é coletado. Enquanto a coleta estiver ligada, a notificação Localização da equipe ligada fica na barra do celular; sem ela, não há coleta.</span>
+<span class="termo-paragrafo"><b>4. Para quê</b>
+Ver onde a equipe de campo está durante o trabalho, abrir a rota até as usinas e melhorar o planejamento das rotas entre usinas. Os dados só são usados para essas finalidades.</span>
+<span class="termo-paragrafo"><b>5. Base legal</b>
+O legítimo interesse da Grid Co. em organizar o trabalho de campo e a execução do contrato de trabalho (LGPD, art. 7º, incisos V e IX), com a transparência deste termo.</span>
+<span class="termo-paragrafo"><b>6. Quem vê</b>
+As equipes de PCM, COS, Performance, Supervisão Campo e os Responsáveis UFV da Grid Co., e os administradores do Nexus, pela tela do Mapa de equipe, com login. Os outros técnicos não veem a sua posição. Parado fora de uma usina (em casa ou no hotel, por exemplo), o mapa mostra só a cidade e a distância até a usina mais perto, nunca o ponto exato. Cada vez que alguém abre o mapa ou a rota até você, fica registrado quem abriu e quando.</span>
+<span class="termo-paragrafo"><b>7. Com quem é compartilhado</b>
+Os dados não são vendidos nem cedidos a outras empresas e ficam no sistema Nexus, da Grid Co. A posição é calculada pelo serviço de localização do Android (Google Play services). Quando alguém da Grid Co. abre a rota até uma usina, a sua posição e a da usina vão ao Google Maps só para traçar essa rota.</span>
+<span class="termo-paragrafo"><b>8. Por quanto tempo</b>
+As posições ficam guardadas por 7 dias; depois disso não são mais usadas e são apagadas. O resumo dos deslocamentos entre usinas (de onde, para onde, a saída, a chegada e a duração) fica guardado por 1 ano. O registro de quem abriu o mapa fica guardado para responder a pedidos feitos pela LGPD.</span>
+<span class="termo-paragrafo"><b>9. Segurança</b>
+As posições vão do celular ao Nexus por conexão cifrada e, no Nexus, são guardadas cifradas. Sem sinal, esperam no celular por no máximo 24 horas. Cada celular tem uma chave própria de envio, que o Sair do aplicativo apaga.</span>
+<span class="termo-paragrafo"><b>10. Seus direitos</b>
+Pela LGPD (art. 18), você pode pedir a confirmação de que seus dados são tratados, o acesso a eles, a correção, a anonimização, o bloqueio ou a eliminação do que for desnecessário ou excessivo, a portabilidade e a informação sobre com quem eles foram compartilhados, e pode se opor ao tratamento. Também pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD). Para qualquer pedido, fale com o RH da Grid Co.</span>
+<span class="termo-paragrafo"><b>11. Como parar</b>
+A coleta para sozinha às 22h e no Sair do aplicativo. Você também pode tirar a permissão de localização nos ajustes do Android: aí nada é coletado, e o Mapa de equipe mostra que a localização está desligada.</span>
+<span class="termo-paragrafo"><b>12. Mudanças neste termo</b>
+Se este termo mudar, o Nexus Field mostra a nova versão e pede um novo aceite antes de coletar.</span>
+<span class="termo-paragrafo">Ao tocar em Li e aceito, você confirma que leu e entendeu este termo. Se o Android perguntar, escolha Durante o uso do app.</span></span></label><a class="ver" href="#t-equipe-termo">Ver</a></li>
+      <li><input type="checkbox" id="ok-equipe-promessa"><label for="ok-equipe-promessa">Novo na 1.2.0, pendente: o que o termo promete ao técnico, seção por seção, e que o Nexus Field e o Nexus têm de cumprir: quem é o responsável (a Grid Co., pela LGPD); quais dados (a posição, a precisão, a velocidade, se está em deslocamento, a data, a hora e o fuso, o código do aparelho e a conta; nada de contatos, fotos, mensagens, arquivos, áudio nem do uso de outros aplicativos); <i>quando</i> (das 6h às 22h, a partir da primeira abertura do dia, também com o aplicativo fechado; em férias ou folga, sem abrir o aplicativo, nada; sempre com a notificação fixa na barra); <i>por quê</i> (ver onde a equipe de campo está, abrir a rota até as usinas e planejar as rotas entre usinas); a <i>base legal</i> (o legítimo interesse e a execução do contrato de trabalho, art. 7º, V e IX); <i>quem vê</i> (PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus; os outros técnicos não; parado fora de uma usina, só a cidade e a distância até a usina mais perto; cada abertura do mapa ou da rota fica registrada); com quem é compartilhado (com nenhuma empresa de fora; o serviço de localização do Android calcula a posição, e o Google Maps traça a rota que alguém da Grid Co. abre); <i>por quanto tempo</i> (7 dias as posições, 1 ano o resumo dos deslocamentos entre usinas, e o registro de quem abriu o mapa para responder a pedidos pela LGPD); a segurança (cifrado no caminho e no Nexus, no máximo 24 horas no celular sem sinal, e a chave do aparelho que o Sair apaga); os <i>direitos</i> (os do art. 18 da LGPD, a reclamação à ANPD e os pedidos pelo RH); como parar (às 22h, no Sair do aplicativo ou tirando a permissão de localização nos ajustes do Android); e que o termo que mudar pede um aceite novo antes de coletar. Logo depois do aceite vem o pedido do próprio Android da localização, em que o técnico escolhe Durante o uso do app. O que o aplicativo e o Nexus fazem tem de ser exatamente isto.</label><a class="ver" href="#t-equipe-termo">Ver</a></li>
       <li><input type="checkbox" id="ok-equipe-notificacao"><label for="ok-equipe-notificacao">Novo na 1.2.0, pendente: a notificação fixa enquanto a coleta está ligada: o título <b class="cita">Localização da equipe ligada</b> e o texto <b class="cita">Até as 22h, o Nexus Field envia a posição deste celular para o mapa da equipe.</b>, no canal <b class="cita">Localização da equipe</b>.</label><a class="ver" href="#t-equipe-notificacao">Ver</a></li>
       <li><input type="checkbox" id="ok-atalhos"><label for="ok-atalhos">Novo, só para administrador: os atalhos do toque longo no ícone, <b class="cita">Testar avisos</b> e <b class="cita">Testar sem alarme</b> (com os rótulos curtos, <b class="cita">Testar</b> e <b class="cita">Sem alarme</b>; o teste manda também o resumo, que toca com o som normal, e a emergência de teste do segundo vem sem alarme), e o <b class="cita">Só para administrador</b> do atalho fixado na tela inicial, que fica desligado com outra conta e depois do Sair.</label><a class="ver" href="#t-atalhos">Ver</a></li>
       <li><input type="checkbox" id="ok-teste-avisos"><label for="ok-teste-avisos">Novo, só para administrador: os seis avisos rápidos (toast) do teste, <b class="cita">Aviso de teste enviado para 2 aparelho(s)</b> (o número muda), <b class="cita">Aviso de teste enviado</b> (sem o número), <b class="cita">Só administrador pode testar</b>, <b class="cita">Entre no Nexus Field para testar</b>, <b class="cita">Não consegui enviar o teste agora</b> e <b class="cita">Teste já pedido. Espere alguns segundos para pedir outro</b>.</label><a class="ver" href="#t-teste-enviado">Ver</a></li>
@@ -432,7 +475,7 @@
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-nova-com" aria-describedby="dx-nova-com">
               <div class="dialogo-titulo" id="dt-nova-com">Nova versão do Nexus Field</div>
               <p class="dialogo-texto" id="dx-nova-com">Versão 1.2.0. Novidades:
-- A localização da equipe: para quem o Nexus indicar, o Nexus Field envia a posição do celular da primeira abertura do dia até as 22h, também com o aplicativo fechado, depois do aceite de um termo de uso que diz o que é enviado e quem vê</p>
+- A localização da equipe: para quem o Nexus indicar, o Nexus Field envia a posição do celular da primeira abertura do dia até as 22h, também com o aplicativo fechado, depois do aceite de um termo de uso e privacidade, lido até o fim, que diz o que é enviado, quem vê, por quanto tempo e os direitos pela LGPD</p>
               <div class="dialogo-botoes"><span class="dialogo-botao">Depois</span><span class="dialogo-botao">Atualizar agora</span></div>
             </div>
           </div>
@@ -705,21 +748,90 @@
 
   <section class="grupo" aria-labelledby="g-equipe">
     <h2 id="g-equipe">Localização da equipe</h2>
-    <p class="suave">Novo na 1.2.0, com os textos pendentes de aprovação (do dono da casca, do RH e do jurídico): a coleta da posição dos técnicos de campo para o mapa da equipe no Nexus, da primeira abertura do Nexus Field no dia até as 22h, na hora do celular, só para quem o Nexus diz que a coleta vale. Antes de ligar, uma tela só do Nexus Field, o termo de uso, e logo depois o pedido do próprio Android da localização durante o uso. Enquanto ela está ligada, a notificação fixa fica na barra; às 22h ela sai sozinha. Os textos são do Nexus Field (o strings.xml), e não do servidor.</p>
+    <p class="suave">Novo na 1.2.0, com os textos pendentes de aprovação (do dono da casca, do RH e do jurídico): a coleta da posição dos técnicos de campo para o mapa da equipe no Nexus, da primeira abertura do Nexus Field no dia até as 22h, na hora do celular, só para quem o Nexus diz que a coleta vale. Antes de ligar, uma tela só do Nexus Field, o termo de uso e privacidade (o aviso de privacidade inteiro, que o técnico rola até o fim para o Li e aceito ligar), e logo depois o pedido do próprio Android da localização durante o uso. Enquanto ela está ligada, a notificação fixa fica na barra; às 22h ela sai sozinha. Os textos são do Nexus Field (o strings.xml), e não do servidor.</p>
     <div class="galeria">
 
       <figure class="item" id="t-equipe-termo">
-        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Termo de uso da localização">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Termo de uso e privacidade da localização, no começo do texto">
           <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
           <div class="veu">
             <div class="dialogo" role="alertdialog" aria-labelledby="dt-equipe-termo" aria-describedby="dx-equipe-termo">
-              <div class="dialogo-titulo" id="dt-equipe-termo">Termo de uso da localização</div>
-              <p class="dialogo-texto" id="dx-equipe-termo">Para o mapa da equipe, o Nexus Field envia ao Nexus a posição deste celular das 6h às 22h, a partir da primeira abertura do dia, também com o aplicativo fechado. Serve para ver onde a equipe está e abrir rotas até as usinas. Quem vê: PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus. As posições ficam guardadas por 7 dias, e o resumo dos deslocamentos entre usinas, por 1 ano. Enquanto a coleta estiver ligada, uma notificação fica na barra, e no Sair do aplicativo ela para. Se o Android perguntar, escolha Durante o uso do app.</p>
+              <div class="dialogo-titulo" id="dt-equipe-termo">Termo de uso e privacidade da localização</div>
+              <div class="dialogo-texto termo" id="dx-equipe-termo" tabindex="0">
+<p>Versão 1, de 9 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.</p>
+<p><b>1. Quem é o responsável</b>
+A Grid Co. é a controladora dos dados deste termo, nos termos da Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018, a LGPD).</p>
+<p><b>2. Quais dados</b>
+A posição deste celular (latitude e longitude), a precisão de cada leitura, a velocidade, se o celular está em deslocamento, a data, a hora e o fuso horário do celular. Junto vão um código do aparelho, criado pelo próprio Nexus Field, e a sua conta da Grid Co., para saber de quem é cada posição. O Nexus Field não coleta contatos, fotos, mensagens, arquivos, áudio nem o uso de outros aplicativos.</p>
+<p><b>3. Quando</b>
+Das 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o aplicativo fechado depois disso. Em férias ou folga, sem abrir o aplicativo, nada é coletado. Antes das 6h e depois das 22h, nada é coletado. Enquanto a coleta estiver ligada, a notificação Localização da equipe ligada fica na barra do celular; sem ela, não há coleta.</p>
+<p><b>4. Para quê</b>
+Ver onde a equipe de campo está durante o trabalho, abrir a rota até as usinas e melhorar o planejamento das rotas entre usinas. Os dados só são usados para essas finalidades.</p>
+<p><b>5. Base legal</b>
+O legítimo interesse da Grid Co. em organizar o trabalho de campo e a execução do contrato de trabalho (LGPD, art. 7º, incisos V e IX), com a transparência deste termo.</p>
+<p><b>6. Quem vê</b>
+As equipes de PCM, COS, Performance, Supervisão Campo e os Responsáveis UFV da Grid Co., e os administradores do Nexus, pela tela do Mapa de equipe, com login. Os outros técnicos não veem a sua posição. Parado fora de uma usina (em casa ou no hotel, por exemplo), o mapa mostra só a cidade e a distância até a usina mais perto, nunca o ponto exato. Cada vez que alguém abre o mapa ou a rota até você, fica registrado quem abriu e quando.</p>
+<p><b>7. Com quem é compartilhado</b>
+Os dados não são vendidos nem cedidos a outras empresas e ficam no sistema Nexus, da Grid Co. A posição é calculada pelo serviço de localização do Android (Google Play services). Quando alguém da Grid Co. abre a rota até uma usina, a sua posição e a da usina vão ao Google Maps só para traçar essa rota.</p>
+<p><b>8. Por quanto tempo</b>
+As posições ficam guardadas por 7 dias; depois disso não são mais usadas e são apagadas. O resumo dos deslocamentos entre usinas (de onde, para onde, a saída, a chegada e a duração) fica guardado por 1 ano. O registro de quem abriu o mapa fica guardado para responder a pedidos feitos pela LGPD.</p>
+<p><b>9. Segurança</b>
+As posições vão do celular ao Nexus por conexão cifrada e, no Nexus, são guardadas cifradas. Sem sinal, esperam no celular por no máximo 24 horas. Cada celular tem uma chave própria de envio, que o Sair do aplicativo apaga.</p>
+<p><b>10. Seus direitos</b>
+Pela LGPD (art. 18), você pode pedir a confirmação de que seus dados são tratados, o acesso a eles, a correção, a anonimização, o bloqueio ou a eliminação do que for desnecessário ou excessivo, a portabilidade e a informação sobre com quem eles foram compartilhados, e pode se opor ao tratamento. Também pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD). Para qualquer pedido, fale com o RH da Grid Co.</p>
+<p><b>11. Como parar</b>
+A coleta para sozinha às 22h e no Sair do aplicativo. Você também pode tirar a permissão de localização nos ajustes do Android: aí nada é coletado, e o Mapa de equipe mostra que a localização está desligada.</p>
+<p><b>12. Mudanças neste termo</b>
+Se este termo mudar, o Nexus Field mostra a nova versão e pede um novo aceite antes de coletar.</p>
+<p>Ao tocar em Li e aceito, você confirma que leu e entendeu este termo. Se o Android perguntar, escolha Durante o uso do app.</p>
+              </div>
+              <p class="dialogo-dica">Role até o fim para liberar o Li e aceito</p>
+              <div class="dialogo-botoes"><span class="dialogo-botao" aria-disabled="true">Li e aceito</span></div>
+            </div>
+          </div>
+        </div>
+        <figcaption><strong>O termo de uso e privacidade da localização, no começo, novo e pendente.</strong> A única tela do Nexus Field antes de a coleta ligar, com o aviso de privacidade inteiro, pela LGPD, em 12 seções. O texto rola dentro do diálogo (a barra de rolagem fica à vista), e o Li e aceito, sempre à vista embaixo, fica desligado, com a dica logo acima dele, até o fim do texto aparecer na tela; rolar pelo dedo, pelo TalkBack ou pelo teclado conta igual, e numa tela grande em que o texto cabe inteiro ele já abre ligado. Girar a tela ou sair e voltar ao app não o liga. Aparece uma vez para cada conta (outra conta no mesmo celular o vê de novo; a mesma conta, com a chave do aparelho refeita pelo Nexus, não) e de novo quando o texto mudar de versão, só para quem o Nexus diz que a coleta vale e só entre as 6h e as 22h. Não fecha tocando fora nem pelo botão Voltar, e o Li e aceito é o único botão: sem o aceite nada é coletado, e a próxima abertura mostra o termo de novo. Se a coleta já estava ligada para outra conta, ela para até o aceite.</figcaption>
+      </figure>
+
+      <figure class="item" id="t-equipe-termo-fim">
+        <div class="celular" role="group" aria-label="Tela do aparelho com o diálogo Termo de uso e privacidade da localização, no fim do texto">
+          <div class="app-falso" aria-hidden="true"><i class="barra"></i><i></i><i class="alto"></i><i></i></div>
+          <div class="veu">
+            <div class="dialogo" role="alertdialog" aria-labelledby="dt-equipe-termo-fim" aria-describedby="dx-equipe-termo-fim">
+              <div class="dialogo-titulo" id="dt-equipe-termo-fim">Termo de uso e privacidade da localização</div>
+              <div class="dialogo-texto termo termo-fim" id="dx-equipe-termo-fim" tabindex="0"><div>
+<p>Versão 1, de 9 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.</p>
+<p><b>1. Quem é o responsável</b>
+A Grid Co. é a controladora dos dados deste termo, nos termos da Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018, a LGPD).</p>
+<p><b>2. Quais dados</b>
+A posição deste celular (latitude e longitude), a precisão de cada leitura, a velocidade, se o celular está em deslocamento, a data, a hora e o fuso horário do celular. Junto vão um código do aparelho, criado pelo próprio Nexus Field, e a sua conta da Grid Co., para saber de quem é cada posição. O Nexus Field não coleta contatos, fotos, mensagens, arquivos, áudio nem o uso de outros aplicativos.</p>
+<p><b>3. Quando</b>
+Das 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o aplicativo fechado depois disso. Em férias ou folga, sem abrir o aplicativo, nada é coletado. Antes das 6h e depois das 22h, nada é coletado. Enquanto a coleta estiver ligada, a notificação Localização da equipe ligada fica na barra do celular; sem ela, não há coleta.</p>
+<p><b>4. Para quê</b>
+Ver onde a equipe de campo está durante o trabalho, abrir a rota até as usinas e melhorar o planejamento das rotas entre usinas. Os dados só são usados para essas finalidades.</p>
+<p><b>5. Base legal</b>
+O legítimo interesse da Grid Co. em organizar o trabalho de campo e a execução do contrato de trabalho (LGPD, art. 7º, incisos V e IX), com a transparência deste termo.</p>
+<p><b>6. Quem vê</b>
+As equipes de PCM, COS, Performance, Supervisão Campo e os Responsáveis UFV da Grid Co., e os administradores do Nexus, pela tela do Mapa de equipe, com login. Os outros técnicos não veem a sua posição. Parado fora de uma usina (em casa ou no hotel, por exemplo), o mapa mostra só a cidade e a distância até a usina mais perto, nunca o ponto exato. Cada vez que alguém abre o mapa ou a rota até você, fica registrado quem abriu e quando.</p>
+<p><b>7. Com quem é compartilhado</b>
+Os dados não são vendidos nem cedidos a outras empresas e ficam no sistema Nexus, da Grid Co. A posição é calculada pelo serviço de localização do Android (Google Play services). Quando alguém da Grid Co. abre a rota até uma usina, a sua posição e a da usina vão ao Google Maps só para traçar essa rota.</p>
+<p><b>8. Por quanto tempo</b>
+As posições ficam guardadas por 7 dias; depois disso não são mais usadas e são apagadas. O resumo dos deslocamentos entre usinas (de onde, para onde, a saída, a chegada e a duração) fica guardado por 1 ano. O registro de quem abriu o mapa fica guardado para responder a pedidos feitos pela LGPD.</p>
+<p><b>9. Segurança</b>
+As posições vão do celular ao Nexus por conexão cifrada e, no Nexus, são guardadas cifradas. Sem sinal, esperam no celular por no máximo 24 horas. Cada celular tem uma chave própria de envio, que o Sair do aplicativo apaga.</p>
+<p><b>10. Seus direitos</b>
+Pela LGPD (art. 18), você pode pedir a confirmação de que seus dados são tratados, o acesso a eles, a correção, a anonimização, o bloqueio ou a eliminação do que for desnecessário ou excessivo, a portabilidade e a informação sobre com quem eles foram compartilhados, e pode se opor ao tratamento. Também pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD). Para qualquer pedido, fale com o RH da Grid Co.</p>
+<p><b>11. Como parar</b>
+A coleta para sozinha às 22h e no Sair do aplicativo. Você também pode tirar a permissão de localização nos ajustes do Android: aí nada é coletado, e o Mapa de equipe mostra que a localização está desligada.</p>
+<p><b>12. Mudanças neste termo</b>
+Se este termo mudar, o Nexus Field mostra a nova versão e pede um novo aceite antes de coletar.</p>
+<p>Ao tocar em Li e aceito, você confirma que leu e entendeu este termo. Se o Android perguntar, escolha Durante o uso do app.</p>
+              </div></div>
               <div class="dialogo-botoes"><span class="dialogo-botao">Li e aceito</span></div>
             </div>
           </div>
         </div>
-        <figcaption><strong>O termo de uso da localização, novo e pendente.</strong> A única tela do Nexus Field antes de a coleta ligar: aparece uma vez para cada conta (outra conta no mesmo celular o vê de novo; a mesma conta, com a chave do aparelho refeita pelo Nexus, não), só para quem o Nexus diz que a coleta vale e só entre as 6h e as 22h. Não fecha tocando fora nem pelo botão Voltar, e o Li e aceito é o único botão: sem o aceite nada é coletado, e a próxima abertura mostra o termo de novo. Logo depois do aceite vem o pedido do próprio Android, sem outra tela antes: o técnico escolhe Durante o uso do app (com a localização precisa; a aproximada não basta). Se a localização já estava liberada, a coleta liga sem pedido nenhum. Negada, nenhuma tela a mais: o Nexus Field funciona como antes, sem coletar, e o mapa da equipe mostra que falta a permissão (o Nexus Field avisa o Nexus no máximo a cada 30 minutos); o guia de instalação diz como liberar nos ajustes. Se a coleta já estava ligada para outra conta, ela para até o aceite.</figcaption>
+        <figcaption><strong>O mesmo termo, no fim do texto.</strong> Com o fim do texto à vista, o Li e aceito liga e a dica sai; rolar de volta para cima não o desliga. O toque aceita esta versão do texto para a conta. Logo depois vem o pedido do próprio Android, sem outra tela antes: o técnico escolhe Durante o uso do app (com a localização precisa; a aproximada não basta). Se a localização já estava liberada, a coleta liga sem pedido nenhum. Negada, nenhuma tela a mais: o Nexus Field funciona como antes, sem coletar, e o mapa da equipe mostra que falta a permissão (o Nexus Field avisa o Nexus no máximo a cada 30 minutos); o guia de instalação diz como liberar nos ajustes.</figcaption>
       </figure>
 
       <figure class="item" id="t-equipe-notificacao">

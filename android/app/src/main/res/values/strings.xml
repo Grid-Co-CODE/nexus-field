@@ -1,6 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:locale="pt">
     <!--
+      Os textos são em português (o tools:locale): sem ele o lint confere a ortografia como se fosse inglês, e o "eles" do
+      termo da equipe virava o "eels" errado.
       O aplicativo se chama Nexus Field (pedido do dono da casca, 17/10/2026); o site que ele abre continua sendo o App
       de Campo. Texto da casca que fala do aplicativo diz Nexus Field (o testes/nome.test.mjs confere).
     -->
@@ -95,17 +97,78 @@
     <string name="notificacao_equipe_texto">Até as 22h, o Nexus Field envia a posição deste celular para o mapa da equipe.</string>
 
     <!--
-      O termo de uso da localização da equipe (spec 2026-11-08, seção 4.1; EquipeNaCasca), a única tela da casca antes de a
-      coleta ligar (R10, 08/11/2026: no lugar do aviso e da explicação da localização o tempo todo, a pedido do dono).
+      O termo de uso e privacidade da localização da equipe (spec 2026-11-08, seção 4.1; EquipeNaCasca e TermoDaEquipe), a
+      única tela da casca antes de a coleta ligar (R10, 08/11/2026: no lugar do aviso e da explicação da localização o
+      tempo todo, a pedido do dono). Desde a R11 (09/11/2026, o pedido do dono: "Quero que o termo de notificação inclua
+      tudo referente a LGPD e seja que nem as empresas grandes fazem, aparece a pessoa tem que rolar até o final para
+      aceitar") é o aviso de privacidade inteiro, em seções: a linha que começa com o número é o título da seção, em <b>
+      (vira negrito na tela e título para o TalkBack), e cada \n é uma linha nova (o TermoDaEquipe faz um parágrafo de
+      cada; a quebra de linha do próprio XML vira um espaço só). O texto rola dentro do diálogo, e o Li e aceito, sempre à
+      vista embaixo, só liga depois de o fim do texto aparecer na tela; até lá, a dica fica logo acima dele.
       Textos novos, PENDENTES: vão à prévia (docs/previas/telas.html, a seção Localização da equipe) e só valem depois de
-      aprovados pelo dono da casca e pelo RH e pelo jurídico. Aparece uma vez para cada conta (outra conta no mesmo
-      aparelho o vê de novo), só entre as 6h e as 22h, e não fecha tocando fora nem pelo Voltar: o Li e aceito é o único
-      botão. Diz o que a seção 4.1 manda dizer: o que é coletado, quando, por quê, quem vê e por quanto tempo; e o que
-      escolher no pedido do Android que vem em seguida ("Durante o uso do app" é o nome que o Android dá à opção, em
-      português).
+      aprovados pelo dono da casca, pelo RH e pelo jurídico (do jurídico confirmar: a base legal, seção 5, e o canal dos
+      direitos, seção 10, o RH). Aparece uma vez para cada conta (outra conta no mesmo aparelho o vê de novo), só entre as
+      6h e as 22h, e não fecha tocando fora nem pelo Voltar: o Li e aceito é o único botão ("Durante o uso do app" é o
+      nome que o Android dá à opção, em português).
+      O aceite guarda a versão do texto (ChaveDaEquipe.TERMO_VERSAO, a da primeira linha): mudou o texto, mude a versão
+      nos dois lugares e o resumo do texto no EquipeNaCascaTest (TEXTO_DE_CADA_VERSAO), e quem aceitou a de antes vê o
+      termo de novo.
     -->
-    <string name="casca_equipe_termo_titulo">Termo de uso da localização</string>
-    <string name="casca_equipe_termo_texto">Para o mapa da equipe, o Nexus Field envia ao Nexus a posição deste celular das 6h às 22h, a partir da primeira abertura do dia, também com o aplicativo fechado. Serve para ver onde a equipe está e abrir rotas até as usinas. Quem vê: PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus. As posições ficam guardadas por 7 dias, e o resumo dos deslocamentos entre usinas, por 1 ano. Enquanto a coleta estiver ligada, uma notificação fica na barra, e no Sair do aplicativo ela para. Se o Android perguntar, escolha Durante o uso do app.</string>
+    <string name="casca_equipe_termo_titulo">Termo de uso e privacidade da localização</string>
+    <string name="casca_equipe_termo_texto">Versão 1, de 9 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.
+        \n\n<b>1. Quem é o responsável</b>
+        \nA Grid Co. é a controladora dos dados deste termo, nos termos da Lei Geral de Proteção de Dados
+        Pessoais (Lei nº 13.709/2018, a LGPD).
+        \n\n<b>2. Quais dados</b>
+        \nA posição deste celular (latitude e longitude), a precisão de cada leitura, a velocidade, se o celular
+        está em deslocamento, a data, a hora e o fuso horário do celular. Junto vão um código do aparelho,
+        criado pelo próprio Nexus Field, e a sua conta da Grid Co., para saber de quem é cada posição. O
+        Nexus Field não coleta contatos, fotos, mensagens, arquivos, áudio nem o uso de outros aplicativos.
+        \n\n<b>3. Quando</b>
+        \nDas 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o aplicativo
+        fechado depois disso. Em férias ou folga, sem abrir o aplicativo, nada é coletado. Antes das 6h e depois
+        das 22h, nada é coletado. Enquanto a coleta estiver ligada, a notificação Localização da equipe ligada
+        fica na barra do celular; sem ela, não há coleta.
+        \n\n<b>4. Para quê</b>
+        \nVer onde a equipe de campo está durante o trabalho, abrir a rota até as usinas e melhorar o
+        planejamento das rotas entre usinas. Os dados só são usados para essas finalidades.
+        \n\n<b>5. Base legal</b>
+        \nO legítimo interesse da Grid Co. em organizar o trabalho de campo e a execução do contrato de trabalho
+        (LGPD, art. 7º, incisos V e IX), com a transparência deste termo.
+        \n\n<b>6. Quem vê</b>
+        \nAs equipes de PCM, COS, Performance, Supervisão Campo e os Responsáveis UFV da Grid Co., e os
+        administradores do Nexus, pela tela do Mapa de equipe, com login. Os outros técnicos não veem a sua
+        posição. Parado fora de uma usina (em casa ou no hotel, por exemplo), o mapa mostra só a cidade e a
+        distância até a usina mais perto, nunca o ponto exato. Cada vez que alguém abre o mapa ou a rota até
+        você, fica registrado quem abriu e quando.
+        \n\n<b>7. Com quem é compartilhado</b>
+        \nOs dados não são vendidos nem cedidos a outras empresas e ficam no sistema Nexus, da Grid Co. A
+        posição é calculada pelo serviço de localização do Android (Google Play services). Quando alguém da
+        Grid Co. abre a rota até uma usina, a sua posição e a da usina vão ao Google Maps só para traçar essa
+        rota.
+        \n\n<b>8. Por quanto tempo</b>
+        \nAs posições ficam guardadas por 7 dias; depois disso não são mais usadas e são apagadas. O resumo dos
+        deslocamentos entre usinas (de onde, para onde, a saída, a chegada e a duração) fica guardado por 1 ano.
+        O registro de quem abriu o mapa fica guardado para responder a pedidos feitos pela LGPD.
+        \n\n<b>9. Segurança</b>
+        \nAs posições vão do celular ao Nexus por conexão cifrada e, no Nexus, são guardadas cifradas. Sem
+        sinal, esperam no celular por no máximo 24 horas. Cada celular tem uma chave própria de envio, que o
+        Sair do aplicativo apaga.
+        \n\n<b>10. Seus direitos</b>
+        \nPela LGPD (art. 18), você pode pedir a confirmação de que seus dados são tratados, o acesso a eles, a
+        correção, a anonimização, o bloqueio ou a eliminação do que for desnecessário ou excessivo, a
+        portabilidade e a informação sobre com quem eles foram compartilhados, e pode se opor ao tratamento.
+        Também pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD). Para qualquer pedido, fale com o
+        RH da Grid Co.
+        \n\n<b>11. Como parar</b>
+        \nA coleta para sozinha às 22h e no Sair do aplicativo. Você também pode tirar a permissão de
+        localização nos ajustes do Android: aí nada é coletado, e o Mapa de equipe mostra que a localização está
+        desligada.
+        \n\n<b>12. Mudanças neste termo</b>
+        \nSe este termo mudar, o Nexus Field mostra a nova versão e pede um novo aceite antes de coletar.
+        \n\nAo tocar em Li e aceito, você confirma que leu e entendeu este termo. Se o Android perguntar,
+        escolha Durante o uso do app.</string>
+    <string name="casca_equipe_termo_rolar">Role até o fim para liberar o Li e aceito</string>
     <string name="casca_equipe_termo_aceitar">Li e aceito</string>
 
     <!--

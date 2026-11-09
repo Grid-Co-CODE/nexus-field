@@ -44,18 +44,27 @@ const ERRO_HTML = lerArquivo('../www/erro.html');
 const doc = () => new JSDOM(HTML).window.document;
 const compactar = (s) => s.replace(/\s+/g, ' ').trim();
 
-// As strings de um prefixo do strings.xml, já como o Android as entrega à tela: entidades do XML e `\n` resolvidos.
-// `texto` vem compactado (para comparar com o que a tela mostra); `bruto` guarda as quebras de linha (as novidades são
-// uma por linha). Os `casca_*` são os diálogos e os toasts; os `notificacao_canal_*`, os nomes dos canais.
+// As strings de um prefixo do strings.xml, já como o Android as entrega à tela: entidades do XML e `\n` resolvidos, e
+// sem as marcas de estilo (o `<b>` dos títulos das seções do termo da equipe vira negrito na tela, não texto; o negrito
+// em si é conferido à parte, por `negritosDe`). `texto` vem compactado (para comparar com o que a tela mostra); `bruto`
+// guarda as quebras de linha (as novidades são uma por linha). Os `casca_*` são os diálogos e os toasts; os
+// `notificacao_canal_*`, os nomes dos canais.
 function stringsDe(prefixo) {
   const lidas = [];
   for (const [, nome, original] of STRINGS.matchAll(new RegExp(`<string name="(${prefixo}[a-z_]+)">([\\s\\S]*?)</string>`, 'g'))) {
     const bruto = original
+      .replace(/<\/?(?:b|i|u)>/g, '')
       .replace(/\\n/g, '\n').replace(/\\'/g, "'")
       .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
     lidas.push({ nome, bruto, texto: compactar(bruto) });
   }
   return lidas;
+}
+// Os trechos em negrito (`<b>`) de uma string do strings.xml, na ordem, compactados: os títulos das seções do termo.
+function negritosDe(nome) {
+  const achada = STRINGS.match(new RegExp(`<string name="${nome}">([\\s\\S]*?)</string>`));
+  assert.ok(achada, `${nome} não existe no strings.xml`);
+  return [...achada[1].matchAll(/<b>([\s\S]*?)<\/b>/g)].map((m) => compactar(m[1]));
 }
 const stringsDaCasca = () => stringsDe('casca_');
 const stringsDosCanais = () => stringsDe('notificacao_canal_');
@@ -99,9 +108,13 @@ const DIALOGOS = [
   { titulo: 'casca_atualizacao_titulo', textos: ['casca_atualizacao_texto', 'casca_atualizacao_texto_simples'],
     botoes: ['casca_atualizacao_depois', 'casca_atualizacao_atualizar'] },
   { titulo: 'casca_instalar_titulo', textos: ['casca_instalar_texto'], botoes: ['casca_abrir_ajustes'] },
-  // A localização da equipe (1.2.0, pendente; o EquipeNaCasca): o termo de uso, a única tela da casca antes de ligar a
-  // coleta (R10: no lugar do aviso e da explicação da localização o tempo todo). O quadro está na seção da equipe.
-  { titulo: 'casca_equipe_termo_titulo', textos: ['casca_equipe_termo_texto'], botoes: ['casca_equipe_termo_aceitar'] },
+  // A localização da equipe (1.2.0, pendente; o EquipeNaCasca e o TermoDaEquipe): o termo de uso e privacidade, a única
+  // tela da casca antes de ligar a coleta (R10: no lugar do aviso e da explicação da localização o tempo todo). Desde a
+  // R11 é o aviso de privacidade inteiro, e o Li e aceito só liga depois de o fim do texto aparecer: enquanto isso, a
+  // `dica` fica logo acima do botão desligado. Dois quadros na seção da equipe: o começo (a dica e o botão desligado) e o
+  // fim (o botão ligado, sem a dica).
+  { titulo: 'casca_equipe_termo_titulo', textos: ['casca_equipe_termo_texto'], botoes: ['casca_equipe_termo_aceitar'],
+    dica: 'casca_equipe_termo_rolar' },
 ];
 // Os toasts, na ordem da prévia: o do download que começou e o da atualização que não deu certo; depois, os do resultado
 // do teste dos avisos pelo atalho do ícone (só para administrador): enviado (com e sem a contagem), só administrador, sem
@@ -283,8 +296,20 @@ test('cada quadro de diálogo é um grupo do strings.xml: título, texto e os bo
     const texto = compactar(quadro.querySelector('.dialogo-texto').textContent);
     const variante = grupo.textos.find((nome) => regexDe(textoDe(nome)).test(texto));
     assert.ok(variante, `o texto do diálogo "${titulo}" não é nenhum de ${grupo.textos.join(' / ')}: "${texto}"`);
-    assert.ok(!vistos.has(variante), `o texto ${variante} aparece em dois quadros`);
-    vistos.add(variante);
+
+    // O botão desligado e a dica são só do termo, e andam juntos: a dica fica enquanto o botão está desligado. O mesmo
+    // texto aparece no máximo uma vez em cada estado (o termo, nos dois).
+    const desligado = quadro.querySelector('.dialogo-botao[aria-disabled="true"]') !== null;
+    const dica = quadro.querySelector('.dialogo-dica');
+    if (grupo.dica) {
+      assert.equal(Boolean(dica), desligado, `"${titulo}": a dica aparece só com o botão desligado, e sempre com ele`);
+      if (dica) assert.equal(compactar(dica.textContent), textoDe(grupo.dica), `"${titulo}": a dica é a do strings.xml`);
+    } else {
+      assert.ok(!dica && !desligado, `"${titulo}": só o termo tem a dica e o botão desligado`);
+    }
+    const estado = desligado ? `${variante} (desligado)` : variante;
+    assert.ok(!vistos.has(estado), `o texto ${estado} aparece em dois quadros`);
+    vistos.add(estado);
 
     const botoes = [...quadro.querySelectorAll('.dialogo-botao')].map((b) => compactar(b.textContent));
     assert.deepEqual(botoes, grupo.botoes.map(textoDe),
@@ -292,7 +317,10 @@ test('cada quadro de diálogo é um grupo do strings.xml: título, texto e os bo
   }
 
   for (const grupo of DIALOGOS) {
-    for (const nome of grupo.textos) assert.ok(vistos.has(nome), `${nome} não aparece em nenhum quadro da prévia`);
+    for (const nome of grupo.textos) {
+      assert.ok(vistos.has(nome), `${nome} não aparece em nenhum quadro da prévia${grupo.dica ? ' com o botão ligado' : ''}`);
+      if (grupo.dica) assert.ok(vistos.has(`${nome} (desligado)`), `${nome}: falta o quadro com a dica e o botão desligado`);
+    }
   }
 
   // O toast com número (os aparelhos do teste) mostra um exemplo no lugar do %1$d.
@@ -310,7 +338,7 @@ test('cada toast da prévia é um que o Java mostra, e todo toast do Java tem qu
 });
 
 test('nenhuma string da casca fica sem quadro, e a tabela do teste não cita string que não existe', () => {
-  const citadas = new Set([...TOASTS, ...DIALOGOS.flatMap((g) => [g.titulo, ...g.textos, ...g.botoes])]);
+  const citadas = new Set([...TOASTS, ...DIALOGOS.flatMap((g) => [g.titulo, ...g.textos, ...g.botoes, ...(g.dica ? [g.dica] : [])])]);
   const existentes = new Set(stringsDaCasca().map((s) => s.nome));
   for (const nome of existentes) assert.ok(citadas.has(nome), `${nome} está no strings.xml e não tem quadro na prévia`);
   for (const nome of citadas) assert.ok(existentes.has(nome), `${nome} está na tabela do teste e não existe no strings.xml`);
@@ -416,8 +444,8 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   const citados = [...d.querySelectorAll('#o-que-aprovar .cita')].map((e) => compactar(e.textContent));
   const daEquipe = [...stringsDe('casca_equipe_'), ...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_canal_equipe_')];
   assert.deepEqual(stringsDe('casca_equipe_').map((s) => s.nome).sort(),
-    ['casca_equipe_termo_aceitar', 'casca_equipe_termo_texto', 'casca_equipe_termo_titulo'],
-    'a casca da equipe tem só o termo (R10): o aviso e a explicação da localização o tempo todo saíram');
+    ['casca_equipe_termo_aceitar', 'casca_equipe_termo_rolar', 'casca_equipe_termo_texto', 'casca_equipe_termo_titulo'],
+    'a casca da equipe tem só o termo (R10) e a dica dele (R11): o aviso e a explicação da localização o tempo todo saíram');
   assert.ok(daEquipe.length >= 6, 'o teste leu os textos da localização da equipe');
   for (const s of daEquipe) {
     assert.ok(citados.some((t) => t === s.texto), `a lista "O que aprovar" não cita o ${s.nome}: "${s.texto}"`);
@@ -429,25 +457,63 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
     assert.equal(li.querySelector('a.ver')?.getAttribute('href'), `#${quadro}`);
     assert.ok(d.getElementById(quadro), `o quadro ${quadro}`);
   }
+  // O item do termo diz o que se aprova (R11): o aviso de privacidade inteiro, e o que é do jurídico confirmar, a base
+  // legal (seção 5) e o canal dos direitos (seção 10, o RH).
+  const doTermo = compactar(d.getElementById('ok-equipe-termo').closest('li').querySelector('label').textContent);
+  for (const trecho of [/aviso de privacidade inteiro/, /rola até o fim/, /jurídico confirmar/, /base legal \(seção 5\)/,
+    /canal dos direitos \(seção 10, o RH\)/]) {
+    assert.match(doTermo, trecho, 'o item do termo diz o que se aprova nele');
+  }
   // O que o termo promete: quando, por quê, quem vê e por quanto tempo (seção 4.1), no item e no texto do termo.
   const promessa = d.getElementById('ok-equipe-promessa')?.closest('li');
   assert.ok(promessa, 'o item ok-equipe-promessa: o que o termo promete');
   assert.equal(promessa.querySelector('a.ver')?.getAttribute('href'), '#t-equipe-termo');
   const dito = compactar(promessa.querySelector('label').textContent);
   const termo = daEquipe.find((s) => s.nome === 'casca_equipe_termo_texto').texto;
-  for (const [pergunta, trecho] of [['quando', /6h.*22h/], ['por quê', /ver onde a equipe está/], ['quem vê', /PCM/],
-    ['por quanto tempo', /7 dias.*1 ano/]]) {
+  for (const [pergunta, trecho] of [['quando', /6h.*22h/], ['por quê', /onde a equipe de campo está/], ['quem vê', /PCM/],
+    ['por quanto tempo', /7 dias.*1 ano/], ['base legal', /art\. 7º/], ['direitos', /art\. 18/]]) {
     assert.match(termo, trecho, `o termo diz ${pergunta}`);
     assert.ok(new RegExp(pergunta).test(dito), `o item do que o termo promete cobre: ${pergunta}`);
   }
   // A seção da equipe tem o termo e a notificação, e nada do aviso nem da o tempo todo.
   const secao = d.getElementById('g-equipe')?.closest('section');
   assert.ok(secao, 'a seção Localização da equipe');
-  assert.deepEqual([...secao.querySelectorAll('figure.item')].map((f) => f.id), ['t-equipe-termo', 't-equipe-notificacao']);
+  assert.deepEqual([...secao.querySelectorAll('figure.item')].map((f) => f.id),
+    ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao']);
   assert.ok(!/tempo todo/.test(secao.textContent), 'a seção da equipe não fala mais da localização o tempo todo');
   for (const li of d.querySelectorAll('#o-que-aprovar li')) {
     assert.ok(!/tempo todo/.test(li.textContent), `um item do "O que aprovar" ainda fala da o tempo todo: ${li.textContent}`);
   }
+});
+
+// O termo de uso e privacidade (R11, o TermoDaEquipe): o texto rola numa caixa de altura fixa dentro do diálogo, com os
+// títulos das seções em negrito como no aparelho (o <b> do strings.xml), e o Li e aceito embaixo, sempre à vista:
+// desligado, com a dica, no começo; ligado, sem a dica, no fim. O quadro do fim já abre rolado até o fim, sem script.
+test('o termo da equipe rola numa caixa de altura fixa, com os títulos em negrito, desligado no começo e ligado no fim', () => {
+  const d = doc();
+  const titulos = negritosDe('casca_equipe_termo_texto');
+  assert.equal(titulos.length, 12, 'os títulos das 12 seções vão em negrito no strings.xml');
+  for (const t of titulos) assert.match(t, /^\d+\. \S/, `só os títulos (as linhas que começam com o número) vão em negrito: "${t}"`);
+  for (const [id, desligado] of [['t-equipe-termo', true], ['t-equipe-termo-fim', false]]) {
+    const caixa = d.querySelector(`#${id} .dialogo-texto`);
+    assert.ok(caixa, `o quadro #${id} com o texto do termo`);
+    assert.ok(caixa.classList.contains('termo'), `#${id}: o texto vai na caixa que rola (.termo)`);
+    assert.equal(caixa.getAttribute('tabindex'), '0', `#${id}: a caixa que rola recebe o foco do teclado`);
+    assert.deepEqual([...caixa.querySelectorAll('b')].map((b) => compactar(b.textContent)), titulos,
+      `#${id}: os títulos em negrito são os do strings.xml, na ordem`);
+    assert.equal(caixa.classList.contains('termo-fim'), !desligado, `#${id}: só o quadro do fim abre rolado até o fim`);
+    assert.equal(d.querySelector(`#${id} .dialogo-botao`)?.getAttribute('aria-disabled') === 'true', desligado,
+      `#${id}: o Li e aceito ${desligado ? 'desligado' : 'ligado'}`);
+  }
+  const f = folha();
+  const caixa = regraDe(f, '.dialogo-texto.termo').decl;
+  assert.equal(caixa['overflow-y'], 'auto', 'o texto rola dentro da caixa');
+  assert.match(caixa.height ?? '', /^\d+px$/, 'a caixa tem altura fixa, e o botão fica à vista embaixo dela');
+  const fim = regraDe(f, '.termo-fim').decl;
+  assert.equal(fim.display, 'flex');
+  assert.equal(fim['flex-direction'], 'column-reverse', 'a caixa do fim começa rolada até o fim');
+  assert.match(regraDe(f, '.dialogo-botao[aria-disabled="true"]').decl.color ?? '', /^var\(--/,
+    'o botão desligado tem a cor dele, por token');
 });
 
 test('os botões de cada quadro são os que o código Java monta, e todo diálogo do Java tem quadro', () => {

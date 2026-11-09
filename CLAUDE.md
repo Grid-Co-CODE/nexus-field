@@ -18,10 +18,11 @@ source ferramentas/ambiente.sh             # JAVA_HOME, ANDROID_HOME, PATH e and
 npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug lint)
 ```
 
-O `lint` sai sem erro. Os 18 avisos que restam (13 medidos em 19/10/2026; os cinco `ApplySharedPref` da `ChaveDaEquipe` são
-de propósito, ver "Localização da equipe") são do template do Capacitor (`ManifestOrder`,
-`UnusedResources`), da versão do Gradle (`AndroidGradlePluginVersion`), dos ícones quadrados do Android 7
-(`IconLauncherShape`) e o `PluralsCandidate` do `casca_teste_enviado`, de propósito (ver "O atalho de teste dos avisos").
+O `lint` sai sem erro. Os 17 avisos que restam (medidos em 09/11/2026; os cinco `ApplySharedPref` da `ChaveDaEquipe` são
+de propósito, ver "Localização da equipe") são do template do Capacitor (`ManifestOrder`, `UnusedResources`), da versão
+do Gradle (`AndroidGradlePluginVersion`) e dos ícones quadrados do Android 7 (`IconLauncherShape`). O `strings.xml` diz
+que os textos são em português (`tools:locale="pt"`): sem isso o lint conferia a ortografia como inglês (o "eles" do
+termo da equipe virava o `Typos` "eels") e dava o `PluralsCandidate` no `casca_teste_enviado`, que é regra do inglês.
 O `ambiente.sh` escreve o `sdk.dir` com o `:` escapado (`C\:/Users/...`): sem o escape o lint falha com PropertyEscape,
 mesmo o Gradle lendo o caminho certo.
 
@@ -693,9 +694,9 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
     (`#t-atalhos`): "Testar" e "Testar avisos" (o canal alto), "Sem alarme" e "Testar sem alarme" (o silencioso). Nenhum
     rótulo promete "sem som" (o teste manda também um resumo, que toca com o som normal no canal dele; o "sem alarme" é o
     da emergência de teste), os curtos têm no máximo 10 caracteres (o launcher corta o do atalho fixado) e os longos no
-    máximo 25 (o do menu do toque longo); o `AtalhosDeTesteTest` confere. O lint dá o aviso
-    `PluralsCandidate` no "aparelho(s)", e ele fica: no pt-BR o Android põe o 0 no singular do `plurals` ("0 aparelho"),
-    e o 0 é o caso que a prova procura (o aparelho que não se registrou).
+    máximo 25 (o do menu do toque longo); o `AtalhosDeTesteTest` confere. O "aparelho(s)" fica numa string só, e não
+    num `plurals`: no pt-BR o Android põe o 0 no singular do `plurals` ("0 aparelho"), e o 0 é o caso que a prova procura
+    (o aparelho que não se registrou). O lint dava o `PluralsCandidate` nela enquanto lia o `strings.xml` como inglês.
 - **A atualização da casca** (`Atualizador`, `VersaoRemota`; o `CascaPlugin` a chama no `load()` e no `handleOnResume()`):
   - Lê o `versao.json` de `releases/latest/download/` (não conta no limite da API do GitHub), com as chaves
     `versionCode` (inteiro), `versionName`, `apk`, `sha256` (64 dígitos hex) e `novidades` (lista de textos). O
@@ -1063,15 +1064,35 @@ O site (App de Campo) e o Fracttal não mudam.
     `deleteIntent` (`REPOR`).
   - `EquipeNaCasca`: a regra (`decidir`, pura: a janela, a chave, o termo aceito, a localização precisa e a notificação à
     vista; a conta conferida é do envio) e quem a executa. Uma tela nossa só (R10, o pedido do dono depois da prévia:
-    "essa quantidade de telas e avisos atrapalham muito a experiência"): o **Termo de uso da localização**, uma vez por
-    conta, que não fecha tocando fora nem pelo Voltar, com um botão só, o Li e aceito (sem o aceite nada coleta, e a
-    próxima abertura mostra o termo de novo). Logo depois do aceite, se faltar a localização, o pedido do próprio Android
-    (a precisa e a aproximada juntas: do 12 em diante a precisa sozinha é ignorada), sem tela nossa antes. Fora do aceite
-    a casca não pede: quem pede a localização a cada abertura é o "Antes de começar" da MainActivity (dois pedidos de uma
-    vez empilhariam as telas). Negada, ou negada de vez (o Android não mostra mais o pedido), nenhuma tela a mais: o
-    `permissao: "sem"` ao Nexus no máximo a cada 30 min (o mapa separa quem negou de quem não abriu o app; o 4xx do Nexus
-    conta como respondido), e o guia de instalação diz o caminho nos ajustes. Fora da janela nada aparece ao técnico. Uma
-    thread só para disco, cifra e rede (a do serviço).
+    "essa quantidade de telas e avisos atrapalham muito a experiência"): o **Termo de uso e privacidade da localização**,
+    uma vez por conta e por versão do texto, que não fecha tocando fora nem pelo Voltar, com um botão só, o Li e aceito
+    (sem o aceite nada coleta, e a próxima abertura mostra o termo de novo). Logo depois do aceite, se faltar a
+    localização, o pedido do próprio Android (a precisa e a aproximada juntas: do 12 em diante a precisa sozinha é
+    ignorada), sem tela nossa antes. Fora do aceite a casca não pede: quem pede a localização a cada abertura é o "Antes
+    de começar" da MainActivity (dois pedidos de uma vez empilhariam as telas). Negada, ou negada de vez (o Android não
+    mostra mais o pedido), nenhuma tela a mais: o `permissao: "sem"` ao Nexus no máximo a cada 30 min (o mapa separa quem
+    negou de quem não abriu o app; o 4xx do Nexus conta como respondido), e o guia de instalação diz o caminho nos
+    ajustes. Fora da janela nada aparece ao técnico. Uma thread só para disco, cifra e rede (a do serviço).
+  - **O termo é o aviso de privacidade inteiro, e só se aceita depois de rolar até o fim (R11, o pedido do dono em
+    09/11/2026: "Quero que o termo de notificação inclua tudo referente a LGPD e seja que nem as empresas grandes fazem,
+    aparece a pessoa tem que rolar até o final para aceitar").** O texto (12 seções; o jurídico ainda confirma a base
+    legal, seção 5, e o RH como canal dos direitos, seção 10) mora num `casca_equipe_termo_texto` só, com o título de
+    cada seção em `<b>` e um `\n` por linha; o `TermoDaEquipe` faz um TextView por linha (um só não deixava o TalkBack
+    rolar de parágrafo em parágrafo), com o título em negrito e marcado como título para o TalkBack, numa rolagem de peso 1
+    no `setView` do diálogo (no `setMessage` o texto não rola com o botão à vista). O Li e aceito, o botão do diálogo,
+    nasce desligado, com a dica `casca_equipe_termo_rolar` logo acima, e liga quando a rolagem não desce mais, com uma
+    folga de 4 dp (`FOLGA_DP`): qualquer rolagem conta (o dedo, o TalkBack, o teclado), o texto que cabe inteiro libera
+    no layout, e ligado fica ligado. O fim se mede pela altura, e não pelo `isLaidOut`: no primeiro layout o Android só
+    marca a vista como pronta depois de chamar os ouvintes, e o texto que cabe não liberava (o teste pegou). O clique é
+    o do `travar` (o `setPositiveButton` vai com `null`), que só aceita ligado: o do AlertDialog fecharia o termo mesmo
+    desligado, e um serviço de acessibilidade pode clicar sem olhar o estado. A girada da tela (a MainActivity não é
+    recriada) e a volta ao app não ligam. No Robolectric a rolagem animada (TalkBack, teclado) só anda com o
+    `computeScroll` que o teste chama, porque ele não desenha.
+  - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "1", o texto de 09/11/2026, R11).** A marca
+    `termo_aceito` guarda a versão; outra versão, ou a marca booleana da R10 (só nos aparelhos de prova), mostra o termo de
+    novo. Mudar o texto é mudar a constante e a primeira linha ("Versão N"): o `EquipeNaCascaTest` guarda o SHA-256 do
+    texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. Fica para depois (muda o
+    contrato com o Nexus): mandar a prova do aceite (a versão e a hora).
   - O Sair para a coleta na hora, apaga a fila, revoga e apaga a chave (mesmo sem rede) e deixa uma marca
     (`saidasPendentes`) até a chave sair: a decisão que já esperava na thread (a volta ao app atrás de um envio pendurado)
     não religa a coleta de quem saiu, e a tarefa do Sair para de novo antes da rede. O parar do serviço e o fechar do
@@ -1079,8 +1100,8 @@ O site (App de Campo) e o Fracttal não mudam.
     equipe (o `pushSaiu` do plugin, em try/finally).
   - `ChaveDaEquipe` (cifrada pela `Cifra`/Keystore; o `commit()` do `apagarAChave` e dos outros é de propósito, no
     lugar do `apply()`, porque a gravação tem de chegar ao disco antes de o envio seguir, na thread dele; o termo aceito
-    fica na marca `termo_aceito`, e não na `aviso_aceito` de antes dele: quem aceitou o aviso num aparelho de prova não
-    leu o termo),
+    fica na marca `termo_aceito`, com a versão, e não na `aviso_aceito` de antes dele: quem aceitou o aviso num aparelho
+    de prova não leu o termo),
     `FilaDePontos` (SQLite: no máximo 1000 pontos e nada com mais de 24 h; passou, sai o mais velho; o ponto que não se
     lê sai antes do lote, que segue com os outros) e `EnvioDePontos` (todo 5xx, o 403, o 404, o 405, o 408, o 429, o 3xx e a falta de
     rede deixam fila e chave intactas; o outro 4xx é o lote recusado, que sai da fila; só o 401 apaga a chave; o 200 só
@@ -1133,13 +1154,14 @@ O site (App de Campo) e o Fracttal não mudam.
   um `rede` (o TypeError do fetch do CORS), e não um `http404`.
 - **O que não se faz.** Coordenada, chave, e-mail ou id de aparelho no log (`Log`) ou nos `erro` da página; o token
   Microsoft no nativo; botão de pausa; coletar fora da janela, sem a notificação fixa à vista ou com `coleta: false`;
-  pedir a localização "o tempo todo" ou iniciar o serviço com o app no fundo; tela nossa além do termo; texto novo de
-  interface sem o `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do "O que
-  aprovar", com o texto inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega). Xiaomi e afins:
-  a coleta com o app fechado depende do Início automático e da bateria sem restrições, que o guia de instalação
-  (`docs/instalacao/`) manda ligar; o app morto pelo sistema para a coleta até a próxima abertura. O roteiro do piloto é
-  a seção "A localização da equipe" do `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às
-  22h, a tela apagada, as marcas).
+  pedir a localização "o tempo todo" ou iniciar o serviço com o app no fundo; tela nossa além do termo; mudar o texto do
+  termo sem mudar a `TERMO_VERSAO`; o Li e aceito que liga antes do fim do texto; texto novo de interface sem o
+  `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do "O que aprovar", com o texto
+  inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega). Xiaomi e afins: a coleta com o app
+  fechado depende do Início automático e da bateria sem restrições, que o guia de instalação (`docs/instalacao/`) manda
+  ligar; o app morto pelo sistema para a coleta até a próxima abertura. O roteiro do piloto é a seção "A localização da
+  equipe" do `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às 22h, a tela apagada, as
+  marcas).
 
 ## Distribuição
 

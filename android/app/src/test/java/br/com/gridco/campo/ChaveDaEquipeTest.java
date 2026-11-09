@@ -135,6 +135,48 @@ public class ChaveDaEquipeTest {
     }
 
     @Test
+    public void oAceiteGuardaAVersaoDoTermo() {
+        // R11: o aceite é da versão do texto (a de 09/11/2026): mudar o texto é mudar a constante, e quem aceitou a versão
+        // de antes vê o termo de novo.
+        assertEquals("1", ChaveDaEquipe.TERMO_VERSAO);
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        c.aceitarTermo();
+        assertEquals(ChaveDaEquipe.TERMO_VERSAO,
+            ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).getString("termo_aceito", null));
+        assertTrue(c.termoAceito());
+    }
+
+    @Test
+    public void oAceiteDeOutraVersaoDoTermoNaoVale() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "0").commit();
+        assertFalse(c.termoAceito());
+        c.aceitarTermo();
+        assertTrue("o aceite de agora vale", c.termoAceito());
+    }
+
+    @Test
+    public void aMarcaDoTermoDeAntesDaVersaoNaoVale() {
+        // A marca booleana "termo_aceito" da Task 8, que só existiu nos aparelhos de prova: quem aceitou ali leu o termo
+        // curto, e não o aviso de privacidade inteiro.
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putBoolean("termo_aceito", true).commit();
+        assertFalse(c.termoAceito());
+        c.aceitarTermo(); // a versão de agora toma o lugar da marca velha
+        assertTrue(c.termoAceito());
+        assertTrue(c.guardar("k2", CONTA_A));
+        assertTrue("a chave nova da mesma conta mantém o aceite da versão", c.termoAceito());
+        // Outra conta, com a marca velha: também não vale, e a troca de conta a apaga.
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putBoolean("termo_aceito", true).commit();
+        assertTrue(c.guardar("k3", CONTA_B));
+        assertFalse(c.termoAceito());
+        assertFalse(ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("termo_aceito"));
+    }
+
+    @Test
     public void apagarDeixaAChaveNulaEMantemOAparelho() {
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         String aparelho = c.aparelho();

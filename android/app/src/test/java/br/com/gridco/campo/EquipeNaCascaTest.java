@@ -3,6 +3,7 @@ package br.com.gridco.campo;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -13,15 +14,27 @@ import android.app.Application;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Typeface;
 import android.os.Looper;
+import android.text.Spanned;
+import android.text.style.StyleSpan;
+import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.ViewCompat;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -42,6 +55,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.android.controller.ActivityController;
+import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.shadows.ShadowLog;
 
@@ -607,6 +621,43 @@ public class EquipeNaCascaTest {
         assertEquals(2, tela.termos);
         tela.aceitarDoTermo.run();
         assertEquals("o Li e aceito de B pede a localização, também depois do não de A", 2, tela.pedidos.size());
+    }
+
+    @Test
+    public void oAceiteDeOutraVersaoDoTermoMostraOTermoDeNovo() {
+        // R11: só vale o aceite da versão de agora do texto (ChaveDaEquipe.TERMO_VERSAO).
+        chave.guardar(CHAVE_A, CONTA_A);
+        daEquipe().edit().putString("termo_aceito", "0").commit();
+        oTermoVoltaEOAceiteGuardaAVersaoDeAgora();
+    }
+
+    @Test
+    public void aMarcaDoTermoDeAntesDaVersaoMostraOTermoDeNovo() {
+        // A marca booleana da Task 8, só dos aparelhos de prova: quem a tem leu o termo curto, não o aviso inteiro.
+        chave.guardar(CHAVE_A, CONTA_A);
+        daEquipe().edit().putBoolean("termo_aceito", true).commit();
+        oTermoVoltaEOAceiteGuardaAVersaoDeAgora();
+    }
+
+    private SharedPreferences daEquipe() {
+        return app.getSharedPreferences("equipe", Context.MODE_PRIVATE);
+    }
+
+    // A coleta que estava ligada com o aceite que não vale mais para, o termo aparece, e o Li e aceito guarda a versão de
+    // agora e liga a coleta; aceito, ele não aparece de novo.
+    private void oTermoVoltaEOAceiteGuardaAVersaoDeAgora() {
+        servico.rodando = true;
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertEquals("a coleta para até o aceite da versão de agora", 1, servico.parados);
+        assertEquals(1, tela.termos);
+        assertEquals(0, servico.iniciados);
+        tela.aceitarDoTermo.run();
+        assertEquals(ChaveDaEquipe.TERMO_VERSAO, daEquipe().getString("termo_aceito", null));
+        assertEquals(1, servico.iniciados);
+        servico.rodando = true;
+        c.reavaliar();
+        assertEquals("aceito, o termo não aparece de novo", 1, tela.termos);
     }
 
     @Test
@@ -1293,8 +1344,10 @@ public class EquipeNaCascaTest {
 
     // --- a tela de verdade --------------------------------------------------------------------------------------------
 
+    private ActivityController<AppCompatActivity> controle;
+
     private AppCompatActivity activity() {
-        ActivityController<AppCompatActivity> controle = Robolectric.buildActivity(AppCompatActivity.class);
+        controle = Robolectric.buildActivity(AppCompatActivity.class);
         controle.get().setTheme(R.style.AppTheme);
         return controle.setup().get();
     }
@@ -1311,15 +1364,61 @@ public class EquipeNaCascaTest {
         return v == null ? null : v.getText().toString();
     }
 
-    private void conferirDialogo(AlertDialog d, int titulo, int texto, int continuar) {
+    private void conferirDialogo(AlertDialog d, int titulo, int continuar) {
         assertTrue(d.isShowing());
         assertFalse("não fecha tocando fora nem pelo Voltar", shadowOf(d).isCancelable());
         assertEquals(app.getString(titulo), texto(d, androidx.appcompat.R.id.alertTitle));
-        assertEquals(app.getString(texto), texto(d, android.R.id.message));
         Button positivo = d.getButton(AlertDialog.BUTTON_POSITIVE);
         assertEquals(app.getString(continuar), positivo.getText().toString());
         Button negativo = d.getButton(AlertDialog.BUTTON_NEGATIVE);
         assertTrue("sem botão de recusar", negativo == null || negativo.getVisibility() != View.VISIBLE);
+    }
+
+    /** O termo aberto na tela de verdade, com o layout feito. */
+    private AlertDialog abrirOTermo(Runnable aceitar) {
+        assertTrue(new EquipeNaCasca.TelaDaActivity(activity(), p -> { }).mostrarTermo(aceitar));
+        return ultimoDialogo();
+    }
+
+    /** A rolagem do texto do termo, dentro do diálogo. */
+    private static ScrollView rolagem(Dialog d) {
+        ScrollView r = d.findViewById(R.id.equipe_termo_rolagem);
+        assertNotNull("o texto do termo rola dentro do diálogo", r);
+        return r;
+    }
+
+    /** Até onde a rolagem desce: a altura do texto menos a parte à vista. */
+    private static int fimDaRolagem(ScrollView r) {
+        return Math.max(0, r.getChildAt(0).getHeight() - (r.getHeight() - r.getPaddingTop() - r.getPaddingBottom()));
+    }
+
+    private static void rolarAte(ScrollView r, int y) {
+        r.scrollTo(0, y);
+        shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    // A rolagem animada (a do TalkBack e a do teclado) anda a cada quadro desenhado, pelo computeScroll. O Robolectric não
+    // desenha a tela: o teste passa o tempo da animação e chama o computeScroll que o quadro seguinte chamaria.
+    private static void deixarARolagemAndar(ScrollView r) {
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+        r.computeScroll();
+        shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    /** A folga do fim em pixels, na densidade da tela do teste. */
+    private int folga() {
+        return Math.round(TermoDaEquipe.FOLGA_DP * app.getResources().getDisplayMetrics().density);
+    }
+
+    private static boolean emNegrito(CharSequence texto) {
+        if (!(texto instanceof Spanned)) return false;
+        Spanned s = (Spanned) texto;
+        for (StyleSpan estilo : s.getSpans(0, s.length(), StyleSpan.class)) {
+            if (estilo.getStyle() == Typeface.BOLD && s.getSpanStart(estilo) == 0 && s.getSpanEnd(estilo) == s.length()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Test
@@ -1331,8 +1430,8 @@ public class EquipeNaCascaTest {
 
         assertTrue(t.mostrarTermo(() -> aceitou[0] = true));
         AlertDialog termo = ultimoDialogo();
-        conferirDialogo(termo, R.string.casca_equipe_termo_titulo, R.string.casca_equipe_termo_texto,
-            R.string.casca_equipe_termo_aceitar);
+        conferirDialogo(termo, R.string.casca_equipe_termo_titulo, R.string.casca_equipe_termo_aceitar);
+        rolarAte(rolagem(termo), fimDaRolagem(rolagem(termo)));
         termo.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
         shadowOf(Looper.getMainLooper()).idle();
         assertTrue(aceitou[0]);
@@ -1354,18 +1453,211 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void oTermoDizOQueQuandoPorQueQuemVePorQuantoTempoEOQueEscolher() {
-        // O que a seção 4.1 do desenho manda o termo dizer (o texto ainda vai à aprovação do dono, do RH e do jurídico), e a
-        // escolha na tela do Android que vem em seguida.
-        assertEquals("Termo de uso da localização", app.getString(R.string.casca_equipe_termo_titulo));
+    public void oTermoAbreComOTextoInteiroEmSecoesEOLiEAceitoDesligadoComADica() {
+        boolean[] aceitou = {false};
+        AlertDialog termo = abrirOTermo(() -> aceitou[0] = true);
+
+        // O texto inteiro, linha a linha, como o strings.xml o traz: o título de cada seção em negrito e marcado como
+        // título para o TalkBack (que pula de seção em seção), o resto em texto normal.
+        List<String> esperadas = new ArrayList<>();
+        for (String linha : app.getString(R.string.casca_equipe_termo_texto).split("\n")) {
+            if (!linha.trim().isEmpty()) esperadas.add(linha.trim());
+        }
+        ViewGroup secoes = termo.findViewById(R.id.equipe_termo_secoes);
+        List<String> mostradas = new ArrayList<>();
+        int titulos = 0;
+        for (int i = 0; i < secoes.getChildCount(); i++) {
+            TextView v = (TextView) secoes.getChildAt(i);
+            String linha = v.getText().toString();
+            mostradas.add(linha);
+            boolean titulo = linha.matches("\\d+\\. .*");
+            assertEquals("negrito só no título da seção: " + linha, titulo, emNegrito(v.getText()));
+            assertEquals("título para o TalkBack só no da seção: " + linha, titulo, ViewCompat.isAccessibilityHeading(v));
+            if (titulo) titulos++;
+        }
+        assertEquals(esperadas, mostradas);
+        assertEquals("as 12 seções", 12, titulos);
+        View mensagem = termo.findViewById(android.R.id.message);
+        assertTrue("o texto não vai na mensagem do diálogo, que não rola com o botão à vista",
+            mensagem == null || !mensagem.isShown());
+
+        // Desligado ao abrir, com a dica logo acima dele, e o texto maior que a parte à vista.
+        Button aceitar = termo.getButton(AlertDialog.BUTTON_POSITIVE);
+        ScrollView r = rolagem(termo);
+        assertTrue("o texto rola: " + r.getChildAt(0).getHeight() + " px em " + r.getHeight() + " px",
+            fimDaRolagem(r) > folga());
+        assertFalse(aceitar.isEnabled());
+        TextView dica = termo.findViewById(R.id.equipe_termo_dica);
+        assertEquals(View.VISIBLE, dica.getVisibility());
+        assertEquals(app.getString(R.string.casca_equipe_termo_rolar), dica.getText().toString());
+
+        // Um clique que chegasse com o botão desligado (um serviço que clica sem olhar o estado) não aceita nem fecha.
+        aceitar.performClick();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertFalse(aceitou[0]);
+        assertTrue(termo.isShowing());
+    }
+
+    @Test
+    public void soORolarAteOFimLigaOLiEAceitoEOMeioNao() {
+        boolean[] aceitou = {false};
+        AlertDialog termo = abrirOTermo(() -> aceitou[0] = true);
+        Button aceitar = termo.getButton(AlertDialog.BUTTON_POSITIVE);
+        View dica = termo.findViewById(R.id.equipe_termo_dica);
+        ScrollView r = rolagem(termo);
+        int fim = fimDaRolagem(r);
+
+        rolarAte(r, fim / 2);
+        assertFalse("o meio do texto não liga", aceitar.isEnabled());
+        rolarAte(r, fim - folga() - 1);
+        assertFalse("um pixel antes da folga do fim, também não", aceitar.isEnabled());
+        assertEquals(View.VISIBLE, dica.getVisibility());
+
+        rolarAte(r, fim - folga());
+        assertTrue("o fim do texto à vista, com a folga de poucos pixels, liga", aceitar.isEnabled());
+        assertEquals("a dica sai", View.GONE, dica.getVisibility());
+
+        rolarAte(r, 0);
+        assertTrue("ligado, fica ligado ao subir de novo", aceitar.isEnabled());
+        assertTrue("e o termo continua aberto até o toque", termo.isShowing());
+        assertFalse(aceitou[0]);
+        aceitar.performClick();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertTrue(aceitou[0]);
+        assertFalse(termo.isShowing());
+    }
+
+    @Test
+    public void oTextoQueCabeInteiroLigaOLiEAceitoLogoDepoisDoLayout() {
+        // A tela grande em que o termo inteiro aparece sem rolar: o fim do texto já está à vista, e não há o que rolar.
+        AppCompatActivity activity = activity();
+        View vista = TermoDaEquipe.vista(activity, "Versão curta, que cabe inteira na tela.");
+        Button aceitar = new Button(activity);
+        LinearLayout tela = new LinearLayout(activity);
+        tela.setOrientation(LinearLayout.VERTICAL);
+        tela.addView(vista, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        tela.addView(aceitar);
+        activity.setContentView(tela);
+        boolean[] aceitou = {false};
+        TermoDaEquipe.travar(vista, aceitar, () -> aceitou[0] = true);
+        assertFalse("antes do layout não se sabe se cabe", aceitar.isEnabled());
+        shadowOf(Looper.getMainLooper()).idle();
+        assertTrue(aceitar.isEnabled());
+        assertEquals(View.GONE, vista.findViewById(R.id.equipe_termo_dica).getVisibility());
+        aceitar.performClick();
+        assertTrue(aceitou[0]);
+    }
+
+    @Test
+    public void aVoltaAoAppEONovoLayoutDaGiradaNaoLigamOLiEAceitoSemARolagem() {
+        // A girada da tela refaz o layout (a MainActivity não é recriada: o configChanges do manifesto) e a volta ao app
+        // passa pelo onPause e pelo onResume: nenhum dos dois é o fim do texto à vista.
+        AlertDialog termo = abrirOTermo(() -> fail("não houve aceite"));
+        Button aceitar = termo.getButton(AlertDialog.BUTTON_POSITIVE);
+        ScrollView r = rolagem(termo);
+        rolarAte(r, fimDaRolagem(r) / 2);
+        RuntimeEnvironment.setQualifiers("+land");
+        termo.getWindow().getDecorView().requestLayout();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertFalse("o novo layout não é a rolagem até o fim", aceitar.isEnabled());
+        controle.pause().stop().restart().start().resume();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertTrue(termo.isShowing());
+        assertFalse("a volta ao app não é a rolagem até o fim", aceitar.isEnabled());
+        rolarAte(r, fimDaRolagem(r));
+        assertTrue(aceitar.isEnabled());
+    }
+
+    @Test
+    public void rolarPeloTalkBackContaIgual() {
+        // O TalkBack rola com a ação de rolar para a frente (o gesto de dois dedos, ou o "rolar" do menu dele): passa pela
+        // mesma rolagem que o dedo.
+        AlertDialog termo = abrirOTermo(() -> { });
+        Button aceitar = termo.getButton(AlertDialog.BUTTON_POSITIVE);
+        ScrollView r = rolagem(termo);
+        for (int vez = 0; vez < 200 && !aceitar.isEnabled(); vez++) {
+            assertTrue("o TalkBack ainda rola", r.performAccessibilityAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD, null));
+            deixarARolagemAndar(r);
+            if (vez == 0) assertFalse("uma tela de rolagem não é o fim", aceitar.isEnabled());
+        }
+        assertTrue(aceitar.isEnabled());
+        assertEquals("ligou no fim, e não antes", fimDaRolagem(r), r.getScrollY());
+    }
+
+    @Test
+    public void rolarPeloTecladoContaIgual() {
+        // O teclado (Alt e a seta para baixo vão ao fim) passa pela mesma rolagem que o dedo.
+        AlertDialog termo = abrirOTermo(() -> { });
+        Button aceitar = termo.getButton(AlertDialog.BUTTON_POSITIVE);
+        ScrollView r = rolagem(termo);
+        assertTrue(r.requestFocus());
+        // Longe da última rolagem (mais de 250 ms), o ScrollView anima a do teclado, como no aparelho.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1));
+        assertTrue(r.dispatchKeyEvent(new KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, 0,
+            KeyEvent.META_ALT_ON)));
+        assertFalse("antes de a rolagem andar, nada liga", aceitar.isEnabled());
+        deixarARolagemAndar(r);
+        assertTrue(aceitar.isEnabled());
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h480dp", fontScale = 2.0f)
+    public void comAFonteGrandeNaTelaPequenaOTextoRolaAteOFimEOBotaoFicaAVista() {
+        // A fonte do sistema no dobro, numa tela pequena: o título, a dica e o botão cabem, o texto ainda tem onde rolar, e
+        // o Li e aceito liga no fim.
+        AlertDialog termo = abrirOTermo(() -> { });
+        Button aceitar = termo.getButton(AlertDialog.BUTTON_POSITIVE);
+        ScrollView r = rolagem(termo);
+        assertTrue("sobra altura para o texto: " + r.getHeight() + " px", r.getHeight() > 0);
+        assertTrue(aceitar.getHeight() > 0);
+        View janela = termo.getWindow().getDecorView();
+        int[] botao = new int[2];
+        aceitar.getLocationInWindow(botao);
+        assertTrue("o botão fica dentro da janela do diálogo", botao[1] + aceitar.getHeight() <= janela.getHeight());
+        assertFalse(aceitar.isEnabled());
+        rolarAte(r, fimDaRolagem(r));
+        assertTrue(aceitar.isEnabled());
+    }
+
+    // O texto de cada versão do termo, pelo resumo (o SHA-256 do texto que o técnico lê). O aceite guarda a versão
+    // (ChaveDaEquipe.TERMO_VERSAO): o texto que muda sem a versão nova valeria para quem aceitou o de antes. Mudou o
+    // texto? Mude o TERMO_VERSAO e a primeira linha do texto, e acrescente aqui a versão nova com o resumo dela.
+    private static final Map<String, String> TEXTO_DE_CADA_VERSAO =
+        Collections.singletonMap("1", "7bf3bf6f12d6aeb38ecb3229e780fbcce48cd8af8c3c29301070ccf2a9c5f7b1");
+
+    private static String sha256(String texto) throws Exception {
+        StringBuilder hex = new StringBuilder();
+        for (byte b : MessageDigest.getInstance("SHA-256").digest(texto.getBytes(StandardCharsets.UTF_8))) {
+            hex.append(String.format("%02x", b));
+        }
+        return hex.toString();
+    }
+
+    @Test
+    public void oTermoEOAvisoDePrivacidadeInteiroDaVersaoDeAgora() throws Exception {
+        // R11, o pedido do dono (09/11/2026): o termo traz tudo o que a LGPD pede, em seções. O texto ainda vai à aprovação
+        // do dono, do RH e do jurídico.
+        assertEquals("Termo de uso e privacidade da localização", app.getString(R.string.casca_equipe_termo_titulo));
         assertEquals("Li e aceito", app.getString(R.string.casca_equipe_termo_aceitar));
+        assertEquals("Role até o fim para liberar o Li e aceito", app.getString(R.string.casca_equipe_termo_rolar));
         String termo = app.getString(R.string.casca_equipe_termo_texto);
-        for (String trecho : new String[] {"posição deste celular", "das 6h às 22h", "primeira abertura do dia",
-                "aplicativo fechado", "onde a equipe está", "rotas até as usinas", "PCM", "COS", "Performance",
-                "Supervisão Campo", "Responsáveis UFV", "administradores do Nexus", "7 dias", "1 ano", "notificação",
-                "Sair", "Durante o uso do app"}) {
+        assertTrue("a primeira linha diz a versão que o aceite guarda",
+            termo.startsWith("Versão " + ChaveDaEquipe.TERMO_VERSAO + ", de 9 de novembro de 2026."));
+        List<String> titulos = new ArrayList<>();
+        for (String linha : termo.split("\n")) if (linha.trim().matches("\\d+\\. .*")) titulos.add(linha.trim());
+        assertEquals(Arrays.asList("1. Quem é o responsável", "2. Quais dados", "3. Quando", "4. Para quê", "5. Base legal",
+            "6. Quem vê", "7. Com quem é compartilhado", "8. Por quanto tempo", "9. Segurança", "10. Seus direitos",
+            "11. Como parar", "12. Mudanças neste termo"), titulos);
+        for (String trecho : new String[] {"Lei nº 13.709/2018", "posição deste celular", "Das 6h às 22h",
+                "também com o aplicativo fechado", app.getString(R.string.notificacao_equipe_titulo), "art. 7º",
+                "PCM, COS, Performance, Supervisão Campo e os Responsáveis UFV", "administradores do Nexus", "7 dias",
+                "1 ano", "24 horas", "Google Maps", "art. 18", "ANPD", "RH da Grid Co.", "Sair do aplicativo",
+                "Durante o uso do app"}) {
             assertTrue("o termo não diz \"" + trecho + "\"", termo.contains(trecho));
         }
         assertFalse("nada de o tempo todo", termo.contains("tempo todo"));
+        assertEquals("o texto da versão " + ChaveDaEquipe.TERMO_VERSAO + " mudou: mude o ChaveDaEquipe.TERMO_VERSAO e a"
+            + " primeira linha do texto, e ponha a versão nova no TEXTO_DE_CADA_VERSAO",
+            TEXTO_DE_CADA_VERSAO.get(ChaveDaEquipe.TERMO_VERSAO), sha256(termo));
     }
 }

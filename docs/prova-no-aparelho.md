@@ -334,8 +334,8 @@ Num aparelho sem o Nexus Field. Neste, só depois de conferir que nada ficou na 
 Só depois de as três rotas do Nexus estarem no ar (`/t/campo/equipe/aparelho`, `/posicoes` e `/aparelho/revogar`) e de o
 Nexus incluir o aparelho de prova no piloto (a coleta só vale com `coleta: true`). Num aparelho de prova, nunca o de um
 técnico, com contas de teste combinadas com o PCM, e de preferência com o mapa da equipe do Nexus aberto em outro lugar,
-para ver as posições chegarem. Os textos do termo de uso e da notificação são os da prévia (a seção Localização da
-equipe de `docs/previas/telas.html`) e valem só depois de aprovados. Nenhuma coordenada, e-mail ou chave vai para este
+para ver as posições chegarem. Os textos do termo de uso e privacidade e da notificação são os da prévia (a seção
+Localização da equipe de `docs/previas/telas.html`) e valem só depois de aprovados. Nenhuma coordenada, e-mail ou chave vai para este
 arquivo: anote o que se viu em palavras.
 
 ### Os aparelhos do piloto
@@ -358,9 +358,25 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
 ### O termo, a janela, a bateria e a notificação fixa
 
 - [ ] Antes das 6h (hora do celular): abrir o Nexus Field com a conta do piloto: nem o termo nem a coleta aparecem.
-      Depois das 6h, abrir de novo: aparece o **Termo de uso da localização**. Ele não fecha tocando fora nem pelo Voltar,
-      e o único botão é o **Li e aceito**. Fechar o app sem aceitar: nada é coletado, e a próxima abertura mostra o termo
-      de novo.
+      Depois das 6h, abrir de novo: aparece o **Termo de uso e privacidade da localização**, com o texto inteiro (a
+      versão, as 12 seções com o título em negrito e a frase final). Ele não fecha tocando fora nem pelo Voltar, e o único
+      botão é o **Li e aceito**. Fechar o app sem aceitar: nada é coletado, e a próxima abertura mostra o termo de novo.
+- [ ] O **Li e aceito** só no fim: ao abrir, ele está desligado (em cinza), com a dica **Role até o fim para liberar o
+      Li e aceito** logo acima, e tocar nele não faz nada. Rolar até o meio do texto: continua desligado. Rolar até o fim
+      (a última frase à vista): ele liga e a dica sai. Rolar de volta para cima: continua ligado.
+- [ ] Girar a tela com o termo pela metade: o botão continua desligado, e rolar até o fim na outra posição o liga. Ir à
+      tela inicial com o termo pela metade e voltar ao Nexus Field: o termo continua aberto, desligado.
+- [ ] A fonte grande: em Configurações, Tela, o tamanho da fonte no máximo (1,3x ou mais), e abrir o termo (numa conta
+      que ainda não o aceitou): o texto continua legível, o título, a dica e o botão cabem na tela, e rolar até o fim
+      liga o botão. Voltar a fonte ao tamanho de antes.
+- [ ] A tela pequena (o aparelho de tela menor do piloto, ou o Nexus Field na tela dividida): o botão fica sempre à
+      vista embaixo do texto, e o texto rola até o fim.
+- [ ] Com o TalkBack, se der: com ele ligado, passar de parágrafo em parágrafo (o texto rola sozinho até o parágrafo)
+      ou rolar com dois dedos até o fim: antes do fim o TalkBack diz que o **Li e aceito** está desativado, e no fim ele
+      liga. Desligar o TalkBack.
+- [ ] A versão nova pede de novo: no aparelho de prova que aceitou o termo curto de antes (o APK de prova anterior a
+      esta mudança), instalar o APK novo por cima e abrir com a mesma conta: o termo inteiro aparece de novo, e a coleta
+      só liga depois do **Li e aceito**. Depois do aceite, fechar e abrir: ele não volta.
 - [ ] Logo depois do **Li e aceito**: o pedido do próprio Android, sem outra tela do Nexus Field antes; escolher
       **Durante o uso do app** (com a localização precisa). Com a localização já liberada (o **Antes de começar** da
       instalação), nenhum pedido aparece: a coleta liga direto.
