@@ -476,6 +476,14 @@ public class EquipeNaCascaTest {
         tela.aceitarDoTermo.run();
         assertTrue(tela.pedidos.isEmpty());
         assertEquals(1, servico.iniciados);
+        // A localização tirada mais tarde, na mesma tela: o pedido era só o de logo depois do aceite, e agora só o Nexus
+        // fica sabendo.
+        servico.rodando = true;
+        tirar(PRECISA, APROXIMADA);
+        c.reavaliar();
+        assertTrue("nenhum pedido fora do aceite", tela.pedidos.isEmpty());
+        assertEquals(1, servico.parados);
+        assertEquals(1, pedidosAoNexus.size());
     }
 
     @Test

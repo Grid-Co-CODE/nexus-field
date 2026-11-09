@@ -422,6 +422,9 @@ final class EquipeNaCasca {
         chave.aceitarTermo();
         pedirDepoisDoTermo = true;
         reavaliarAgora();
+        // Com a localização já dada nada foi pedido: o pedido não fica guardado para quando ela for tirada mais tarde
+        // nesta tela (aí só o Nexus fica sabendo, e o Antes de começar pede na próxima abertura).
+        if (tem(PRECISA)) pedirDepoisDoTermo = false;
     }
 
     // O termo que não apareceu (a tela saindo): ninguém vai responder, e a próxima volta ao app mostra de novo.
