@@ -46,16 +46,21 @@ import java.util.function.LongSupplier;
  * {@link #parar} (o Sair), sem a permissão de localização ou sem a notificação fixa à vista.
  *
  * <ul>
- *   <li>Liga pelo {@link #iniciar}, só dentro da janela, com a localização precisa e a o tempo todo
- *       ({@link #temAPermissao}) e com a notificação fixa à vista ({@link #notificacaoAVista}). O prazo do dia (as 22h do
- *       dia em que o app abriu) vai ao disco antes do pedido, e o religamento do sistema ({@code START_STICKY}, o processo
- *       que o Android matou) só volta a coletar até ele: sem o prazo, um religamento no dia seguinte coletaria sem o
- *       técnico ter aberto o app, e o desenho chama isso de fracasso (a folga, as férias).</li>
- *   <li>A permissão é conferida ao ligar, no religamento, a cada posição e a cada envio, e não só pela casca na volta ao
- *       app. Caso que criou a regra: o técnico troca "Permitir o tempo todo" por "Permitir só durante o uso" nos ajustes, o
- *       Android mata o processo e religa o serviço; sem conferir, no Android 10 a coleta voltava até as 22h com o app
- *       fechado, justo de quem acabou de negar, e no aparelho em que o processo não morre ela seguia até a próxima volta
- *       ao app. Faltando, o prazo é esquecido e o serviço para ({@link #semPermissao}).</li>
+ *   <li>Liga pelo {@link #iniciar}, só dentro da janela, com a localização precisa ({@link #temAPermissao}) e com a
+ *       notificação fixa à vista ({@link #notificacaoAVista}), e só com a tela do Nexus Field à vista (quem chama é a
+ *       {@link EquipeNaCasca}, que confere). Não há a permissão o tempo todo (R10): o serviço do tipo localização iniciado
+ *       com o app à vista mantém a localização durante o uso enquanto roda, também com o app fechado.</li>
+ *   <li><b>Nenhum caminho inicia o serviço com o app no fundo</b>: iniciado assim, ele não teria a localização durante o
+ *       uso do Android 11 em diante (do 14 em diante o primeiro plano de localização lança), e do 12 em diante o Android
+ *       recusa o primeiro plano; a notificação prometeria uma coleta que não acontece, e no Android 10 coletaria sem o
+ *       técnico ter aberto o app. Por isso o {@link #onStartCommand} devolve {@code START_NOT_STICKY} (o processo que o
+ *       Android mata não religa o serviço), o religamento que chegar mesmo assim (o Intent nulo) sai sem o primeiro plano,
+ *       e o {@link #REPOR} que chega com a coleta parada não a liga. O custo, aceito pelo dono (R10): o Android que mata o
+ *       app (a falta de memória, o "tirar dos recentes" de quem mata o app) para a coleta até a próxima abertura.</li>
+ *   <li>A permissão é conferida ao ligar, a cada posição e a cada envio, e não só pela casca na volta ao app. Caso que
+ *       criou a regra: a localização tirada nos ajustes com a coleta ligada, no aparelho em que o processo não morre: a
+ *       coleta seguia até a próxima volta ao app. Faltando, o prazo é esquecido e o serviço para ({@link #semPermissao}).
+ *       O prazo do dia (as 22h do dia em que o app abriu) vai ao disco antes do pedido.</li>
  *   <li>Coleta no ritmo do {@link RitmoDaColeta}: 2 min com a alta precisão em deslocamento, 10 min com a precisão
  *       equilibrada parado. O ritmo e o "mov" de cada ponto usam a mesma distância, a que passa da precisão das duas
  *       leituras ({@link #metrosAlemDaPrecisao}): parado longe do Wi-Fi, a precisão equilibrada vem da antena, com erro de
@@ -65,10 +70,7 @@ import java.util.function.LongSupplier;
  *       mais antigo a cada {@link #ENVIO_MS}, numa thread só para o disco e a rede.</li>
  *   <li>Na partida a frio a coleta segue igual e o lote espera na fila até a página conferir a conta da chave
  *       ({@link ChaveDaEquipe#conferida}); enquanto isso o envio nem acorda o celular nem recomeça a contar
- *       ({@link EnvioDePontos#podeEnviar}), e o primeiro lote depois da conferência sai com a posição seguinte. O
- *       religamento sem tela retoma a conferência que a página fez antes de o processo morrer
- *       ({@link ChaveDaEquipe#retomarConferencia}): sem ela, coletava a tarde inteira sem mandar nada até o técnico abrir o
- *       app.</li>
+ *       ({@link EnvioDePontos#podeEnviar}), e o primeiro lote depois da conferência sai com a posição seguinte.</li>
  *   <li>O envio não depende só do Handler, que conta o tempo de CPU acordada: com a tela apagada (no bolso, no suporte do
  *       carro) o celular dorme entre uma posição e outra, e os 2 min do Handler levariam horas no relógio (o mapa diria
  *       "sem sinal" com o técnico trabalhando). Por isso a posição que chega com o envio vencido, contado no relógio que
@@ -81,8 +83,8 @@ import java.util.function.LongSupplier;
  *   <li>Para às 22h: o relógio é conferido no prazo, a cada envio e a cada posição, porque o Handler não conta o tempo em
  *       que o celular dorme. O que ficou na fila sai num último envio ({@link #fimDoDia}): antes, os pontos entre o último
  *       envio e as 22h esperavam a primeira abertura do dia seguinte. O {@link EnvioDePontos.Resultado#PARAR} (o 401 ou o
- *       coleta:false do Nexus) e a permissão tirada esquecem o prazo: o religamento não volta, e a próxima abertura do app
- *       decide de novo. O prazo esquecido (o Sair, a troca de conta) não faz o último envio: a fila é de quem saiu.</li>
+ *       coleta:false do Nexus) e a permissão tirada esquecem o prazo, e a próxima abertura do app decide de novo. O prazo
+ *       esquecido (o Sair, a troca de conta) não faz o último envio: a fila é de quem saiu.</li>
  *   <li>O Android 8+ derruba o app cujo serviço pedido em primeiro plano para antes do startForeground. Por isso o
  *       {@link #parar} nunca para o serviço antes dele (esquece o prazo, e o onStartCommand que ainda vier entra em
  *       primeiro plano e sai logo), e o stopSelf leva o número do último início (o iniciar que chegou depois de um parar
@@ -204,9 +206,9 @@ public class ServicoDaEquipe extends Service {
     }
 
     /**
-     * Liga a coleta, se a hora do celular está na janela, a localização precisa e a o tempo todo foram dadas
-     * ({@link #temAPermissao}) e a notificação fixa vai ficar à vista ({@link #notificacaoAVista}). Quem decide se a coleta
-     * vale para o técnico é a casca, antes (o Nexus, pela chave do aparelho). Chamar de novo com ela ligada não faz outra.
+     * Liga a coleta, se a hora do celular está na janela, a localização precisa foi dada ({@link #temAPermissao}) e a
+     * notificação fixa vai ficar à vista ({@link #notificacaoAVista}). Quem decide se a coleta vale para o técnico é a
+     * casca, antes (o Nexus, pela chave do aparelho), e só com a tela à vista. Chamar de novo com ela ligada não faz outra.
      */
     static void iniciar(Context contexto) {
         Context app = contexto.getApplicationContext();
@@ -217,8 +219,8 @@ public class ServicoDaEquipe extends Service {
             return;
         }
         if (!temAPermissao(app)) {
-            // Do Android 14 em diante o primeiro plano de localização sem a precisa lança, e o serviço pedido em primeiro
-            // plano que não chega a ele derruba o app. Sem a o tempo todo, o serviço entraria e sairia logo.
+            // Do Android 14 em diante o primeiro plano de localização sem a permissão lança, e o serviço pedido em
+            // primeiro plano que não chega a ele derruba o app; com só a aproximada, o pedido de alta precisão é recusado.
             Log.w(TAG, "coleta da equipe não ligada: sem a permissão de localização");
             return;
         }
@@ -237,8 +239,8 @@ public class ServicoDaEquipe extends Service {
     }
 
     /**
-     * Desliga a coleta (o Sair, a coleta que deixou de valer). O religamento do sistema não volta, e o serviço que ainda
-     * não entrou em primeiro plano entra e sai logo.
+     * Desliga a coleta (o Sair, a coleta que deixou de valer). O serviço que ainda não entrou em primeiro plano entra e sai
+     * logo.
      */
     static void parar(Context contexto) {
         esquecerOPrazo(contexto);
@@ -288,19 +290,20 @@ public class ServicoDaEquipe extends Service {
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
         ultimoInicio = startId;
         long agora = pecas.relogio.getAsLong();
-        // O religamento do sistema chega sem o Intent. Fora do prazo do dia em que o app abriu ele não volta, e sai antes do
-        // primeiro plano (nada de notificação às 23h nem no dia seguinte): o Android só exige o startForeground de quem
-        // foi pedido pelo startForegroundService, o do iniciar.
-        if (intent == null && !valeColetar(agora)) {
-            Log.i(TAG, "religamento da coleta da equipe fora do dia em que o app abriu: não volta");
+        if (intent == null) {
+            // O religamento do sistema (o processo que o Android matou): não volta, nem no mesmo dia. O serviço só liga com
+            // o app à vista, e este é o app no fundo (ver o cabeçalho). Sai antes do primeiro plano: o Android só exige o
+            // startForeground de quem foi pedido pelo startForegroundService, o do iniciar.
+            Log.i(TAG, "religamento da coleta da equipe pelo sistema, com o app no fundo: não volta (a coleta liga na "
+                + "próxima abertura do app)");
             stopSelf(startId);
             return START_NOT_STICKY;
         }
-        if (intent == null && !temOTempoTodo(this)) {
-            // O religamento depois de o técnico tirar a o tempo todo nos ajustes (o Android mata o processo ao tirar uma
-            // permissão e religa o START_STICKY): sai antes do primeiro plano, e sem o prazo a próxima abertura decide.
-            esquecerOPrazo(this);
-            Log.w(TAG, "sem a permissão de localização o tempo todo: o religamento da coleta da equipe não volta");
+        boolean repor = REPOR.equals(intent.getAction());
+        if (repor && !coletando) {
+            // O arrastar que chega com a coleta parada (o processo que morreu com a notificação na barra): é um início com
+            // o app no fundo, e não liga nada. Veio pelo startService, que não exige o primeiro plano.
+            Log.i(TAG, "a notificação da coleta da equipe arrastada com a coleta parada: nada liga");
             stopSelf(startId);
             return START_NOT_STICKY;
         }
@@ -314,26 +317,20 @@ public class ServicoDaEquipe extends Service {
             encerrar("coleta da equipe fora do prazo: não ligou");
             return START_NOT_STICKY;
         }
-        if (!temOTempoTodo(this)) {
-            // Depois do startForeground, como a notificação abaixo: o serviço pedido pelo startForegroundService que para
-            // antes dele derruba o app. É a o tempo todo tirada entre o iniciar e este início.
-            semPermissao();
-            return START_NOT_STICKY;
-        }
         if (!notificacaoAVista(this)) {
             // Conferida depois do startForeground, e não antes: o serviço pedido pelo startForegroundService que para
             // antes dele derruba o app. O iniciar já conferiu; aqui é a notificação desligada entre o pedido e este
-            // início, ou no religamento do sistema.
+            // início.
             encerrar(SEM_A_NOTIFICACAO);
             return START_NOT_STICKY;
         }
         if (!coletando) {
-            if (intent == null) retomarAConferencia();
             ligarColeta(agora);
-        } else if (REPOR.equals(intent == null ? null : intent.getAction())) {
+        } else if (repor) {
             Log.i(TAG, "a notificação fixa da coleta da equipe foi arrastada para o lado e voltou");
         }
-        return coletando ? START_STICKY : START_NOT_STICKY;
+        // Nunca o START_STICKY: o processo que o Android mata não religa o serviço com o app no fundo (ver o cabeçalho).
+        return START_NOT_STICKY;
     }
 
     @Override
@@ -349,7 +346,7 @@ public class ServicoDaEquipe extends Service {
     }
 
     private boolean entrarEmPrimeiroPlano() {
-        if (!temLocalizacaoPrecisa(this)) {
+        if (!temAPermissao(this)) {
             Log.w(TAG, "sem a permissão de localização: a coleta da equipe não ligou");
             return false;
         }
@@ -357,8 +354,8 @@ public class ServicoDaEquipe extends Service {
         try {
             ServiceCompat.startForeground(this, ID_DA_NOTIFICACAO, notificacao(), tipoDeLocalizacao());
         } catch (RuntimeException e) {
-            // O Android 12+ recusa o primeiro plano do religamento com o app no fundo
-            // (ForegroundServiceStartNotAllowedException): só registra, e a próxima abertura religa.
+            // O Android 12+ recusa o primeiro plano pedido com o app no fundo (ForegroundServiceStartNotAllowedException),
+            // e o 14+ o de localização sem a permissão (SecurityException): só registra, e a próxima abertura religa.
             Log.w(TAG, "o Android recusou a coleta da equipe em primeiro plano: " + e.getClass().getSimpleName());
             return false;
         }
@@ -429,21 +426,9 @@ public class ServicoDaEquipe extends Service {
     }
 
     private void semPermissao() {
-        // A permissão tirada: o log diz só o motivo (o texto da exceção fica de fora), e o religamento não volta.
+        // A permissão tirada: o log diz só o motivo (o texto da exceção fica de fora), e o prazo do dia é esquecido.
         esquecerOPrazo(this);
         encerrar("sem a permissão de localização: a coleta da equipe parou");
-    }
-
-    // O processo religado sem tela: o envio vale com a conferência que a página fez antes de ele morrer (na thread do disco,
-    // antes de qualquer envio, que vai pela mesma).
-    private void retomarAConferencia() {
-        executar(() -> {
-            if (pecas.chave.retomarConferencia()) {
-                Log.i(TAG, "religamento da coleta da equipe: a conta que a página conferiu vale, e o envio sai");
-            } else {
-                Log.i(TAG, "religamento da coleta da equipe sem a conta conferida: o envio espera a abertura do app");
-            }
-        });
     }
 
     private final FonteDePosicoes.Receptor receptor = new FonteDePosicoes.Receptor() {
@@ -627,8 +612,8 @@ public class ServicoDaEquipe extends Service {
     private void aposOEnvio(EnvioDePontos.Resultado r) {
         soltarOAcordado();
         if (r != EnvioDePontos.Resultado.PARAR || !coletando) return;
-        // O 401 (a chave que o Nexus não reconhece) ou o coleta:false: a chave já saiu (EnvioDePontos), e o religamento não
-        // volta. A próxima abertura do app decide de novo, com o Nexus.
+        // O 401 (a chave que o Nexus não reconhece) ou o coleta:false: a chave já saiu (EnvioDePontos), e o prazo do dia
+        // é esquecido. A próxima abertura do app decide de novo, com o Nexus.
         esquecerOPrazo(this);
         encerrar("o Nexus desligou a coleta da equipe neste aparelho");
     }
@@ -699,24 +684,13 @@ public class ServicoDaEquipe extends Service {
         if (acordado != null && acordado.isHeld()) acordado.release();
     }
 
-    /** A localização precisa: sem ela o pedido de alta precisão é recusado, e a aproximada erra por quilômetros. */
-    private static boolean temLocalizacaoPrecisa(Context contexto) {
+    /**
+     * A permissão da coleta: a localização precisa, durante o uso (R10). Sem ela o pedido de alta precisão é recusado, e a
+     * aproximada erra por quilômetros (o ponto no mapa e o Abrir rota precisam dele).
+     */
+    static boolean temAPermissao(Context contexto) {
         return ContextCompat.checkSelfPermission(contexto, Manifest.permission.ACCESS_FINE_LOCATION)
             == PackageManager.PERMISSION_GRANTED;
-    }
-
-    /**
-     * A localização o tempo todo, a que vale com o app fechado: antes do Android 10 ela não existe, e a de uso já vale
-     * (como no {@link EquipeNaCasca#oTempoTodo}).
-     */
-    static boolean temOTempoTodo(Context contexto) {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
-            || ContextCompat.checkSelfPermission(contexto, EquipeNaCasca.O_TEMPO_TODO) == PackageManager.PERMISSION_GRANTED;
-    }
-
-    /** As duas permissões da coleta: a localização precisa e a o tempo todo. */
-    static boolean temAPermissao(Context contexto) {
-        return temLocalizacaoPrecisa(contexto) && temOTempoTodo(contexto);
     }
 
     private static SharedPreferences preferencias(Context contexto) {

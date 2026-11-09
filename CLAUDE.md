@@ -18,7 +18,7 @@ source ferramentas/ambiente.sh             # JAVA_HOME, ANDROID_HOME, PATH e and
 npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug lint)
 ```
 
-O `lint` sai sem erro. Os 20 avisos que restam (13 medidos em 19/10/2026; os sete `ApplySharedPref` da `ChaveDaEquipe` são
+O `lint` sai sem erro. Os 18 avisos que restam (13 medidos em 19/10/2026; os cinco `ApplySharedPref` da `ChaveDaEquipe` são
 de propósito, ver "Localização da equipe") são do template do Capacitor (`ManifestOrder`,
 `UnusedResources`), da versão do Gradle (`AndroidGradlePluginVersion`), dos ícones quadrados do Android 7
 (`IconLauncherShape`) e o `PluralsCandidate` do `casca_teste_enviado`, de propósito (ver "O atalho de teste dos avisos").
@@ -1027,7 +1027,7 @@ O site (App de Campo) e o Fracttal não mudam.
 
 - **A regra.** Liga na primeira abertura (ou na volta ao app) entre 6h e 22h na hora do celular, e para às 22h; 6:00:00
   vale e 22:00:00 não (`JanelaDaEquipe`). Sem botão de pausa (decisão do dono). Só vale para quem o Nexus diz
-  `coleta: true` ao dar a chave: supervisor, administrador, aparelho de prova e quem está fora do piloto não veem aviso
+  `coleta: true` ao dar a chave: supervisor, administrador, aparelho de prova e quem está fora do piloto não veem o termo
   nem coleta, e por isso a 1.2.0 pode ir a todos os aparelhos. `coleta: false` ou 401 param o serviço e apagam a chave.
   Ritmo (`RitmoDaColeta`, instância com estado: 3 leituras paradas seguidas): 2 min em deslocamento, 10 min parado.
   Envio em lotes de até 200 pontos (64 KB) a cada 120 000 ms em deslocamento e 600 000 ms parado.
@@ -1037,37 +1037,50 @@ O site (App de Campo) e o Fracttal não mudam.
     sem som, sem vibração, sem ponto no ícone). O Handler não conta o sono do celular: com a tela apagada o envio sai
     pela posição que chega com o envio vencido no `elapsedRealtime`, com um `WAKE_LOCK` parcial até a resposta (o mapa
     dizia "sem sinal" com o técnico trabalhando). O fim das 22h é conferido a cada posição e a cada envio, e o prazo do
-    dia vai ao disco antes do pedido: o religamento do sistema (`START_STICKY`) não coleta no dia seguinte sem o técnico
-    abrir o app. Às 22h o que ficou na fila sai num último envio (`fimDoDia`, com um `WAKE_LOCK` próprio, porque o
-    serviço já saiu); o prazo esquecido pelo `parar` (o Sair, a troca de conta) não manda. O `mov` do ponto e o ritmo usam
-    a mesma distância, a que passa da precisão das duas leituras (`metrosAlemDaPrecisao`; 1 m/s ou 150 m acima dela): com
-    o estado do ritmo no `mov`, as primeiras leituras em casa iam como deslocamento e o mapa mostraria a posição exata de
-    quem está fora de usina; com a distância crua no ritmo, parado longe do Wi-Fi a leitura da antena (erro de centenas de
-    metros) religava o GPS a cada ciclo (uns 18 min, metade com o GPS ligado). A leitura com NaN ou infinito é descartada.
-  - A permissão (a precisa e a o tempo todo, `temAPermissao`) é conferida pelo serviço ao ligar, no religamento (antes do
-    primeiro plano), a cada posição e a cada envio; faltando, ele esquece o prazo e para. Caso: o técnico troca "Permitir
-    o tempo todo" por "Permitir só durante o uso", o Android mata o processo e religa o serviço, e no Android 10 a coleta
-    voltava até as 22h com o app fechado. Antes do Android 10 a o tempo todo não existe, e a precisa basta.
+    dia vai ao disco antes do pedido. Às 22h o que ficou na fila sai num último envio (`fimDoDia`, com um `WAKE_LOCK`
+    próprio, porque o serviço já saiu); o prazo esquecido pelo `parar` (o Sair, a troca de conta) não manda. O `mov` do
+    ponto e o ritmo usam a mesma distância, a que passa da precisão das duas leituras (`metrosAlemDaPrecisao`; 1 m/s ou
+    150 m acima dela): com o estado do ritmo no `mov`, as primeiras leituras em casa iam como deslocamento e o mapa
+    mostraria a posição exata de quem está fora de usina; com a distância crua no ritmo, parado longe do Wi-Fi a leitura
+    da antena (erro de centenas de metros) religava o GPS a cada ciclo (uns 18 min, metade com o GPS ligado). A leitura
+    com NaN ou infinito é descartada.
+  - **Só a localização durante o uso, e nenhum caminho inicia o serviço com o app no fundo (R10).** A permissão da coleta
+    é a localização precisa (`temAPermissao`; a aproximada erra por quilômetros); a "o tempo todo"
+    (`ACCESS_BACKGROUND_LOCATION`) saiu do manifesto e do código, e o `ServicoDaEquipeTest` confere o manifesto mesclado.
+    Por que serve: o serviço do tipo localização iniciado com o app à vista mantém a durante o uso enquanto roda, também
+    com o app fechado. Iniciado com o app no fundo ele não teria a localização (Android 11+; o 14+ lança no primeiro plano
+    de localização) e o 12+ recusa o primeiro plano: a notificação prometeria uma coleta que não acontece. Por isso o
+    `onStartCommand` devolve `START_NOT_STICKY`, o religamento que chegar (o Intent nulo) sai sem o primeiro plano, o
+    `REPOR` com a coleta parada não liga nada, e a `EquipeNaCasca` só manda iniciar com a tela à vista (do
+    `handleOnResume` ao `handleOnStop` do plugin: a decisão que roda na thread do envio depois de o técnico sair do app não
+    liga). O custo, aceito pelo dono: o Android que mata o app (a falta de memória, o "tirar dos recentes" do Xiaomi, o
+    Forçar parada) para a coleta até a próxima abertura. A permissão é conferida pelo serviço ao ligar, a cada posição e
+    a cada envio; faltando (tirada nos ajustes com o processo vivo), ele esquece o prazo e para.
   - Sem a notificação fixa à vista não há coleta (Android 13+ com a notificação negada, ou o canal ou as notificações do
     Nexus Field desligados): `notificacaoAVista` confere ao ligar, a cada posição e a cada envio, e o `decidir` também
     (`SEM_A_NOTIFICACAO`: a coleta ligada para, e o Nexus recebe o `permissao: "sem"`, como sem a permissão; antes, o
     mapa mostrava o aparelho só como "sem sinal"). A notificação arrastada (Android 14+) volta na hora, pelo
     `deleteIntent` (`REPOR`).
-  - `EquipeNaCasca`: a regra (`decidir`, pura) e quem a executa: o aviso antes de ligar (uma vez por chave do aparelho,
-    não fecha tocando fora nem pelo Voltar, sem botão de recusar), a explicação da localização o tempo todo (Android 11+; no
-    10 o pedido do Android já oferece; depois de duas recusas o Android não abre mais o pedido, e a explicação passa a dizer
-    o caminho pelos ajustes e o Continuar os abre: a marca `tempo_todo_pelos_ajustes` sai quando a permissão é dada), o
+  - `EquipeNaCasca`: a regra (`decidir`, pura: a janela, a chave, o termo aceito, a localização precisa e a notificação à
+    vista; a conta conferida é do envio) e quem a executa. Uma tela nossa só (R10, o pedido do dono depois da prévia:
+    "essa quantidade de telas e avisos atrapalham muito a experiência"): o **Termo de uso da localização**, uma vez por
+    conta, que não fecha tocando fora nem pelo Voltar, com um botão só, o Li e aceito (sem o aceite nada coleta, e a
+    próxima abertura mostra o termo de novo). Logo depois do aceite, se faltar a localização, o pedido do próprio Android
+    (a precisa e a aproximada juntas: do 12 em diante a precisa sozinha é ignorada), sem tela nossa antes. Fora do aceite
+    a casca não pede: quem pede a localização a cada abertura é o "Antes de começar" da MainActivity (dois pedidos de uma
+    vez empilhariam as telas). Negada, ou negada de vez (o Android não mostra mais o pedido), nenhuma tela a mais: o
     `permissao: "sem"` ao Nexus no máximo a cada 30 min (o mapa separa quem negou de quem não abriu o app; o 4xx do Nexus
-    conta como respondido), a volta ao app e o Sair. Fora da janela nada aparece ao técnico. Uma thread só para disco,
-    cifra e rede (a do serviço).
+    conta como respondido), e o guia de instalação diz o caminho nos ajustes. Fora da janela nada aparece ao técnico. Uma
+    thread só para disco, cifra e rede (a do serviço).
   - O Sair para a coleta na hora, apaga a fila, revoga e apaga a chave (mesmo sem rede) e deixa uma marca
     (`saidasPendentes`) até a chave sair: a decisão que já esperava na thread (a volta ao app atrás de um envio pendurado)
     não religa a coleta de quem saiu, e a tarefa do Sair para de novo antes da rede. O parar do serviço e o fechar do
     diálogo que lançam não seguram a fila, a chave nem a marca, e o Sair das notificações que lança não segura o da
     equipe (o `pushSaiu` do plugin, em try/finally).
   - `ChaveDaEquipe` (cifrada pela `Cifra`/Keystore; o `commit()` do `apagarAChave` e dos outros é de propósito, no
-    lugar do `apply()`, porque a gravação tem de chegar ao disco antes de o envio seguir, na thread dele, e a marca da
-    conferência antes de o processo poder morrer: a tela que nasce a apaga, e o religamento não pode achar a velha),
+    lugar do `apply()`, porque a gravação tem de chegar ao disco antes de o envio seguir, na thread dele; o termo aceito
+    fica na marca `termo_aceito`, e não na `aviso_aceito` de antes dele: quem aceitou o aviso num aparelho de prova não
+    leu o termo),
     `FilaDePontos` (SQLite: no máximo 1000 pontos e nada com mais de 24 h; passou, sai o mais velho; o ponto que não se
     lê sai antes do lote, que segue com os outros) e `EnvioDePontos` (todo 5xx, o 403, o 404, o 405, o 408, o 429, o 3xx e a falta de
     rede deixam fila e chave intactas; o outro 4xx é o lote recusado, que sai da fila; só o 401 apaga a chave; o 200 só
@@ -1085,9 +1098,10 @@ O site (App de Campo) e o Fracttal não mudam.
   `temChave: true` com a chave da mesma conta. Outra conta guardada, a chave de antes da conta ou a fila sem conta
   guardada recebem o trabalho do Sair da anterior (sem a revogação quando não há chave) antes da resposta, na thread do
   envio; a mesma conta fica com a fila, que sobe com a chave nova. O 401 apaga só a chave: a conta guardada é a dona da
-  fila. Caso que criou a regra: a conta A sem sinal o dia todo, a chave vence, o 401; a conta B entra no dia seguinte sem
-  o Sair de A e herdaria o dia de A. A conta ilegível (Keystore invalidado, backup restaurado) conta como fila sem dona,
-  e a fila é apagada.
+  fila e do termo aceito (a chave nova da mesma conta não mostra o termo de novo; outra conta, a chave de antes da conta
+  e a conta que a cifra não lê, sim; o Sair esquece a conta, e o próximo login vê o termo). Caso que criou a regra: a
+  conta A sem sinal o dia todo, a chave vence, o 401; a conta B entra no dia seguinte sem o Sair de A e herdaria o dia
+  de A. A conta ilegível (Keystore invalidado, backup restaurado) conta como fila sem dona, e a fila é apagada.
 - **O envio espera a conta conferida (R8, R9).** `ChaveDaEquipe.conferida` começa "não conferida" em cada processo e em
   cada tela que nasce (o `aTelaAbriu` do `load()` do plugin); confere o pedido do aparelho da mesma conta ou a chave nova
   guardada; desfazem o Sair, a troca de conta, o `coleta:false`, o 401, a conferência de outra conta e o cofre fora.
@@ -1095,10 +1109,9 @@ O site (App de Campo) e o Fracttal não mudam.
   guarda, sem acordar o celular nem recomeçar a contar o envio, `podeEnviar`; a revogação do Sair não espera). Caso: a
   partida a frio com a chave de outra conta, que enviaria o primeiro lote uns 1 min 45 s depois do `onResume`, antes de o
   login da nova conta chegar. O custo aceito: o app aberto sem token coleta e só envia depois que a página confere a
-  conta (a fila guarda 24 h e 1000 pontos). A conferência também vai ao disco, um sim ou não (`conferida`, no arquivo
-  `equipe`): o processo que o Android religa sem tela (o `START_STICKY`) a retoma (`retomarConferencia`) e envia até o
-  prazo do dia; sem ela, coletava a tarde inteira sem mandar nada até o técnico abrir o app. A tela que nasce a apaga
-  também, porque é o caso que a R8 protege. O cofre que não lê a conta na conferência responde `temChave: true` (para não
+  conta (a fila guarda 24 h e 1000 pontos). A conferência fica só na memória: o serviço não volta sem a tela (R10), e
+  nenhum processo sem página precisa dela (a marca no disco que o religamento retomava saiu com ele). O cofre que não lê
+  a conta na conferência responde `temChave: true` (para não
   pedir uma chave que o cofre fora não guarda), guarda na memória a conta da página (`contaDaPagina`), e o envio e a volta
   ao app conferem de novo até ele voltar (R9); a conta guardada que então se mostra de outra conta não manda nada e faz a
   troca de conta na volta ao app.
@@ -1120,11 +1133,13 @@ O site (App de Campo) e o Fracttal não mudam.
   um `rede` (o TypeError do fetch do CORS), e não um `http404`.
 - **O que não se faz.** Coordenada, chave, e-mail ou id de aparelho no log (`Log`) ou nos `erro` da página; o token
   Microsoft no nativo; botão de pausa; coletar fora da janela, sem a notificação fixa à vista ou com `coleta: false`;
-  texto novo de interface sem o `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do
-  "O que aprovar", com o texto inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega).
-  Xiaomi e afins: a coleta com o app fechado depende do Início automático e da bateria sem restrições, que o guia de
-  instalação (`docs/instalacao/`) manda ligar. O roteiro do piloto é a seção "A localização da equipe" do
-  `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às 22h, a tela apagada, as marcas).
+  pedir a localização "o tempo todo" ou iniciar o serviço com o app no fundo; tela nossa além do termo; texto novo de
+  interface sem o `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do "O que
+  aprovar", com o texto inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega). Xiaomi e afins:
+  a coleta com o app fechado depende do Início automático e da bateria sem restrições, que o guia de instalação
+  (`docs/instalacao/`) manda ligar; o app morto pelo sistema para a coleta até a próxima abertura. O roteiro do piloto é
+  a seção "A localização da equipe" do `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às
+  22h, a tela apagada, as marcas).
 
 ## Distribuição
 

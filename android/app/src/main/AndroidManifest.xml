@@ -125,11 +125,11 @@
     <!-- Android 13+: sem ela, nem o resumo nem a emergência aparecem. É pedida em tempo de execução. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- A coleta da equipe (spec 2026-11-08): o serviço em primeiro plano (Android 9+) do tipo localização (Android 14+),
-         e a localização "o tempo todo" (Android 10+), que a casca pede depois do aviso; sem ela o mapa mostra o técnico
-         como "sem permissão de localização". -->
+         com a localização durante o uso (as duas de cima), que a casca pede logo depois do termo de uso. A "o tempo todo"
+         (ACCESS_BACKGROUND_LOCATION) não entra (R10): o serviço iniciado com o app à vista mantém a durante o uso enquanto
+         roda, também com o app fechado. Sem a localização precisa o mapa mostra o técnico como "sem permissão". -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- O celular acordado durante o envio dos pontos (ServicoDaEquipe): com a tela apagada ele dorme entre uma posição e
          outra. O Firebase também a traz, mas a coleta não fica dependendo de outra biblioteca para tê-la. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />

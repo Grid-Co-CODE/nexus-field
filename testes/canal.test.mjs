@@ -124,10 +124,12 @@ test('a ligação nativa da equipe: a volta ao app reavalia, o Sair desliga e as
   // A da tela, com o pedido da permissão registrado no load() (o registro da AndroidX só vale antes de a tela começar).
   assert.match(plugin, /ActivityResultLauncher<String\[\]> pedidoDaEquipe = bridge\.registerForActivityResult\(\s*new ActivityResultContracts\.RequestMultiplePermissions\(\), resultado -> \{[^}]*daEquipe\.aposOPedido\(resultado\);/);
   assert.match(plugin, /equipe = EquipeNaCasca\.daTela\(getActivity\(\), this::naUi, pedidoDaEquipe::launch, BuildConfig\.VERSION_NAME\);/);
-  // A tela que nasce desfaz a conta conferida antes dela (R8), também a do disco, que o religamento sem tela lê.
+  // A tela que nasce desfaz a conta conferida antes dela (R8).
   assert.match(plugin, /equipe = EquipeNaCasca\.daTela\([^;]*\);\s*equipe\.aTelaAbriu\(\);/);
-  // A primeira abertura e a volta ao app (o onResume), o Sair, a tela que sai.
-  assert.match(plugin, /protected void handleOnResume\(\) \{[\s\S]*?if \(daEquipe != null\) daEquipe\.reavaliar\(\);/);
+  // A primeira abertura e a volta ao app (o onResume), com a tela à vista antes da decisão; a tela fora da vista (o
+  // onStop), para a decisão que ainda vier não ligar o serviço com o app no fundo (R10); o Sair, a tela que sai.
+  assert.match(plugin, /protected void handleOnResume\(\) \{[\s\S]*?if \(daEquipe != null\) \{\s*daEquipe\.aTelaFicouAVista\(\);\s*daEquipe\.reavaliar\(\);\s*\}/);
+  assert.match(plugin, /protected void handleOnStop\(\) \{\s*super\.handleOnStop\(\);\s*EquipeNaCasca daEquipe = equipe;\s*if \(daEquipe != null\) daEquipe\.aTelaSaiuDaVista\(\);\s*\}/);
   // O Sair da equipe também quando o das notificações lança: senão a coleta de quem saiu seguia até as 22h.
   assert.match(plugin, /public void pushSaiu\(\) \{\s*try \{\s*push\.saiu\(\);\s*\} finally \{\s*if \(equipe != null\) equipe\.sair\(\);\s*\}/);
   assert.match(plugin, /protected void handleOnDestroy\(\) \{[^}]*if \(equipe != null\) equipe\.encerrar\(\);/);

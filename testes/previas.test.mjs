@@ -99,12 +99,9 @@ const DIALOGOS = [
   { titulo: 'casca_atualizacao_titulo', textos: ['casca_atualizacao_texto', 'casca_atualizacao_texto_simples'],
     botoes: ['casca_atualizacao_depois', 'casca_atualizacao_atualizar'] },
   { titulo: 'casca_instalar_titulo', textos: ['casca_instalar_texto'], botoes: ['casca_abrir_ajustes'] },
-  // A localização da equipe (1.2.0, pendentes; o EquipeNaCasca): o aviso antes de ligar a coleta e a explicação da
-  // localização o tempo todo, antes de o Android 11 ou mais novo levar aos ajustes (ou, depois de duas recusas, com o
-  // caminho pelos ajustes do app). Os quadros estão na seção da equipe.
-  { titulo: 'casca_equipe_aviso_titulo', textos: ['casca_equipe_aviso_texto'], botoes: ['casca_equipe_aviso_continuar'] },
-  { titulo: 'casca_equipe_permissao_titulo', textos: ['casca_equipe_permissao_texto', 'casca_equipe_permissao_texto_ajustes'],
-    botoes: ['casca_equipe_permissao_continuar'] },
+  // A localização da equipe (1.2.0, pendente; o EquipeNaCasca): o termo de uso, a única tela da casca antes de ligar a
+  // coleta (R10: no lugar do aviso e da explicação da localização o tempo todo). O quadro está na seção da equipe.
+  { titulo: 'casca_equipe_termo_titulo', textos: ['casca_equipe_termo_texto'], botoes: ['casca_equipe_termo_aceitar'] },
 ];
 // Os toasts, na ordem da prévia: o do download que começou e o da atualização que não deu certo; depois, os do resultado
 // do teste dos avisos pelo atalho do ícone (só para administrador): enviado (com e sem a contagem), só administrador, sem
@@ -413,32 +410,43 @@ test('a notificação fixa da localização da equipe tem quadro: o título e o 
 });
 
 // A lista "O que aprovar" e a localização da equipe (spec 2026-11-08, seção 4.1): cada texto novo é aprovado pelo texto
-// inteiro (o dono da casca, o RH e o jurídico leem as palavras, e não um resumo), e o aviso tem o item do que ele promete.
-test('a lista "O que aprovar" cita cada texto da localização da equipe, inteiro, e o que o aviso promete', () => {
+// inteiro (o dono da casca, o RH e o jurídico leem as palavras, e não um resumo), e o termo tem o item do que ele promete.
+test('a lista "O que aprovar" cita cada texto da localização da equipe, inteiro, e o que o termo promete', () => {
   const d = doc();
   const citados = [...d.querySelectorAll('#o-que-aprovar .cita')].map((e) => compactar(e.textContent));
   const daEquipe = [...stringsDe('casca_equipe_'), ...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_canal_equipe_')];
-  assert.ok(daEquipe.length >= 9, 'o teste leu os textos da localização da equipe');
+  assert.deepEqual(stringsDe('casca_equipe_').map((s) => s.nome).sort(),
+    ['casca_equipe_termo_aceitar', 'casca_equipe_termo_texto', 'casca_equipe_termo_titulo'],
+    'a casca da equipe tem só o termo (R10): o aviso e a explicação da localização o tempo todo saíram');
+  assert.ok(daEquipe.length >= 6, 'o teste leu os textos da localização da equipe');
   for (const s of daEquipe) {
     assert.ok(citados.some((t) => t === s.texto), `a lista "O que aprovar" não cita o ${s.nome}: "${s.texto}"`);
   }
   // Cada item leva ao quadro certo, que existe.
-  for (const [item, quadro] of [['ok-equipe-aviso', 't-equipe-aviso'], ['ok-equipe-permissao', 't-equipe-permissao'],
-    ['ok-equipe-permissao-ajustes', 't-equipe-permissao-ajustes'], ['ok-equipe-notificacao', 't-equipe-notificacao']]) {
+  for (const [item, quadro] of [['ok-equipe-termo', 't-equipe-termo'], ['ok-equipe-notificacao', 't-equipe-notificacao']]) {
     const li = d.getElementById(item)?.closest('li');
     assert.ok(li, `o item ${item} da lista "O que aprovar"`);
     assert.equal(li.querySelector('a.ver')?.getAttribute('href'), `#${quadro}`);
     assert.ok(d.getElementById(quadro), `o quadro ${quadro}`);
   }
-  // O que o aviso promete: quando, por quê, quem vê e por quanto tempo (seção 4.1), no item e no texto do aviso.
+  // O que o termo promete: quando, por quê, quem vê e por quanto tempo (seção 4.1), no item e no texto do termo.
   const promessa = d.getElementById('ok-equipe-promessa')?.closest('li');
-  assert.ok(promessa, 'o item ok-equipe-promessa: o que o aviso promete');
+  assert.ok(promessa, 'o item ok-equipe-promessa: o que o termo promete');
+  assert.equal(promessa.querySelector('a.ver')?.getAttribute('href'), '#t-equipe-termo');
   const dito = compactar(promessa.querySelector('label').textContent);
-  const aviso = daEquipe.find((s) => s.nome === 'casca_equipe_aviso_texto').texto;
+  const termo = daEquipe.find((s) => s.nome === 'casca_equipe_termo_texto').texto;
   for (const [pergunta, trecho] of [['quando', /6h.*22h/], ['por quê', /ver onde a equipe está/], ['quem vê', /PCM/],
     ['por quanto tempo', /7 dias.*1 ano/]]) {
-    assert.match(aviso, trecho, `o aviso diz ${pergunta}`);
-    assert.ok(new RegExp(pergunta).test(dito), `o item do que o aviso promete cobre: ${pergunta}`);
+    assert.match(termo, trecho, `o termo diz ${pergunta}`);
+    assert.ok(new RegExp(pergunta).test(dito), `o item do que o termo promete cobre: ${pergunta}`);
+  }
+  // A seção da equipe tem o termo e a notificação, e nada do aviso nem da o tempo todo.
+  const secao = d.getElementById('g-equipe')?.closest('section');
+  assert.ok(secao, 'a seção Localização da equipe');
+  assert.deepEqual([...secao.querySelectorAll('figure.item')].map((f) => f.id), ['t-equipe-termo', 't-equipe-notificacao']);
+  assert.ok(!/tempo todo/.test(secao.textContent), 'a seção da equipe não fala mais da localização o tempo todo');
+  for (const li of d.querySelectorAll('#o-que-aprovar li')) {
+    assert.ok(!/tempo todo/.test(li.textContent), `um item do "O que aprovar" ainda fala da o tempo todo: ${li.textContent}`);
   }
 });
 

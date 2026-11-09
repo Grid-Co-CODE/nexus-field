@@ -9,10 +9,11 @@ import static org.robolectric.Shadows.shadowOf;
 
 import android.Manifest;
 import android.app.Application;
-import android.app.ForegroundServiceStartNotAllowedException;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -100,6 +101,8 @@ public class ServicoDaEquipeTest {
     private String ultimoCorpo;
     private EnvioDePontos.Resposta resposta = new EnvioDePontos.Resposta(200, "{\"aceitos\":1,\"coleta\":true}");
     private final List<ServiceController<ServicoDaEquipe>> servicos = new ArrayList<>();
+    // O que o último religamento pelo sistema devolveu ao Android (o START_STICKY ou o START_NOT_STICKY).
+    private int retornoDoReligamento;
 
     @Before
     public void preparar() {
@@ -107,9 +110,9 @@ public class ServicoDaEquipeTest {
         fusoDeAntes = TimeZone.getDefault();
         TimeZone.setDefault(BRASILIA);
         app.deleteDatabase(FilaDePontos.NOME_DO_BANCO);
+        // A localização durante o uso (a precisa e a aproximada) e a notificação: a o tempo todo não é pedida (R10).
         shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-            Manifest.permission.POST_NOTIFICATIONS);
+            Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.POST_NOTIFICATIONS);
         chave = new ChaveDaEquipe(app, new CifraFalsa());
         fila = new FilaDePontos(app);
         fonte = new FonteFalsa();
@@ -166,7 +169,7 @@ public class ServicoDaEquipeTest {
         ServiceController<ServicoDaEquipe> c = Robolectric.buildService(ServicoDaEquipe.class).create();
         servicos.add(c);
         if (recusaDoAndroid != null) shadowOf(c.get()).setThrowInStartForeground(recusaDoAndroid);
-        c.get().onStartCommand(null, 0, 1);
+        retornoDoReligamento = c.get().onStartCommand(null, 0, 1);
         return c.get();
     }
 
@@ -228,14 +231,17 @@ public class ServicoDaEquipeTest {
     }
 
     @Test
-    public void oManifestoDeclaraOServicoDeLocalizacaoEAsPermissoesNovas() throws Exception {
+    public void oManifestoDeclaraOServicoDeLocalizacaoEAsPermissoesSemAOTempoTodo() throws Exception {
         PackageManager pm = app.getPackageManager();
         ServiceInfo servico = pm.getServiceInfo(new ComponentName(app, ServicoDaEquipe.class), 0);
         assertFalse("não exportado: só a casca o liga", servico.exported);
         assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION, servico.getForegroundServiceType());
         List<String> pedidas = Arrays.asList(
             pm.getPackageInfo(app.getPackageName(), PackageManager.GET_PERMISSIONS).requestedPermissions);
-        assertTrue(pedidas.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION));
+        // O manifesto mesclado (o do app e o das bibliotecas): a localização o tempo todo saiu (R10), e a durante o uso fica.
+        assertFalse("sem a localização o tempo todo", pedidas.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION));
+        assertTrue(pedidas.contains(Manifest.permission.ACCESS_FINE_LOCATION));
+        assertTrue(pedidas.contains(Manifest.permission.ACCESS_COARSE_LOCATION));
         assertTrue(pedidas.contains(Manifest.permission.FOREGROUND_SERVICE));
         assertTrue(pedidas.contains(Manifest.permission.FOREGROUND_SERVICE_LOCATION));
         assertTrue("o celular acordado durante o envio", pedidas.contains(Manifest.permission.WAKE_LOCK));
@@ -383,38 +389,31 @@ public class ServicoDaEquipeTest {
         assertFalse("o log não leva o texto da exceção", logou("Client must have"));
     }
 
-    // ---- A localização o tempo todo, tirada com a coleta ligada -------------------------------------------------------
+    // ---- A localização durante o uso basta, e a precisa tirada para a coleta ---------------------------------------------
 
     @Test
-    public void oReligamentoDoSistemaSemALocalizacaoOTempoTodoNaoVoltaNemPedeOGps() {
-        // O caso: com a coleta ligada, o técnico troca o "Permitir o tempo todo" por "Permitir só durante o uso" nos ajustes;
-        // o Android mata o processo e religa o serviço (START_STICKY). Sem conferir, a coleta voltava (no Android 10, até
-        // as 22h com o app fechado) justo de quem acabou de negar o "o tempo todo".
+    public void aLocalizacaoDuranteOUsoBastaParaAColetaSemOTempoTodo() {
+        // R10: o serviço do tipo localização iniciado com o app à vista mantém a localização "durante o uso" enquanto roda,
+        // também com o app fechado. Antes, sem a o tempo todo (Android 10+) a coleta nem ligava.
         agora = em(10, 0);
-        ligar();
-        morrerOProcesso();
-        int pedidosAntes = fonte.pedidos;
+        chave.guardar("chave-ficticia", CONTA);
         shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
-
-        ServicoDaEquipe s = religarPeloSistema();
-        assertEquals("nem entra em primeiro plano", 0, shadowOf(s).getLastForegroundNotificationId());
-        assertTrue(shadowOf(s).isStoppedBySelf());
-        assertFalse(ServicoDaEquipe.rodando());
-        assertEquals("nada pedido ao GPS", pedidosAntes, fonte.pedidos);
-        assertTrue(logou("sem a permissão de localização"));
-
-        // E o prazo do dia foi esquecido: com a permissão de volta, só a próxima abertura do app liga.
-        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
-        morrerOProcesso();
-        assertEquals(0, shadowOf(religarPeloSistema()).getLastForegroundNotificationId());
+        ligar();
+        assertTrue(ServicoDaEquipe.rodando());
+        fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
+        assertEquals(1, fila.tamanho());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
+        assertEquals(Arrays.asList(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_POSICOES), pedidosAoNexus);
+        assertTrue(ServicoDaEquipe.rodando());
     }
 
     @Test
-    public void aPosicaoQueChegaSemALocalizacaoOTempoTodoNaoEntraNaFilaEOServicoPara() {
-        // O aparelho em que o processo não morre ao tirar a permissão: a coleta seguia até a próxima volta ao app.
+    public void aPosicaoQueChegaSemALocalizacaoPrecisaNaoEntraNaFilaEOServicoPara() {
+        // O técnico troca a precisa pela aproximada (ou tira a localização) com a coleta ligada, no aparelho em que o
+        // processo não morre: a coleta seguia até a próxima volta ao app.
         agora = em(10, 0);
         ServicoDaEquipe s = ligar();
-        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_FINE_LOCATION);
         fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
 
         assertEquals("a posição não entra", 0, fila.tamanho());
@@ -423,17 +422,15 @@ public class ServicoDaEquipeTest {
         assertFalse(ServicoDaEquipe.rodando());
         assertTrue("o GPS foi solto", fonte.parada);
         assertTrue(logou("sem a permissão de localização"));
-        morrerOProcesso();
-        assertEquals("o religamento não volta", 0, shadowOf(religarPeloSistema()).getLastForegroundNotificationId());
     }
 
     @Test
-    public void oEnvioSemALocalizacaoOTempoTodoNaoMandaEOServicoPara() {
+    public void oEnvioSemALocalizacaoPrecisaNaoMandaEOServicoPara() {
         agora = em(10, 0);
         chave.guardar("chave-ficticia", CONTA);
         fila.guardar(new PontoDaEquipe(System.currentTimeMillis(), LAT, LON, 8f, 0f, false));
         ServicoDaEquipe s = ligar();
-        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_FINE_LOCATION);
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
         assertTrue("nada foi ao Nexus", pedidosAoNexus.isEmpty());
         assertTrue(shadowOf(s).isStoppedBySelf());
@@ -441,91 +438,106 @@ public class ServicoDaEquipeTest {
     }
 
     @Test
-    public void semALocalizacaoOTempoTodoOIniciarNaoPedeOServicoEOInicioQueJaVinhaEntraESaiLogo() {
+    public void soComAAproximadaOIniciarNaoPedeOServicoEOInicioQueJaVinhaNaoLiga() {
+        // A aproximada erra por quilômetros (o mapa e o Abrir rota precisam do ponto) e o pedido de alta precisão é
+        // recusado sem a precisa.
         agora = em(10, 0);
-        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_FINE_LOCATION);
         ServicoDaEquipe.iniciar(app);
         assertNull("o iniciar não pede o serviço", shadowOf(app).getNextStartedService());
 
-        // A permissão tirada entre o iniciar e o onStartCommand: o serviço pedido em primeiro plano entra e sai (parar antes
-        // do startForeground derruba o app), sem pedir o GPS, e o prazo do dia é esquecido.
-        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        // A precisa tirada entre o iniciar e o onStartCommand: o serviço não liga nem pede o GPS.
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION);
         ServicoDaEquipe.iniciar(app);
         Intent pedido = shadowOf(app).getNextStartedService();
         assertNotNull(pedido);
-        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_FINE_LOCATION);
         ServicoDaEquipe s = entregar(pedido);
-        assertEquals("entrou em primeiro plano", ServicoDaEquipe.ID_DA_NOTIFICACAO, shadowOf(s).getLastForegroundNotificationId());
-        assertTrue("e saiu", shadowOf(s).isForegroundStopped());
         assertTrue(shadowOf(s).isStoppedBySelf());
+        assertFalse(ServicoDaEquipe.rodando());
         assertEquals("nada pedido ao GPS", 0, fonte.pedidos);
-        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+    }
+
+    // ---- O serviço só liga com o app à vista: o religamento do sistema não volta (R10) ----------------------------------
+
+    @Test
+    public void aColetaLigadaNaoPedeAoSistemaParaReligarOServico() {
+        // Só com a durante o uso, o serviço que o sistema religasse com o app no fundo não teria a localização (do Android 11
+        // em diante; do 14 em diante o primeiro plano dele lança), e do 12 em diante o primeiro plano no fundo é recusado.
+        agora = em(10, 0);
+        ServicoDaEquipe.iniciar(app);
+        Intent pedido = shadowOf(app).getNextStartedService();
+        ServiceController<ServicoDaEquipe> c = Robolectric.buildService(ServicoDaEquipe.class, pedido).create();
+        servicos.add(c);
+        assertEquals("o processo morto não religa o serviço", Service.START_NOT_STICKY, c.get().onStartCommand(pedido, 0, 1));
+        assertTrue(ServicoDaEquipe.rodando());
+    }
+
+    @Test
+    public void oReligamentoDoSistemaNaoVoltaNemNoMesmoDia() {
+        // O Android que mata o app (a falta de memória, o "tirar dos recentes" de quem mata o app) para a coleta até a
+        // próxima abertura: o religamento, se vier, sai sem o primeiro plano e sem pedir o GPS.
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia", CONTA);
+        ligar();
         morrerOProcesso();
-        assertEquals("o prazo saiu: o religamento não volta", 0,
-            shadowOf(religarPeloSistema()).getLastForegroundNotificationId());
+        int pedidosAntes = fonte.pedidos;
+
+        agora = em(10, 5);
+        ServicoDaEquipe s = religarPeloSistema();
+        assertEquals("nem entra em primeiro plano", 0, shadowOf(s).getLastForegroundNotificationId());
+        assertTrue(shadowOf(s).isStoppedBySelf());
+        assertEquals(Service.START_NOT_STICKY, retornoDoReligamento);
+        assertFalse(ServicoDaEquipe.rodando());
+        assertEquals("nada pedido ao GPS", pedidosAntes, fonte.pedidos);
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
+        assertTrue("nem envio", pedidosAoNexus.isEmpty());
+        assertTrue(logou("não volta"));
+
+        // A próxima abertura do app liga de novo.
+        ligar();
+        assertTrue(ServicoDaEquipe.rodando());
+    }
+
+    @Test
+    public void aNotificacaoArrastadaQueChegaComOServicoParadoNaoLigaAColeta() {
+        // O deleteIntent que chegasse com o processo já morto (o prazo do dia ainda no disco): um início com o app no
+        // fundo, que antes ligava a coleta sem a tela.
+        agora = em(10, 0);
+        ligar();
+        PendingIntent aoArrastar = shadowOf(notificacoes()).getNotification(ServicoDaEquipe.ID_DA_NOTIFICACAO).deleteIntent;
+        morrerOProcesso();
+        int pedidosAntes = fonte.pedidos;
+        try {
+            aoArrastar.send();
+        } catch (PendingIntent.CanceledException e) {
+            throw new AssertionError(e);
+        }
+        Intent repor = shadowOf(app).getNextStartedService();
+        assertNotNull(repor);
+        assertEquals(ServicoDaEquipe.REPOR, repor.getAction());
+        ServicoDaEquipe s = entregar(repor);
+        assertEquals("nem entra em primeiro plano", 0, shadowOf(s).getLastForegroundNotificationId());
+        assertTrue(shadowOf(s).isStoppedBySelf());
+        assertFalse(ServicoDaEquipe.rodando());
+        assertEquals("nada pedido ao GPS", pedidosAntes, fonte.pedidos);
     }
 
     @Test
     @Config(sdk = Build.VERSION_CODES.N)
-    public void antesDoAndroid10ALocalizacaoPrecisaBastaParaAColeta() {
-        // Antes do Android 10 não existe a permissão o tempo todo: a de uso já vale com o app fechado. Pedir a que não
-        // existe deixaria sem coleta todo Android 7 a 9.
+    public void noAndroid7APrecisaBastaEOReligamentoTambemNaoVolta() {
         agora = em(10, 0);
-        shadowOf(app).denyPermissions(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
         ligar();
         assertTrue(ServicoDaEquipe.rodando());
         fonte.receptor.posicao(posicao(System.currentTimeMillis(), LAT, LON, 0.2f));
         assertEquals(1, fila.tamanho());
         morrerOProcesso();
-        assertTrue("o religamento também volta", shadowOf(religarPeloSistema()).getLastForegroundNotificationId() != 0);
+        assertEquals("o religamento não volta", 0, shadowOf(religarPeloSistema()).getLastForegroundNotificationId());
+        assertFalse(ServicoDaEquipe.rodando());
     }
 
-    // ---- O religamento do sistema manda com a conta que a página conferiu ----------------------------------------------
-
-    @Test
-    public void oReligamentoDoSistemaMandaComAContaQueAPaginaConferiuAntesDeOProcessoMorrer() {
-        // O caso: o processo morto no meio do dia com a coleta ligada (a falta de memória, o "tirar dos recentes" de quem mata
-        // o app, com o Início automático ligado). O serviço volta sem tela e sem página, e nada subia até o técnico abrir o
-        // app de novo (às vezes no dia seguinte): o mapa dizia "sem sinal" a tarde inteira com o GPS ligado.
-        agora = em(10, 0);
-        chave.guardar("chave-ficticia", CONTA); // a página conferiu (a chave nova que ela entregou)
-        ligar();
-        morrerOProcesso();
-        chave = new ChaveDaEquipe(app, new CifraFalsa()); // o processo novo
-        montarAsPecas();
-
-        agora = em(13, 0);
-        religarPeloSistema();
-        assertTrue(ServicoDaEquipe.rodando());
-        long t0 = System.currentTimeMillis() - 60_000;
-        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
-        fonte.receptor.posicao(posicao(t0, LAT, LON, 0.2f));
-        assertEquals("o lote sai sem a página", Arrays.asList(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_POSICOES),
-            pedidosAoNexus);
-        rodarOLacoPrincipal();
-        assertEquals(0, fila.tamanho());
-    }
-
-    @Test
-    public void aTelaQueNasceDesfazAConferenciaEOReligamentoSeguinteNaoMandaSemAPaginaConferir() {
-        // A abertura com tela é o caso da R8 (outra conta pode estar entrando): a tela desfaz a conferência até a página
-        // dela conferir, e o religamento que vier depois, sem a página ter conferido, também espera.
-        agora = em(10, 0);
-        chave.guardar("chave-ficticia", CONTA);
-        chave.aTelaAbriu(); // o técnico abriu o app, e a página ainda não conferiu
-        ligar();
-        morrerOProcesso();
-        chave = new ChaveDaEquipe(app, new CifraFalsa());
-        montarAsPecas();
-
-        agora = em(13, 0);
-        religarPeloSistema();
-        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
-        fonte.receptor.posicao(posicao(System.currentTimeMillis() - 60_000, LAT, LON, 0.2f));
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
-        assertTrue("nada sai sem a conferência", pedidosAoNexus.isEmpty());
-        assertEquals("e a posição fica na fila", 1, fila.tamanho());
-    }
+    // ---- O envio espera a conta conferida -------------------------------------------------------------------------------
 
     @Test
     public void oEnvioQueEsperaAContaNaoAcordaOCelularNemRecomecaAContaDoEnvio() {
@@ -665,44 +677,6 @@ public class ServicoDaEquipeTest {
         assertTrue(shadowOf(s).getNotificationShouldRemoved());
         assertFalse(ServicoDaEquipe.rodando());
         assertFalse("o log não leva o texto da exceção", logou("Client must have"));
-    }
-
-    @Test
-    public void oReligamentoDoSistemaSoVoltaNoDiaEmQueOAppAbriu() {
-        agora = em(10, 0);
-        ligar();
-        morrerOProcesso();
-
-        // No mesmo dia, antes das 22h: volta, em primeiro plano.
-        agora = em(15, 0);
-        ServicoDaEquipe mesmoDia = religarPeloSistema();
-        assertNotNull(shadowOf(mesmoDia).getLastForegroundNotification());
-        assertTrue(ServicoDaEquipe.rodando());
-        morrerOProcesso();
-
-        // No dia seguinte, sem o técnico abrir o app (a folga, as férias): não volta, e a notificação nem aparece.
-        agora = em(10, 0) + UM_DIA_MS;
-        ServicoDaEquipe outroDia = religarPeloSistema();
-        assertEquals("nem entra em primeiro plano", 0, shadowOf(outroDia).getLastForegroundNotificationId());
-        assertTrue(shadowOf(outroDia).isStoppedBySelf());
-        assertFalse(ServicoDaEquipe.rodando());
-        assertEquals("nada pedido ao GPS no outro dia", 2, fonte.pedidos);
-    }
-
-    @Test
-    public void oReligamentoQueOAndroidRecusaEmPrimeiroPlanoSoRegistraEPara() {
-        agora = em(10, 0);
-        ligar();
-        morrerOProcesso();
-        int pedidosAntes = fonte.pedidos;
-
-        agora = em(11, 0);
-        ServicoDaEquipe s = religarPeloSistema(new ForegroundServiceStartNotAllowedException("no fundo"));
-
-        assertTrue(shadowOf(s).isStoppedBySelf());
-        assertFalse(ServicoDaEquipe.rodando());
-        assertEquals("nada pedido ao GPS", pedidosAntes, fonte.pedidos);
-        assertTrue(logou("o Android recusou"));
     }
 
     @Test

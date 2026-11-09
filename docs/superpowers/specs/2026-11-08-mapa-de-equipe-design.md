@@ -33,7 +33,7 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 - Mudança no App de Campo (o site e o servidor dele) e no Fracttal.
 
 **Anti-objetivos (é fracasso mesmo funcionando)**
-- Coletar sem o técnico saber: sem o aviso antes de ligar, ou sem a notificação fixa enquanto coleta.
+- Coletar sem o técnico saber: sem o termo de uso aceito antes de ligar, ou sem a notificação fixa enquanto coleta.
 - Coletar em férias ou folga (sem o técnico ter aberto o app no dia), antes das 6h ou depois das 22h.
 - Mostrar onde o técnico mora.
 - A coordenada (da usina ou do técnico) em texto na página ou no JSON do Nexus, ou em claro no banco.
@@ -62,26 +62,37 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 
 - **Quem é coletado.** O Nexus decide, ao dar a chave do aparelho (abaixo): só técnico de campo ativo do cadastro, e no
   piloto só os técnicos escolhidos. Para os outros (supervisor, administrador, o aparelho de prova, quem não está no
-  piloto) a casca não mostra o aviso nem coleta. Assim a 1.2.0 pode ir a todos os aparelhos com a coleta desligada para
+  piloto) a casca não mostra o termo nem coleta. Assim a 1.2.0 pode ir a todos os aparelhos com a coleta desligada para
   quem não entrou.
-- **O aviso antes de ligar.** Na primeira vez em que a coleta vale para o técnico, uma tela explica: o que é coletado (a
-  posição do celular), quando (da primeira abertura do app no dia até as 22h, sem pausa), por quê (ver onde a equipe
-  está e abrir rotas até as usinas), quem vê (PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os
-  administradores do Nexus) e por quanto tempo (7 dias os pontos, 1 ano os deslocamentos). Os textos vão à prévia
-  (`docs/previas/telas.html`), ao RH e ao jurídico, e só valem depois de aprovados.
-- **A permissão.** O Android pede a localização "o tempo todo" separada da de uso, e a partir do Android 11 manda o
-  técnico aos ajustes para isso. A casca leva até lá com a explicação. Depois de duas recusas o Android não abre mais o
-  pedido: a explicação passa a dizer o caminho pelos ajustes do app e os abre. Sem ela, o app funciona como hoje e o mapa
-  mostra esse técnico como "sem permissão de localização". O serviço confere a permissão ao ligar, no religamento do
-  sistema, a cada posição e a cada envio: tirada nos ajustes com a coleta ligada, a coleta para e não volta sem o
-  técnico abrir o app.
+- **O termo de uso antes de ligar (R10, 08/11).** A única tela do Nexus Field para a coleta: o "Termo de uso da
+  localização", uma vez por conta (outra conta no mesmo celular o vê de novo; a chave refeita da mesma conta, não), com
+  um botão só, "Li e aceito" (sem o aceite nada coleta, e a próxima abertura mostra o termo de novo). Ele diz o que é
+  coletado (a posição do celular), quando (das 6h às 22h, a partir da primeira abertura do dia, também com o app
+  fechado), por quê (ver onde a equipe está e abrir rotas até as usinas), quem vê (PCM, COS, Performance, Supervisão
+  Campo, Responsáveis UFV e os administradores do Nexus), por quanto tempo (7 dias os pontos, 1 ano os deslocamentos),
+  que a notificação fica na barra e que o Sair para a coleta, e o que escolher no pedido do Android que vem em seguida
+  (Durante o uso do app). Os textos vão à prévia (`docs/previas/telas.html`), ao RH e ao jurídico, e só valem depois de
+  aprovados. Caso que criou a regra: o dono viu a prévia com o aviso e as duas explicações da localização "o tempo
+  todo" e pediu "só cria um termo de uso para eles darem ok, essa quantidade de telas e avisos atrapalham muito a
+  experiência".
+- **A permissão.** A localização durante o uso, a precisa (a aproximada erra por quilômetros, e o ponto no mapa e o
+  Abrir rota precisam dele): logo depois do aceite, o pedido do próprio Android (a precisa e a aproximada juntas), sem
+  tela nossa antes; fora do aceite, quem a pede é o "Antes de começar" da casca, a cada abertura. A "o tempo todo" não é
+  pedida: o serviço do tipo localização iniciado com o app à vista mantém a localização durante o uso enquanto roda,
+  também com o app fechado. Por isso nenhum caminho inicia o serviço com o app no fundo (iniciado assim, ele não teria a
+  localização do Android 11 em diante, e do 12 em diante o Android recusa o primeiro plano): só a tela à vista o liga, e
+  o processo que o Android mata não o religa. Negada, ou negada de vez (o Android não mostra mais o pedido): nenhuma
+  tela nossa a mais; o app funciona como hoje, o mapa mostra esse técnico como "sem permissão de localização", e o guia
+  de instalação diz como liberar nos ajustes. O serviço confere a permissão ao ligar, a cada posição e a cada envio:
+  tirada nos ajustes com a coleta ligada, a coleta para e não volta sem o técnico abrir o app.
 - **A coleta.** Liga na primeira abertura do app no dia (entre 6h e 22h, na hora do celular), com um serviço em primeiro
   plano do tipo localização e uma notificação fixa (por exemplo, "Nexus Field: localização da equipe ligada até as
-  22h"). Segue com o app fechado, também quando o Android mata o processo e religa o serviço no mesmo dia. Às 22h para
-  sozinha, a notificação sai e o que ficou na fila sai num último envio. Envio a cada 2 minutos em deslocamento e mais
-  espaçado parado (o salto da posição de rede com o celular parado, dentro da precisão das leituras, não conta como
-  deslocamento). Sem sinal, os pontos esperam no celular e saem quando o sinal voltar. Sem a notificação fixa à vista,
-  a coleta não liga, e o mapa mostra o técnico como sem permissão.
+  22h"). Segue com o app fechado enquanto o serviço roda; o Android que mata o app (a falta de memória, o "tirar dos
+  recentes" de quem mata o app) para a coleta até a próxima abertura. Às 22h para sozinha, a notificação sai e o que
+  ficou na fila sai num último envio. Envio a cada 2 minutos em deslocamento e mais espaçado parado (o salto da posição
+  de rede com o celular parado, dentro da precisão das leituras, não conta como deslocamento). Sem sinal, os pontos
+  esperam no celular e saem quando o sinal voltar. Sem a notificação fixa à vista, a coleta não liga, e o mapa mostra o
+  técnico como sem permissão.
 - **O que a casca faz com as respostas do Nexus.** O 200 só vale com o `coleta` booleano: o `true` tira os pontos da
   fila, o `false` para; sem o campo, nulo ou de outro tipo, é como sem rede (nada sai da fila nem se apaga). O 4xx que
   não é o 401 é o lote recusado, que sai da fila para não travar os seguintes; o 403, o 404, o 405 (o acesso ou a rota,
@@ -94,18 +105,18 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 - **A chave é da conta.** A página calcula a conta (o SHA-256 de uma frase fixa mais o `oid`, ou o `sub`, do token
   Microsoft) e a manda ao nativo junto com o pedido e com a chave; o hash não sai do aparelho. O nativo guarda a conta com
   a chave e só diz que há chave quando é a da mesma conta. Outra conta no mesmo celular, sem o Sair da anterior, faz o
-  trabalho do Sair da anterior (para a coleta, apaga a fila, revoga e apaga a chave, esquece o aviso aceito) e pede o aviso
-  de novo: a conta B nunca herda a chave, o aviso nem a fila da A. A conta guardada é a dona da fila e sobrevive ao 401
-  (que apaga só a chave): a mesma conta sobe a fila com a chave nova, e outra conta não a herda. O Sair, a troca de conta e
-  o `coleta:false` apagam tudo. Uma conta ilegível (Keystore invalidado, backup restaurado) conta como fila sem dona, e a
-  fila é apagada.
+  trabalho do Sair da anterior (para a coleta, apaga a fila, revoga e apaga a chave, esquece o termo aceito) e pede o termo
+  de novo: a conta B nunca herda a chave, o termo aceito nem a fila da A. A conta guardada é a dona da fila e do termo
+  aceito e sobrevive ao 401 (que apaga só a chave): a mesma conta sobe a fila com a chave nova, sem ver o termo de novo, e
+  outra conta não a herda. O Sair, a troca de conta e o `coleta:false` apagam tudo (o próximo login vê o termo de novo).
+  Uma conta ilegível (Keystore invalidado, backup restaurado) conta como fila sem dona, e a fila é apagada.
 - **O envio espera a conta conferida.** A coleta liga com a chave guardada e guarda os pontos, mas nada sai (nem o aviso
   de que falta a permissão) até a página da tela que abriu conferir a conta: o pedido do aparelho da mesma conta, ou a
   chave nova guardada. O custo: o app aberto sem token (sem sinal, sessão vencida) coleta e só envia depois da
-  conferência; a fila guarda 24 h e no máximo 1000 pontos. A revogação do Sair não espera. A conferência vai ao disco
-  (um sim ou não, sem dizer de quem): o processo que o Android religa sem tela no mesmo dia envia com ela, e a tela que
-  abre a desfaz até a página dela conferir. O cofre do aparelho que falha na conferência não deixa o dia parado: o envio
-  e a volta ao app conferem de novo quando ele voltar.
+  conferência; a fila guarda 24 h e no máximo 1000 pontos. A revogação do Sair não espera. A conferência fica só na
+  memória (o serviço não volta sem a tela, e nenhum processo sem página precisa dela), e a tela que abre a desfaz até a
+  página dela conferir. O cofre do aparelho que falha na conferência não deixa o dia parado: o envio e a volta ao app
+  conferem de novo quando ele voltar.
 - **A nova tentativa da página.** O que não terminou (o token ainda sem login, a falha do nativo ou do Nexus) tenta de novo
   no online e na volta ao app, no máximo a cada 10 min contados do pedido ao nativo; com o pedido no ar nada começa outro
   (o token ou o POST que não respondem em 10 min contam como falha), e depois do Sair nada. Terminou: há chave
@@ -145,11 +156,11 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 
 ## 5. Dependências e ordem
 
-1. **A regra escrita com RH e jurídico** (condição do dono em 21/10): o texto do aviso ao técnico e da guarda. O piloto
-   pode começar antes, com o aviso aprovado na prévia e só com técnicos que saibam.
+1. **A regra escrita com RH e jurídico** (condição do dono em 21/10): o texto do termo de uso ao técnico e da guarda. O
+   piloto pode começar antes, com o termo aprovado na prévia e só com técnicos que saibam.
 2. **O Nexus primeiro:** as três rotas e o dado no banco (chat "Nexus (Usinas 360)"), para a casca ter onde mandar.
 3. **A limpeza da T.I.** combinada antes de passar do piloto.
-4. **A casca 1.2.0:** o aviso, a permissão, a coleta, a chave do aparelho e o guia atualizado.
+4. **A casca 1.2.0:** o termo de uso, a permissão, a coleta, a chave do aparelho e o guia atualizado.
 5. **A tela** do Mapa de equipe (chat "Nexus (Usinas 360)").
 6. **Piloto** com 1 ou 2 técnicos por uma semana, medindo a bateria e a cobertura do dia, antes de todos.
 
@@ -163,8 +174,11 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 - Sem a notificação fixa à vista não há coleta: no Android 13 ou mais novo com a notificação do Nexus Field negada, ou com
   as notificações ou o canal da localização da equipe desligados nos ajustes, a coleta não liga (e para, se estava ligada).
   O mapa mostra esse aparelho como sem permissão.
-- O técnico pode negar a localização "o tempo todo" nos ajustes do Android: o mapa mostra quem está sem permissão, e
-  resolver isso é com o supervisor.
+- O técnico pode negar a localização (ou escolher a aproximada) no pedido do Android ou nos ajustes: o mapa mostra quem
+  está sem permissão, e resolver isso é com o supervisor (o guia de instalação diz o caminho nos ajustes).
+- O Android que mata o app (a falta de memória, o "tirar dos recentes" de quem mata o app) para a coleta até a próxima
+  abertura: sem a localização "o tempo todo", o serviço não volta sozinho com o app no fundo (R10, aceito pelo dono; com
+  ela seria igual do Android 12 em diante, que proíbe iniciar o serviço em primeiro plano em segundo plano).
 
 ## 7. O que fica para o construtor
 
@@ -204,8 +218,10 @@ caminho e os nomes; o que mudar, ele avisa à sessão do Nexus Field antes de p�
     `false`; é o ponto, e não o ritmo da coleta, que segue curto por três leituras depois de parar), `fuso` os minutos
     que se somam ao UTC para dar a hora do celular (Brasília -180, Mato Grosso -240: o `TimeZone.getOffset(t)/60000` do
     Android), para o Nexus conferir a janela das 6h às 22h na hora do técnico. Até 200 pontos e 64 KB por lote.
-  - Sem a permissão "o tempo todo", o nativo manda `{aparelho, fuso, permissao: "sem", pontos: []}` (no máximo um a cada
-    30 minutos), para o mapa separar quem negou de quem não abriu o app.
+  - Sem a permissão de localização (a precisa, durante o uso) ou sem a notificação fixa à vista, o nativo manda
+    `{aparelho, fuso, permissao: "sem", pontos: []}` (no máximo um a cada 30 minutos), para o mapa separar quem negou de
+    quem não abriu o app. O formato é o mesmo de antes do termo de uso (R10), quando o "sem" era a falta da "o tempo
+    todo".
   - O Nexus descarta ponto com mais de 7 dias ou fora da janela, cifra a coordenada e grava.
   - Resposta: `200 {aceitos, coleta}` (`coleta: false` faz a casca parar até a próxima carga); `401` com a chave
     inválida ou revogada (a casca apaga a chave e para); qualquer `5xx` é como sem rede (a fila e a chave ficam).

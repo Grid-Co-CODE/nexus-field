@@ -12,11 +12,8 @@ import android.Manifest;
 import android.app.Application;
 import android.app.Dialog;
 import android.content.Context;
-import android.content.Intent;
 import android.content.SharedPreferences;
-import android.os.Build;
 import android.os.Looper;
-import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
@@ -31,7 +28,9 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TimeZone;
 
 import org.json.JSONObject;
@@ -47,10 +46,10 @@ import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.shadows.ShadowLog;
 
 /**
- * A casca liga e desliga a coleta da equipe: o que o Nexus disse da chave do aparelho, o aviso, a permissão "o tempo
- * todo", a janela das 6h às 22h e o Sair. O serviço, a tela e o Nexus são falsos (as rotas do Nexus ainda não estão no
- * ar, e o Robolectric não tem o Google Play services); a chave, a fila e as permissões são as do Android do Robolectric.
- * O relógio é o de Brasília numa segunda-feira; as chaves são fictícias.
+ * A casca liga e desliga a coleta da equipe: o que o Nexus disse da chave do aparelho, o termo de uso, a localização
+ * durante o uso, a janela das 6h às 22h, a tela à vista e o Sair. O serviço, a tela e o Nexus são falsos (as rotas do
+ * Nexus ainda não estão no ar, e o Robolectric não tem o Google Play services); a chave, a fila e as permissões são as do
+ * Android do Robolectric. O relógio é o de Brasília numa segunda-feira; as chaves são fictícias.
  */
 @RunWith(RobolectricTestRunner.class)
 public class EquipeNaCascaTest {
@@ -62,12 +61,8 @@ public class EquipeNaCascaTest {
     // As contas de dois técnicos no mesmo aparelho, no formato que a página manda (o SHA-256 em hex minúsculo), fictícias.
     private static final String CONTA_A = "aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000";
     private static final String CONTA_B = "bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000";
-    private static final String USO = Manifest.permission.ACCESS_FINE_LOCATION;
+    private static final String PRECISA = Manifest.permission.ACCESS_FINE_LOCATION;
     private static final String APROXIMADA = Manifest.permission.ACCESS_COARSE_LOCATION;
-    private static final String O_TEMPO_TODO = Manifest.permission.ACCESS_BACKGROUND_LOCATION;
-    private static final int ANDROID_9 = Build.VERSION_CODES.P;
-    private static final int ANDROID_10 = Build.VERSION_CODES.Q;
-    private static final int ANDROID_11 = Build.VERSION_CODES.R;
     private static final long MINUTO = 60_000L;
 
     /** O ServicoDaEquipe de mentira: conta e guarda, na ordem, os pedidos, e está rodando quando o teste diz. */
@@ -115,37 +110,24 @@ public class EquipeNaCascaTest {
         }
     }
 
-    /** A tela de mentira: guarda o Continuar de cada diálogo e os pedidos ao Android; com {@code saindo}, nada abre. */
+    /**
+     * A tela de mentira: guarda o Li e aceito do termo e os pedidos ao Android; com {@code saindo}, nada abre. Ela só tem o
+     * termo e o pedido do Android: nenhuma outra tela nossa existe para a casca abrir.
+     */
     private static final class TelaFalsa implements EquipeNaCasca.Tela {
-        int avisos;
-        int explicacoes;
-        /** As explicações que mandam aos ajustes do app (o Android que não abre mais o pedido dele). */
-        int explicacoesPelosAjustes;
-        int ajustesAbertos;
+        int termos;
         int fechadas;
         boolean saindo;
         /** O fechar que lança (o diálogo que a tela não tirou agora). */
         boolean lancarNoFechar;
-        /** O que o Android diria do pedido da permissão: ainda pede (true) ou não abre mais nada (false). */
-        boolean oAndroidPedeDeNovo = true;
-        Runnable continuarDoAviso;
-        Runnable continuarDaExplicacao;
+        Runnable aceitarDoTermo;
         final List<List<String>> pedidos = new ArrayList<>();
 
         @Override
-        public boolean mostrarAviso(Runnable continuar) {
+        public boolean mostrarTermo(Runnable aceitar) {
             if (saindo) return false;
-            avisos++;
-            continuarDoAviso = continuar;
-            return true;
-        }
-
-        @Override
-        public boolean explicarOTempoTodo(boolean pelosAjustes, Runnable continuar) {
-            if (saindo) return false;
-            explicacoes++;
-            if (pelosAjustes) explicacoesPelosAjustes++;
-            continuarDaExplicacao = continuar;
+            termos++;
+            aceitarDoTermo = aceitar;
             return true;
         }
 
@@ -154,18 +136,6 @@ public class EquipeNaCascaTest {
             if (saindo) return false;
             pedidos.add(Arrays.asList(permissoes));
             return true;
-        }
-
-        @Override
-        public boolean abrirOsAjustes() {
-            if (saindo) return false;
-            ajustesAbertos++;
-            return true;
-        }
-
-        @Override
-        public boolean oAndroidPedeDeNovo(String permissao) {
-            return oAndroidPedeDeNovo;
         }
 
         @Override
@@ -201,7 +171,7 @@ public class EquipeNaCascaTest {
         servico = new ServicoFalso();
         tela = new TelaFalsa();
         agora = em(9, 9, 0);
-        dar(USO, APROXIMADA, O_TEMPO_TODO);
+        dar(PRECISA, APROXIMADA);
         ShadowLog.clear();
     }
 
@@ -235,16 +205,36 @@ public class EquipeNaCascaTest {
         }, () -> agora);
     }
 
-    /** A casca com a thread do envio e a de UI rodando na hora, na thread do teste. */
-    private EquipeNaCasca casca(int sdk) {
-        return new EquipeNaCasca(app, chave, fila, envio(), servico, tela, Runnable::run, Runnable::run, () -> agora, sdk,
-            "1.2.0");
+    /** A casca com a thread do envio e a de UI rodando na hora, na thread do teste, e a tela à vista (o onResume). */
+    private EquipeNaCasca casca() {
+        EquipeNaCasca c = new EquipeNaCasca(app, chave, fila, envio(), servico, tela, Runnable::run, Runnable::run,
+            () -> agora, "1.2.0");
+        c.aTelaFicouAVista();
+        return c;
     }
 
-    /** O aparelho que já tem a chave da conta A e cujo técnico já leu o aviso. */
-    private void comChaveEAviso(String k) {
+    /** O aparelho que já tem a chave da conta A e cujo técnico já aceitou o termo. */
+    private void comChaveETermo(String k) {
         chave.guardar(k, CONTA_A);
-        chave.aceitarAviso();
+        chave.aceitarTermo();
+    }
+
+    /**
+     * O que o técnico escolheu no pedido do Android (Durante o uso do app com a precisa, só com a aproximada, Não permitir;
+     * ou nada, o Android que não mostra mais o pedido): as permissões do aparelho ficam assim, e a resposta volta à casca.
+     */
+    private void responder(EquipeNaCasca c, boolean precisa, boolean aproximada) {
+        if (precisa) dar(PRECISA); else tirar(PRECISA);
+        if (aproximada) dar(APROXIMADA); else tirar(APROXIMADA);
+        Map<String, Boolean> r = new HashMap<>();
+        r.put(PRECISA, precisa);
+        r.put(APROXIMADA, aproximada);
+        c.aposOPedido(r);
+    }
+
+    /** Logo depois do aceite: o pedido do Android, a precisa e a aproximada juntas. */
+    private static List<String> aLocalizacao() {
+        return Arrays.asList(PRECISA, APROXIMADA);
     }
 
     private SharedPreferences daCasca() {
@@ -265,55 +255,53 @@ public class EquipeNaCascaTest {
 
     @Test
     public void decidirSegueARegraDaColeta() {
-        // (coleta, temChave, avisoAceito, permissaoDeUso, permissaoOTempoTodo, notificacaoAVista, dentroDaJanela,
-        // rodando)
+        // (coleta, temChave, termoAceito, localizacao, notificacaoAVista, dentroDaJanela, rodando). A localização é a
+        // permissão de localização precisa, durante o uso (R10): a o tempo todo saiu da regra.
         assertEquals("tudo em dia e parado", EquipeNaCasca.Acao.INICIAR,
-            EquipeNaCasca.decidir(true, true, true, true, true, true, true, false));
+            EquipeNaCasca.decidir(true, true, true, true, true, true, false));
         assertEquals("tudo em dia e rodando", EquipeNaCasca.Acao.NADA,
-            EquipeNaCasca.decidir(true, true, true, true, true, true, true, true));
+            EquipeNaCasca.decidir(true, true, true, true, true, true, true));
         for (boolean rodando : new boolean[] {false, true}) {
             assertEquals("o coleta:false do Nexus", EquipeNaCasca.Acao.PARAR,
-                EquipeNaCasca.decidir(false, true, true, true, true, true, true, rodando));
+                EquipeNaCasca.decidir(false, true, true, true, true, true, rodando));
             assertEquals("o coleta:false fora da janela", EquipeNaCasca.Acao.PARAR,
-                EquipeNaCasca.decidir(false, false, true, true, true, true, false, rodando));
+                EquipeNaCasca.decidir(false, false, true, true, true, false, rodando));
             assertEquals("sem a chave não há para onde mandar", EquipeNaCasca.Acao.PARAR,
-                EquipeNaCasca.decidir(true, false, true, true, true, true, true, rodando));
-            assertEquals("sem o aviso aceito", EquipeNaCasca.Acao.MOSTRAR_AVISO,
-                EquipeNaCasca.decidir(true, true, false, true, true, true, true, rodando));
-            assertEquals("sem a permissão o tempo todo", EquipeNaCasca.Acao.PEDIR_PERMISSAO,
-                EquipeNaCasca.decidir(true, true, true, true, false, true, true, rodando));
-            assertEquals("sem a de uso também", EquipeNaCasca.Acao.PEDIR_PERMISSAO,
-                EquipeNaCasca.decidir(true, true, true, false, false, true, true, rodando));
+                EquipeNaCasca.decidir(true, false, true, true, true, true, rodando));
+            assertEquals("sem o termo aceito", EquipeNaCasca.Acao.MOSTRAR_TERMO,
+                EquipeNaCasca.decidir(true, true, false, true, true, true, rodando));
+            assertEquals("sem a permissão de localização", EquipeNaCasca.Acao.PEDIR_PERMISSAO,
+                EquipeNaCasca.decidir(true, true, true, false, true, true, rodando));
             assertEquals("sem a notificação fixa à vista", EquipeNaCasca.Acao.SEM_A_NOTIFICACAO,
-                EquipeNaCasca.decidir(true, true, true, true, true, false, true, rodando));
-            assertEquals("a permissão vem antes da notificação", EquipeNaCasca.Acao.PEDIR_PERMISSAO,
-                EquipeNaCasca.decidir(true, true, true, true, false, false, true, rodando));
-            assertEquals("e o aviso antes das duas", EquipeNaCasca.Acao.MOSTRAR_AVISO,
-                EquipeNaCasca.decidir(true, true, false, true, true, false, true, rodando));
+                EquipeNaCasca.decidir(true, true, true, true, false, true, rodando));
+            assertEquals("a localização vem antes da notificação", EquipeNaCasca.Acao.PEDIR_PERMISSAO,
+                EquipeNaCasca.decidir(true, true, true, false, false, true, rodando));
+            assertEquals("e o termo antes das duas", EquipeNaCasca.Acao.MOSTRAR_TERMO,
+                EquipeNaCasca.decidir(true, true, false, false, false, true, rodando));
         }
         assertEquals("fora da janela e parado", EquipeNaCasca.Acao.NADA,
-            EquipeNaCasca.decidir(true, true, true, true, true, true, false, false));
+            EquipeNaCasca.decidir(true, true, true, true, true, false, false));
         assertEquals("fora da janela e rodando", EquipeNaCasca.Acao.PARAR,
-            EquipeNaCasca.decidir(true, true, true, true, true, true, false, true));
-        // Fora da janela nada aparece ao técnico: nem o aviso nem o pedido da permissão (às 23h não há o que ligar).
-        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, false, true, true, true, false, false));
-        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, true, true, false, true, false, false));
-        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, true, true, true, false, false, false));
-        assertEquals(EquipeNaCasca.Acao.PARAR, EquipeNaCasca.decidir(true, true, false, false, false, true, false, true));
+            EquipeNaCasca.decidir(true, true, true, true, true, false, true));
+        // Fora da janela nada aparece ao técnico: nem o termo nem o pedido da localização (às 23h não há o que ligar).
+        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, false, true, true, false, false));
+        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, true, false, true, false, false));
+        assertEquals(EquipeNaCasca.Acao.NADA, EquipeNaCasca.decidir(true, true, true, true, false, false, false));
+        assertEquals(EquipeNaCasca.Acao.PARAR, EquipeNaCasca.decidir(true, true, false, false, true, false, true));
     }
 
     @Test
     public void semANotificacaoAVistaAColetaParaEONexusSabeComoSemAPermissao() throws Exception {
         // O caso: a notificação do Nexus Field negada no Android 13+ (ou o canal desligado). A casca mandava ligar, o serviço
         // não ligava, e o mapa mostrava o aparelho só como "sem sinal", sem dizer que falta algo do técnico.
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         servico.notificacao = false;
         servico.rodando = true;
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.reavaliar();
         assertEquals("a coleta ligada para", 1, servico.parados);
         assertEquals(0, servico.iniciados);
-        assertEquals("nada aparece ao técnico", 0, tela.avisos + tela.explicacoes + tela.pedidos.size());
+        assertEquals("nada aparece ao técnico", 0, tela.termos + tela.pedidos.size());
         assertEquals(1, pedidosAoNexus.size());
         assertEquals("sem", new JSONObject(pedidosAoNexus.get(0)[2]).optString("permissao"));
         // A marca dos 30 minutos é a mesma do "sem" da permissão.
@@ -328,22 +316,45 @@ public class EquipeNaCascaTest {
 
     @Test
     public void tudoEmDiaNaVoltaAoAppLigaAColetaUmaVez() {
-        comChaveEAviso(CHAVE_A);
-        EquipeNaCasca c = casca(ANDROID_11);
+        comChaveETermo(CHAVE_A);
+        EquipeNaCasca c = casca();
         c.reavaliar();
         assertEquals(1, servico.iniciados);
         servico.rodando = true;
         c.reavaliar();
         assertEquals("rodando, não liga outra", 1, servico.iniciados);
         assertEquals(0, servico.parados);
-        assertEquals(0, tela.avisos + tela.explicacoes + tela.pedidos.size());
+        assertEquals(0, tela.termos + tela.pedidos.size());
         assertTrue(pedidosAoNexus.isEmpty());
     }
 
     @Test
+    public void comATelaForaDaVistaACascaNaoLigaAColeta() {
+        // A decisão que roda na thread do envio depois de a tela sair da vista (a chave que o Nexus deu com o app já no
+        // fundo, a volta ao app atrás de um envio pendurado): o serviço iniciado com o app no fundo não teria a localização
+        // durante o uso (Android 11+), e do 12 em diante o Android recusa o primeiro plano. A próxima volta ao app liga.
+        comChaveETermo(CHAVE_A);
+        EquipeNaCasca c = casca();
+        c.aTelaSaiuDaVista();
+        c.reavaliar();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        assertEquals(0, servico.iniciados);
+        assertEquals("nada mais muda: nem parar, nem o sem ao Nexus", 0, servico.parados);
+        assertTrue(pedidosAoNexus.isEmpty());
+        c.aTelaFicouAVista();
+        c.reavaliar();
+        assertEquals(1, servico.iniciados);
+        // A coleta ligada segue com a tela fora da vista: é para isso que ela existe.
+        servico.rodando = true;
+        c.aTelaSaiuDaVista();
+        c.reavaliar();
+        assertEquals(0, servico.parados);
+    }
+
+    @Test
     public void as6hValemEAs22hNao() {
-        comChaveEAviso(CHAVE_A);
-        EquipeNaCasca c = casca(ANDROID_11);
+        comChaveETermo(CHAVE_A);
+        EquipeNaCasca c = casca();
         agora = em(9, 5, 59);
         c.reavaliar();
         assertEquals(0, servico.iniciados);
@@ -363,16 +374,16 @@ public class EquipeNaCascaTest {
 
     @Test
     public void receberChaveFalseApagaAChaveAFilaEPara() {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(3);
         servico.rodando = true;
         int[] filaNoParar = {-1};
         servico.aoParar = () -> filaNoParar[0] = fila.tamanho();
-        casca(ANDROID_11).receberChave(false, null, CONTA_A);
+        casca().receberChave(false, null, CONTA_A);
         assertEquals("a coleta para primeiro, e só então a fila sai: o que falhar depois não a deixa ligada", 3,
             filaNoParar[0]);
         assertNull(chave.chave());
-        assertFalse(chave.avisoAceito());
+        assertFalse(chave.termoAceito());
         assertEquals(1, servico.parados);
         assertEquals("os pontos sem dono não sobem com a chave de outra conta", 0, fila.tamanho());
         assertEquals(0, servico.iniciados);
@@ -381,115 +392,101 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void aChaveNovaDaMesmaContaZeraOAvisoEParaAColetaAteOContinuar() {
-        // A chave refeita da mesma conta (o 401 do envio apagou a de antes, e a página pediu outra): o aviso de novo.
-        comChaveEAviso(CHAVE_A);
+    public void aChaveNovaDaMesmaContaNaoPedeOTermoDeNovo() {
+        // A chave refeita da mesma conta (o 401 do envio apagou a de antes, e a página pediu outra): o termo é da conta, e a
+        // coleta segue sem tela nenhuma (R10).
+        comChaveETermo(CHAVE_A);
         servico.rodando = true;
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_B, CONTA_A);
         assertEquals(CHAVE_B, chave.chave());
-        assertFalse(chave.avisoAceito());
-        assertEquals("a coleta de quem ainda não leu o aviso não segue", 1, servico.parados);
-        assertEquals(1, tela.avisos);
-        assertEquals(0, servico.iniciados);
-        tela.continuarDoAviso.run();
-        assertTrue(chave.avisoAceito());
-        assertEquals("com o aviso aceito e a permissão dada, liga", 1, servico.iniciados);
+        assertTrue(chave.termoAceito());
+        assertEquals(0, tela.termos + tela.pedidos.size());
+        assertEquals("a coleta segue", 0, servico.parados);
+        servico.rodando = false;
+        c.reavaliar();
+        assertEquals(1, servico.iniciados);
     }
 
     @Test
-    public void receberAMesmaChaveNaoMostraOAvisoDeNovo() {
-        comChaveEAviso(CHAVE_A);
-        casca(ANDROID_11).receberChave(true, CHAVE_A, CONTA_A);
-        assertTrue(chave.avisoAceito());
-        assertEquals(0, tela.avisos);
+    public void receberAMesmaChaveNaoMostraOTermoDeNovo() {
+        comChaveETermo(CHAVE_A);
+        casca().receberChave(true, CHAVE_A, CONTA_A);
+        assertTrue(chave.termoAceito());
+        assertEquals(0, tela.termos);
         assertEquals(1, servico.iniciados);
     }
 
     @Test
     public void aChaveQueACifraNaoGuardaNaoLigaNada() {
         cifra.falharAoCifrar = true;
-        casca(ANDROID_11).receberChave(true, CHAVE_A, CONTA_A);
+        casca().receberChave(true, CHAVE_A, CONTA_A);
         assertNull(chave.chave());
         assertEquals(0, servico.iniciados);
-        assertEquals(0, tela.avisos);
+        assertEquals(0, tela.termos);
         assertEquals("sem chave, para", 1, servico.parados);
     }
 
     @Test
     public void aChaveQueOCofreNaoLeAgoraNaoMudaNada() {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         servico.rodando = true;
         cifra.keystoreFora = true;
-        casca(ANDROID_11).reavaliar();
+        casca().reavaliar();
         assertEquals(0, servico.iniciados);
         assertEquals("a chave continua guardada: a coleta ligada não para por isso", 0, servico.parados);
-        assertEquals(0, tela.avisos + tela.explicacoes + tela.pedidos.size());
+        assertEquals(0, tela.termos + tela.pedidos.size());
         cifra.keystoreFora = false;
         assertEquals(CHAVE_A, chave.chave());
     }
 
-    // --- o aviso e a permissão ----------------------------------------------------------------------------------------
+    // --- o termo e a localização --------------------------------------------------------------------------------------
 
     @Test
-    public void oAvisoApareceUmaVezEOContinuarSegueParaAPermissaoNoAndroid11() {
-        tirar(O_TEMPO_TODO);
-        EquipeNaCasca c = casca(ANDROID_11);
+    public void oTermoApareceUmaVezEOLiEAceitoPedeALocalizacaoAoAndroidSemOutraTela() {
+        tirar(PRECISA, APROXIMADA);
+        EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_A, CONTA_A);
-        assertEquals(1, tela.avisos);
-        c.reavaliar(); // a volta ao app com o aviso na frente: não abre outro por cima
-        assertEquals(1, tela.avisos);
+        assertEquals(1, tela.termos);
+        c.reavaliar(); // a volta ao app com o termo na frente: não abre outro por cima
+        assertEquals(1, tela.termos);
         assertEquals(0, servico.iniciados);
+        assertTrue("nada pedido antes do aceite", tela.pedidos.isEmpty());
 
-        tela.continuarDoAviso.run();
-        assertTrue(chave.avisoAceito());
-        assertEquals("no Android 11 ou mais novo, a explicação antes dos ajustes", 1, tela.explicacoes);
-        assertTrue("o Android só é chamado depois da explicação", tela.pedidos.isEmpty());
+        tela.aceitarDoTermo.run();
+        assertTrue(chave.termoAceito());
+        assertEquals("logo depois do aceite, o pedido do próprio Android, sem tela nossa antes",
+            Collections.singletonList(aLocalizacao()), tela.pedidos);
         c.reavaliar();
-        assertEquals("a explicação na frente: nem outra, nem o aviso ao Nexus", 1, tela.explicacoes);
+        assertEquals("o pedido na frente: nem outro, nem o sem ao Nexus", 1, tela.pedidos.size());
         assertTrue(pedidosAoNexus.isEmpty());
 
-        tela.continuarDaExplicacao.run();
-        assertEquals("só a o tempo todo: a de uso já foi dada", Collections.singletonList(Collections.singletonList(O_TEMPO_TODO)),
-            tela.pedidos);
-        // O técnico escolheu Permitir o tempo todo nos ajustes.
-        dar(O_TEMPO_TODO);
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, true));
+        // O técnico escolheu Durante o uso do app, com a localização precisa.
+        responder(c, true, true);
         assertEquals(1, servico.iniciados);
+        assertEquals("nenhuma tela nossa além do termo", 1, tela.termos);
         assertTrue(pedidosAoNexus.isEmpty());
     }
 
     @Test
-    public void noAndroid10AOTempoTodoVaiJuntoComADeUsoSemExplicacao() {
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
-        EquipeNaCasca c = casca(ANDROID_10);
-        c.reavaliar();
-        assertEquals(0, tela.explicacoes);
-        assertEquals(Collections.singletonList(Arrays.asList(USO, APROXIMADA, O_TEMPO_TODO)), tela.pedidos);
-        dar(O_TEMPO_TODO);
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, true));
-        assertEquals(1, servico.iniciados);
-    }
-
-    @Test
-    public void antesDoAndroid10ADeUsoJaValeOTempoTodo() {
-        tirar(O_TEMPO_TODO); // não existe no Android 9: a de uso basta
-        comChaveEAviso(CHAVE_A);
-        casca(ANDROID_9).reavaliar();
-        assertEquals(1, servico.iniciados);
+    public void comALocalizacaoJaDadaOLiEAceitoLigaSemPedidoNenhum() {
+        // O caso comum: a localização já dada no Antes de começar (o App de Campo precisa dela), e só o termo aparece.
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
         assertTrue(tela.pedidos.isEmpty());
+        assertEquals(1, servico.iniciados);
     }
 
     @Test
-    public void semAPermissaoOTempoTodoUmAvisoSemPermissaoSaiENaoSeRepeteAntesDe30Minutos() throws Exception {
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
-        EquipeNaCasca c = casca(ANDROID_11);
+    public void semALocalizacaoUmSemSaiENaoSeRepeteAntesDe30Minutos() throws Exception {
+        tirar(PRECISA, APROXIMADA);
+        chave.guardar(CHAVE_A, CONTA_A);
+        EquipeNaCasca c = casca();
         c.reavaliar();
-        tela.continuarDaExplicacao.run();
-        // O técnico voltou dos ajustes sem escolher o tempo todo.
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        tela.aceitarDoTermo.run();
+        // O técnico tocou em Não permitir no pedido do Android.
+        responder(c, false, false);
         assertEquals(0, servico.iniciados);
         assertEquals(1, pedidosAoNexus.size());
         String[] pedido = pedidosAoNexus.get(0);
@@ -500,19 +497,19 @@ public class EquipeNaCascaTest {
         assertEquals(0, corpo.getJSONArray("pontos").length());
         assertEquals(chave.aparelho(), corpo.getString("aparelho"));
 
-        // As voltas ao app em seguida: a explicação não volta nesta tela, e o aviso ao Nexus espera os 30 minutos.
+        // As voltas ao app em seguida: nenhum pedido nosso de novo, e o sem ao Nexus espera os 30 minutos.
         agora += 10 * MINUTO;
         c.reavaliar();
         agora += 19 * MINUTO;
         c.reavaliar();
-        assertEquals(1, tela.explicacoes);
+        assertEquals(1, tela.pedidos.size());
         assertEquals(1, pedidosAoNexus.size());
-        // A tela recriada (o renderer que morreu) pergunta de novo, mas o aviso ao Nexus não sai antes da hora.
-        EquipeNaCasca recriada = casca(ANDROID_11);
+        // A tela recriada (o renderer que morreu): o termo aceito não volta, e quem pede a localização a cada abertura é o
+        // Antes de começar da MainActivity (dois pedidos empilhariam as telas); o sem não sai antes da hora.
+        EquipeNaCasca recriada = casca();
         recriada.reavaliar();
-        assertEquals(2, tela.explicacoes);
-        tela.continuarDaExplicacao.run();
-        recriada.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        assertEquals(1, tela.termos);
+        assertEquals(1, tela.pedidos.size());
         assertEquals(1, pedidosAoNexus.size());
 
         agora += 2 * MINUTO; // 31 minutos depois do primeiro
@@ -523,15 +520,45 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void oAvisoSemPermissaoQueONexusRecusaContaComoRespondidoENaoParaNada() {
+    public void negadaDeVezNenhumaTelaNossaAMaisEOSemVaiAoMapa() throws Exception {
+        // O Android que não mostra mais o pedido (duas recusas): ele responde "não" na hora, sem tela. A casca não explica
+        // nem leva aos ajustes: o sem vai ao mapa, e o guia diz como liberar nos ajustes.
+        tirar(PRECISA, APROXIMADA);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        responder(c, false, false);
+        assertEquals("só o termo e o pedido do Android", 1, tela.termos);
+        assertEquals(1, tela.pedidos.size());
+        assertEquals(1, pedidosAoNexus.size());
+        assertEquals("sem", new JSONObject(pedidosAoNexus.get(0)[2]).getString("permissao"));
+        assertEquals(0, servico.iniciados);
+    }
+
+    @Test
+    public void soComAAproximadaAColetaNaoLigaEONexusSabe() throws Exception {
+        // Do Android 12 em diante o técnico pode escolher a localização aproximada: ela erra por quilômetros, e a coleta não
+        // liga com ela (vale a precisa).
+        tirar(PRECISA, APROXIMADA);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        responder(c, false, true);
+        assertEquals(0, servico.iniciados);
+        assertEquals(1, pedidosAoNexus.size());
+        assertEquals("sem", new JSONObject(pedidosAoNexus.get(0)[2]).getString("permissao"));
+    }
+
+    @Test
+    public void oSemQueONexusRecusaContaComoRespondidoENaoParaNada() {
         // O 4xx (o Nexus recusou o lote vazio): mandar de novo a cada volta ao app não muda a resposta.
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
+        tirar(PRECISA, APROXIMADA);
+        chave.guardar(CHAVE_A, CONTA_A);
         resposta = new EnvioDePontos.Resposta(400, "");
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.reavaliar();
-        tela.continuarDaExplicacao.run();
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        tela.aceitarDoTermo.run();
+        responder(c, false, false);
         assertEquals(1, pedidosAoNexus.size());
         assertTrue("a marca dos 30 minutos", daCasca().contains("sem_permissao_em"));
         assertEquals("a chave fica", CHAVE_A, chave.chave());
@@ -542,71 +569,14 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void noAndroid11DepoisQueOAndroidNaoAbreMaisOPedidoAExplicacaoLevaAosAjustesDoApp() {
-        // Depois de duas recusas, o Android 11+ não abre mais a tela da permissão: o Continuar da explicação, que promete
-        // "a próxima tela", não fazia nada. A casca nota (o Android diz que não pede de novo) e, dali em diante, explica o
-        // caminho pelos ajustes do app e os abre.
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
-        EquipeNaCasca primeira = casca(ANDROID_11);
-        primeira.reavaliar();
-        tela.continuarDaExplicacao.run();
-        primeira.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false)); // a primeira recusa: o Android ainda pede
-        EquipeNaCasca segunda = casca(ANDROID_11); // a abertura seguinte
-        segunda.reavaliar();
-        assertEquals("ainda a explicação da tela do Android", 2, tela.explicacoes);
-        assertEquals(0, tela.explicacoesPelosAjustes);
-        tela.continuarDaExplicacao.run();
-        assertEquals(2, tela.pedidos.size());
-        tela.oAndroidPedeDeNovo = false; // a segunda recusa: o Android não abre mais o pedido
-        segunda.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
-
-        EquipeNaCasca terceira = casca(ANDROID_11);
-        terceira.reavaliar();
-        assertEquals("a explicação dos ajustes do app", 1, tela.explicacoesPelosAjustes);
-        tela.continuarDaExplicacao.run();
-        assertEquals("o Continuar abre os ajustes", 1, tela.ajustesAbertos);
-        assertEquals("e não pede ao Android o que ele não abriria", 2, tela.pedidos.size());
-        terceira.reavaliar(); // a volta dos ajustes sem o tempo todo: não pergunta de novo nesta tela
-        assertEquals(3, tela.explicacoes);
-        assertEquals(0, servico.iniciados);
-
-        // Com o tempo todo dado nos ajustes, a coleta liga, e a marca sai: tirado de novo, volta a tela do Android.
-        dar(O_TEMPO_TODO);
-        terceira.reavaliar();
-        assertEquals(1, servico.iniciados);
-        tirar(O_TEMPO_TODO);
-        tela.oAndroidPedeDeNovo = true;
-        casca(ANDROID_11).reavaliar();
-        assertEquals(4, tela.explicacoes);
-        assertEquals("a explicação da tela do Android de novo", 1, tela.explicacoesPelosAjustes);
-    }
-
-    @Test
-    public void osAjustesQueNaoAbremNaoDeixamACascaEsperando() {
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
-        daCasca().edit().putBoolean("tempo_todo_pelos_ajustes", true).commit();
-        EquipeNaCasca c = casca(ANDROID_11);
+    public void oSemQueNaoChegouAoNexusTentaNaProximaVolta() {
+        tirar(PRECISA, APROXIMADA);
+        chave.guardar(CHAVE_A, CONTA_A);
+        EquipeNaCasca c = casca();
         c.reavaliar();
-        assertEquals(1, tela.explicacoesPelosAjustes);
-        tela.saindo = true;
-        tela.continuarDaExplicacao.run();
-        tela.saindo = false;
-        assertEquals(0, tela.ajustesAbertos);
-        c.reavaliar();
-        assertEquals("a volta seguinte pergunta de novo", 2, tela.explicacoesPelosAjustes);
-    }
-
-    @Test
-    public void oAvisoSemPermissaoQueNaoChegouAoNexusTentaNaProximaVolta() {
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
-        EquipeNaCasca c = casca(ANDROID_11);
-        c.reavaliar();
-        tela.continuarDaExplicacao.run();
+        tela.aceitarDoTermo.run();
         semRede = new IOException("sem rede");
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        responder(c, false, false);
         assertEquals(1, pedidosAoNexus.size());
         semRede = null;
         agora += MINUTO;
@@ -618,115 +588,110 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void oAvisoDaChaveDeOutraContaPerguntaAPermissaoDeNovoNaMesmaTela() {
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
-        EquipeNaCasca c = casca(ANDROID_11);
+    public void oTermoDeOutraContaPedeALocalizacaoDeNovoNaMesmaTela() {
+        tirar(PRECISA, APROXIMADA);
+        chave.guardar(CHAVE_A, CONTA_A);
+        EquipeNaCasca c = casca();
         c.reavaliar();
-        tela.continuarDaExplicacao.run();
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false)); // a conta de antes negou
+        tela.aceitarDoTermo.run();
+        responder(c, false, false); // a conta de antes negou
         c.receberChave(true, CHAVE_B, CONTA_B); // outra conta entrou no mesmo aparelho
-        assertEquals(1, tela.avisos);
-        tela.continuarDoAviso.run();
-        assertEquals("o Continuar do aviso segue para a permissão, também depois do não da outra conta", 2,
-            tela.explicacoes);
+        assertEquals(2, tela.termos);
+        tela.aceitarDoTermo.run();
+        assertEquals("o Li e aceito de B pede a localização, também depois do não de A", 2, tela.pedidos.size());
     }
 
     @Test
-    public void semAPermissaoDeUsoACascaNaoPedeNadaEAvisaONexus() {
-        // Quem pede a de uso é o Antes de começar da MainActivity, a cada abertura: dois pedidos empilhariam as telas.
-        tirar(USO, O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
-        casca(ANDROID_11).reavaliar();
+    public void comOTermoJaAceitoACascaNaoPedeALocalizacaoEAvisaONexus() {
+        // Fora do aceite do termo quem pede a localização é o Antes de começar da MainActivity, a cada abertura: dois
+        // pedidos de uma vez empilhariam as telas.
+        tirar(PRECISA, APROXIMADA);
+        comChaveETermo(CHAVE_A);
+        casca().reavaliar();
         assertTrue(tela.pedidos.isEmpty());
-        assertEquals(0, tela.explicacoes);
+        assertEquals(0, tela.termos);
         assertEquals(0, servico.iniciados);
         assertEquals(1, pedidosAoNexus.size());
     }
 
     @Test
-    public void aPermissaoQueSumiuComAColetaLigadaParaEPedeDeNovo() {
-        comChaveEAviso(CHAVE_A);
+    public void aLocalizacaoQueSumiuComAColetaLigadaParaEAvisaONexus() {
+        comChaveETermo(CHAVE_A);
         servico.rodando = true;
-        tirar(O_TEMPO_TODO);
-        casca(ANDROID_11).reavaliar();
+        tirar(PRECISA);
+        casca().reavaliar();
         assertEquals(1, servico.parados);
-        assertEquals(1, tela.explicacoes);
+        assertEquals(0, tela.termos + tela.pedidos.size());
+        assertEquals(1, pedidosAoNexus.size());
     }
 
     @Test
     public void oPedidoInterrompidoPerguntaDeNovoNaVoltaAoApp() {
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
-        EquipeNaCasca c = casca(ANDROID_11);
+        tirar(PRECISA, APROXIMADA);
+        chave.guardar(CHAVE_A, CONTA_A);
+        EquipeNaCasca c = casca();
         c.reavaliar();
-        tela.continuarDaExplicacao.run();
+        tela.aceitarDoTermo.run();
         c.aposOPedido(Collections.emptyMap()); // a tela saiu no meio: o técnico não respondeu
         assertTrue("sem resposta não é um não", pedidosAoNexus.isEmpty());
         c.reavaliar();
-        assertEquals(2, tela.explicacoes);
+        assertEquals(2, tela.pedidos.size());
+        assertEquals(1, tela.termos);
     }
 
     @Test
     public void oQueNaoApareceuNaTelaNaoDeixaACascaEsperandoParaSempre() {
-        // A tela saindo (finishing) não mostra o diálogo nem pede ao Android: ninguém vai responder.
-        tirar(O_TEMPO_TODO);
+        // A tela saindo (finishing) não mostra o termo nem pede ao Android: ninguém vai responder.
+        tirar(PRECISA, APROXIMADA);
         chave.guardar(CHAVE_A, CONTA_A);
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         tela.saindo = true;
         c.reavaliar();
         tela.saindo = false;
         c.reavaliar();
-        assertEquals("a volta seguinte mostra o aviso", 1, tela.avisos);
+        assertEquals("a volta seguinte mostra o termo", 1, tela.termos);
 
         tela.saindo = true;
-        tela.continuarDoAviso.run(); // a explicação que vem em seguida não abre
-        assertTrue(chave.avisoAceito());
+        tela.aceitarDoTermo.run(); // o pedido do Android que vem em seguida não abre
+        assertTrue(chave.termoAceito());
         tela.saindo = false;
         c.reavaliar();
-        assertEquals(1, tela.explicacoes);
-        assertTrue("nem o aviso ao Nexus: a explicação não tinha sido vista", pedidosAoNexus.isEmpty());
-
-        tela.saindo = true;
-        tela.continuarDaExplicacao.run(); // o pedido ao Android não abre
-        tela.saindo = false;
-        c.reavaliar();
-        assertEquals(2, tela.explicacoes);
-        assertTrue(pedidosAoNexus.isEmpty());
+        assertEquals("a volta seguinte pede", 1, tela.pedidos.size());
+        assertTrue("nem o sem ao Nexus: o pedido não tinha sido visto", pedidosAoNexus.isEmpty());
     }
 
     @Test
     public void foraDaJanelaNadaApareceEAColetaQueSobrouPara() {
-        tirar(O_TEMPO_TODO);
-        chave.guardar(CHAVE_A, CONTA_A); // sem o aviso aceito
+        tirar(PRECISA, APROXIMADA);
+        chave.guardar(CHAVE_A, CONTA_A); // sem o termo aceito
         agora = em(9, 23, 0);
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.reavaliar();
-        assertEquals(0, tela.avisos + tela.explicacoes + tela.pedidos.size());
+        assertEquals(0, tela.termos + tela.pedidos.size());
         assertTrue(pedidosAoNexus.isEmpty());
         servico.rodando = true;
         c.reavaliar();
         assertEquals(1, servico.parados);
-        // A primeira abertura do dia seguinte, depois das 6h, mostra o aviso.
+        // A primeira abertura do dia seguinte, depois das 6h, mostra o termo.
         agora = em(10, 6, 30);
         c.reavaliar();
-        assertEquals(1, tela.avisos);
+        assertEquals(1, tela.termos);
     }
 
     // --- o Sair -------------------------------------------------------------------------------------------------------
 
     @Test
     public void sairRevogaApagaEParaMesmoSemRede() throws Exception {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(2);
         servico.rodando = true;
         String aparelho = chave.aparelho();
         semRede = new IOException("sem rede");
-        casca(ANDROID_11).sair();
+        casca().sair();
         assertEquals("na hora e de novo na thread do envio, sem nunca ligar", Arrays.asList("parar", "parar"),
             servico.chamadas);
         assertNull(chave.chave());
-        assertFalse(chave.avisoAceito());
+        assertFalse(chave.termoAceito());
         assertEquals("os pontos de quem saiu não sobem com a chave de quem entrar", 0, fila.tamanho());
         assertEquals(1, pedidosAoNexus.size());
         assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
@@ -740,11 +705,11 @@ public class EquipeNaCascaTest {
     public void oSairApagaAChaveEAFilaMesmoComAColetaEODialogoQueNaoParamAgora() {
         // O parar e o fechar do diálogo ficavam fora do que garante o Sair: um deles lançando, a chave de quem saiu e a fila
         // ficavam no aparelho, e a marca do Sair nunca saía (a conta seguinte não ligava a coleta).
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(2);
         servico.lancarNoParar = true;
         tela.lancarNoFechar = true;
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.sair();
         assertNull("a chave de quem saiu não fica", chave.chave());
         assertEquals("nem a fila", 0, fila.tamanho());
@@ -754,15 +719,15 @@ public class EquipeNaCascaTest {
         servico.lancarNoParar = false;
         tela.lancarNoFechar = false;
         c.receberChave(true, CHAVE_B, CONTA_B);
-        tela.continuarDoAviso.run();
+        tela.aceitarDoTermo.run();
         assertEquals("a marca do Sair saiu com a chave: a conta seguinte liga", 1, servico.iniciados);
     }
 
     @Test
     public void sairApagaAChaveMesmoComOCofreQueNaoALeAgora() {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         cifra.keystoreFora = true; // o revogar não consegue ler a chave para mandá-la ao Nexus
-        casca(ANDROID_11).sair();
+        casca().sair();
         assertEquals(Arrays.asList("parar", "parar"), servico.chamadas);
         cifra.keystoreFora = false;
         assertNull("a chave de quem saiu não fica no aparelho", chave.chave());
@@ -771,8 +736,10 @@ public class EquipeNaCascaTest {
 
     /** A casca com a thread do envio em fila: o que entra nela só roda no {@link #soltar}. */
     private EquipeNaCasca cascaComAThreadEmFila(Deque<Runnable> threadDoEnvio) {
-        return new EquipeNaCasca(app, chave, fila, envio(), servico, tela, threadDoEnvio::add, Runnable::run,
-            () -> agora, ANDROID_11, "1.2.0");
+        EquipeNaCasca c = new EquipeNaCasca(app, chave, fila, envio(), servico, tela, threadDoEnvio::add, Runnable::run,
+            () -> agora, "1.2.0");
+        c.aTelaFicouAVista();
+        return c;
     }
 
     /** A thread do envio solta (o envio pendurado respondeu): roda o que estava nela e o que entrar no caminho. */
@@ -784,7 +751,7 @@ public class EquipeNaCascaTest {
     public void aVoltaAoAppQueEsperavaNaThreadNaoReligaAColetaDepoisDoSair() {
         // O caso: a coleta ligada e um envio pendurado na rede fraca segurando a thread do envio (15 s de conexão e
         // 15 s de leitura); o técnico volta ao app (o reavaliar entra na fila, atrás do envio) e toca em Sair.
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(3);
         servico.rodando = true;
         Deque<Runnable> threadDoEnvio = new ArrayDeque<>();
@@ -796,16 +763,16 @@ public class EquipeNaCascaTest {
         soltar(threadDoEnvio);
         assertEquals("a volta ao app que esperava não liga a coleta de quem saiu", 0, servico.iniciados);
         assertEquals("parar", servico.chamadas.get(servico.chamadas.size() - 1));
-        assertEquals("nem mostra o aviso ou a permissão", 0, tela.avisos + tela.explicacoes + tela.pedidos.size());
+        assertEquals("nem mostra o termo ou o pedido da localização", 0, tela.termos + tela.pedidos.size());
         assertNull(chave.chave());
         assertEquals("os pontos de quem saiu não ficam para a chave seguinte", 0, fila.tamanho());
 
-        // A conta seguinte no aparelho: a chave nova, o aviso e o Continuar ligam a coleta dela (a marca do Sair saiu
+        // A conta seguinte no aparelho: a chave nova, o termo e o Li e aceito ligam a coleta dela (a marca do Sair saiu
         // com a chave de quem saiu).
         c.receberChave(true, CHAVE_B, CONTA_B);
         soltar(threadDoEnvio);
-        assertEquals(1, tela.avisos);
-        tela.continuarDoAviso.run();
+        assertEquals(1, tela.termos);
+        tela.aceitarDoTermo.run();
         soltar(threadDoEnvio);
         assertEquals(1, servico.iniciados);
     }
@@ -814,7 +781,7 @@ public class EquipeNaCascaTest {
     public void oSairNoMeioDaDecisaoDaThreadTerminaComAColetaParadaAntesDaRede() {
         // O Sair (na thread do espelho) que chega quando a decisão da thread do envio já passou pela marca do Sair: o
         // iniciar dela vale depois do parar do Sair, e é a tarefa do Sair, atrás dela na thread, que para de novo.
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(2);
         Deque<Runnable> threadDoEnvio = new ArrayDeque<>();
         EquipeNaCasca c = cascaComAThreadEmFila(threadDoEnvio);
@@ -833,7 +800,7 @@ public class EquipeNaCascaTest {
 
     @Test
     public void oAparelhoPedidoDepoisDoSairJaVemSemAChave() throws Exception {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         Deque<Runnable> threadDoEnvio = new ArrayDeque<>();
         EquipeNaCasca c = cascaComAThreadEmFila(threadDoEnvio);
         c.sair();
@@ -854,12 +821,12 @@ public class EquipeNaCascaTest {
 
     @Test
     public void aMesmaContaComAChaveDizQueTemENadaPara() throws Exception {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(2);
         servico.rodando = true;
         marcarSemPermissao(agora);
         List<String> respostas = new ArrayList<>();
-        casca(ANDROID_11).pedirAparelho(CONTA_A, json -> respostas.add(json));
+        casca().pedirAparelho(CONTA_A, json -> respostas.add(json));
         JSONObject r = new JSONObject(respostas.get(0));
         assertTrue("a chave desta conta: a página não pede outra", r.getBoolean("temChave"));
         assertFalse("a chave nunca vai à página", respostas.get(0).contains(CHAVE_A));
@@ -868,7 +835,7 @@ public class EquipeNaCascaTest {
         assertEquals(2, fila.tamanho());
         assertTrue(pedidosAoNexus.isEmpty());
         assertEquals(CHAVE_A, chave.chave());
-        assertTrue(chave.avisoAceito());
+        assertTrue(chave.termoAceito());
         assertTrue(daCasca().contains("sem_permissao_em"));
         assertEquals(0, tela.fechadas);
     }
@@ -877,21 +844,21 @@ public class EquipeNaCascaTest {
     public void outraContaNoAparelhoFazOSairDaAnteriorAntesDaResposta() throws Exception {
         // O caso: A não tocou em Sair, e B entra no mesmo aparelho. Sem isto, B ficava com a chave, o aviso aceito e a
         // fila de A, e as posições de B iam ao Nexus em nome de A.
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(3);
         servico.rodando = true;
         marcarSemPermissao(agora);
         String aparelho = chave.aparelho();
         List<String> naHoraDaResposta = new ArrayList<>();
         List<String> respostas = new ArrayList<>();
-        casca(ANDROID_11).pedirAparelho(CONTA_B, json -> {
+        casca().pedirAparelho(CONTA_B, json -> {
             naHoraDaResposta.add("serviço " + servico.chamadas + ", fila " + fila.tamanho() + ", Nexus "
-                + pedidosAoNexus.size() + ", chave " + chave.chave() + ", aviso " + chave.avisoAceito() + ", marca "
+                + pedidosAoNexus.size() + ", chave " + chave.chave() + ", termo " + chave.termoAceito() + ", marca "
                 + daCasca().contains("sem_permissao_em"));
             return respostas.add(json);
         });
         assertEquals("tudo de A já saiu quando a resposta vai",
-            Collections.singletonList("serviço [parar], fila 0, Nexus 1, chave null, aviso false, marca false"),
+            Collections.singletonList("serviço [parar], fila 0, Nexus 1, chave null, termo false, marca false"),
             naHoraDaResposta);
         assertFalse("a página de B pede a chave dela", new JSONObject(respostas.get(0)).getBoolean("temChave"));
         String[] revogar = pedidosAoNexus.get(0);
@@ -907,11 +874,11 @@ public class EquipeNaCascaTest {
     @Test
     public void aChaveSemContaContaComoDeOutraConta() throws Exception {
         // A chave guardada antes de a conta existir (uma 1.2.0 de desenvolvimento): não se sabe de quem é.
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(1);
         app.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("conta").commit();
         List<String> respostas = new ArrayList<>();
-        casca(ANDROID_11).pedirAparelho(CONTA_A, json -> respostas.add(json));
+        casca().pedirAparelho(CONTA_A, json -> respostas.add(json));
         assertFalse(new JSONObject(respostas.get(0)).getBoolean("temChave"));
         assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
         assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
@@ -922,12 +889,12 @@ public class EquipeNaCascaTest {
 
     @Test
     public void oCofreQueNaoLeAContaAgoraNaoMudaNada() throws Exception {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(2);
         servico.rodando = true;
         cifra.keystoreFora = true;
         List<String> respostas = new ArrayList<>();
-        casca(ANDROID_11).pedirAparelho(CONTA_B, json -> respostas.add(json));
+        casca().pedirAparelho(CONTA_B, json -> respostas.add(json));
         assertTrue("a chave continua lá, e pedir outra a revogaria à toa", new JSONObject(respostas.get(0)).getBoolean("temChave"));
         assertTrue(servico.chamadas.isEmpty());
         assertTrue(pedidosAoNexus.isEmpty());
@@ -941,17 +908,17 @@ public class EquipeNaCascaTest {
     public void aChaveDeOutraContaQueAindaEstivesseGuardadaSaiAntesDaNova() throws Exception {
         // O equipeChave de B que chegasse com a chave de A ainda guardada (sem o pedido do aparelho antes): a fila de A
         // não sobe com a chave de B, e a de A é revogada.
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(2);
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_B, CONTA_B);
         assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
         assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
         assertEquals(0, fila.tamanho());
         assertEquals(CHAVE_B, chave.chave());
         assertEquals(CONTA_B, chave.conta());
-        assertFalse(chave.avisoAceito());
-        assertEquals("B lê o aviso dela", 1, tela.avisos);
+        assertFalse(chave.termoAceito());
+        assertEquals("B lê o termo dela", 1, tela.termos);
         assertEquals(0, servico.iniciados);
         // A mesma conta com a chave dela: nada mais é revogado.
         c.receberChave(true, CHAVE_B, CONTA_B);
@@ -960,20 +927,19 @@ public class EquipeNaCascaTest {
 
     @Test
     public void aContaNovaAvisaSemPermissaoSemEsperarOsTrintaMinutosDaAnterior() throws Exception {
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
-        EquipeNaCasca c = casca(ANDROID_11);
+        tirar(PRECISA, APROXIMADA);
+        chave.guardar(CHAVE_A, CONTA_A);
+        EquipeNaCasca c = casca();
         c.reavaliar();
-        tela.continuarDaExplicacao.run();
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        tela.aceitarDoTermo.run();
+        responder(c, false, false);
         assertEquals("o sem permissão de A", 1, pedidosAoNexus.size());
         c.pedirAparelho(CONTA_B, json -> true); // B entrou sem o Sair de A
         assertEquals("o revogar da chave de A", 2, pedidosAoNexus.size());
         agora += MINUTO;
         c.receberChave(true, CHAVE_B, CONTA_B);
-        tela.continuarDoAviso.run();
-        tela.continuarDaExplicacao.run();
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        tela.aceitarDoTermo.run();
+        responder(c, false, false);
         assertEquals("o mapa sabe de B um minuto depois, não 30", 3, pedidosAoNexus.size());
         assertEquals(CHAVE_B, pedidosAoNexus.get(2)[1]);
         assertEquals("sem", new JSONObject(pedidosAoNexus.get(2)[2]).getString("permissao"));
@@ -983,7 +949,7 @@ public class EquipeNaCascaTest {
 
     /** A chave de A vence com a fila cheia (A trabalhou o dia sem sinal): o primeiro envio leva o 401. */
     private void quatrocentoEUmComAFilaDeA(int pontos) {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(pontos);
         resposta = new EnvioDePontos.Resposta(401, "");
         assertEquals(EnvioDePontos.Resultado.PARAR, envio().enviar());
@@ -1002,13 +968,13 @@ public class EquipeNaCascaTest {
         marcarSemPermissao(agora);
         List<String> naHoraDaResposta = new ArrayList<>();
         List<String> respostas = new ArrayList<>();
-        casca(ANDROID_11).pedirAparelho(CONTA_B, json -> {
-            naHoraDaResposta.add("serviço " + servico.chamadas + ", fila " + fila.tamanho() + ", aviso "
-                + chave.avisoAceito() + ", marca " + daCasca().contains("sem_permissao_em") + ", conta " + chave.conta());
+        casca().pedirAparelho(CONTA_B, json -> {
+            naHoraDaResposta.add("serviço " + servico.chamadas + ", fila " + fila.tamanho() + ", termo "
+                + chave.termoAceito() + ", marca " + daCasca().contains("sem_permissao_em") + ", conta " + chave.conta());
             return respostas.add(json);
         });
         assertEquals("o que é de A saiu antes da resposta",
-            Collections.singletonList("serviço [parar], fila 0, aviso false, marca false, conta null"), naHoraDaResposta);
+            Collections.singletonList("serviço [parar], fila 0, termo false, marca false, conta null"), naHoraDaResposta);
         assertFalse("a página de B pede a chave dela", new JSONObject(respostas.get(0)).getBoolean("temChave"));
         assertTrue("sem chave, nada a revogar", pedidosAoNexus.isEmpty());
         assertEquals("um diálogo da equipe de A aberto sai", 1, tela.fechadas);
@@ -1017,7 +983,7 @@ public class EquipeNaCascaTest {
     @Test
     public void depoisDoQuatrocentoEUmAMesmaContaFicaComAFilaEASobeComAChaveNova() throws Exception {
         quatrocentoEUmComAFilaDeA(3);
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         List<String> respostas = new ArrayList<>();
         c.pedirAparelho(CONTA_A, respostas::add);
         assertFalse("sem a chave, a página pede outra", new JSONObject(respostas.get(0)).getBoolean("temChave"));
@@ -1038,7 +1004,7 @@ public class EquipeNaCascaTest {
     public void depoisDoQuatrocentoEUmAChaveDeOutraContaNaoLevaAFilaDeA() throws Exception {
         // O equipeChave de B que chegasse sem o pedido do aparelho antes: a fila de A sai antes de a chave de B entrar.
         quatrocentoEUmComAFilaDeA(3);
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_B, CONTA_B);
         assertEquals(0, fila.tamanho());
         assertTrue("sem chave de A, nada a revogar", pedidosAoNexus.isEmpty());
@@ -1056,7 +1022,7 @@ public class EquipeNaCascaTest {
         encher(2);
         assertNull(chave.conta());
         List<String> respostas = new ArrayList<>();
-        casca(ANDROID_11).pedirAparelho(CONTA_A, respostas::add);
+        casca().pedirAparelho(CONTA_A, respostas::add);
         assertEquals(0, fila.tamanho());
         assertFalse(new JSONObject(respostas.get(0)).getBoolean("temChave"));
         assertTrue(pedidosAoNexus.isEmpty());
@@ -1076,9 +1042,9 @@ public class EquipeNaCascaTest {
     public void naPartidaAFrioAColetaLigaENadaSaiAntesDeAPaginaConferirAConta() {
         // O caso: o onResume liga a coleta com a chave guardada antes de a página mandar a conta (5 s depois do load, mais
         // o token e o resumo), e o primeiro lote saía uns 1 min 45 s depois, em nome da conta da chave.
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         partidaNova();
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.reavaliar();
         assertEquals("a coleta liga com a chave guardada (a abertura sem sinal também coleta)", 1, servico.iniciados);
         EnvioDePontos envio = envio();
@@ -1093,10 +1059,10 @@ public class EquipeNaCascaTest {
 
     @Test
     public void oPedidoDoAparelhoDaMesmaContaConfereEOEnvioSobeAFila() throws Exception {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(3);
         partidaNova();
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
         List<String> respostas = new ArrayList<>();
         c.pedirAparelho(CONTA_A, respostas::add);
@@ -1113,9 +1079,9 @@ public class EquipeNaCascaTest {
     public void naPartidaAFrioComOutraContaNadaSaiuEmNomeDaChaveEAFilaSai() throws Exception {
         // O celular de A na mão de B, que abriu o app sem o Sair de A: a coleta ligou com a chave de A e guardou as
         // posições de B, e nenhuma delas foi ao Nexus em nome de A.
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         partidaNova();
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.reavaliar();
         encher(3);
         assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
@@ -1133,12 +1099,12 @@ public class EquipeNaCascaTest {
         // R9: o soluço do Keystore no pedido do aparelho. A resposta diz que há a chave (pedir outra revogaria à toa a que o
         // cofre guarda), nada sai com o cofre fora, e o cofre que volta deixa o próximo envio conferir e subir a fila. Antes,
         // só a próxima carga da página conferia, e ela pode ser no dia seguinte (a fila perde o que passa de 24 h).
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(2);
         partidaNova();
         cifra.keystoreFora = true;
         List<String> respostas = new ArrayList<>();
-        casca(ANDROID_11).pedirAparelho(CONTA_A, respostas::add);
+        casca().pedirAparelho(CONTA_A, respostas::add);
         assertTrue("pedir outra chave revogaria à toa a que o cofre guarda", new JSONObject(respostas.get(0)).getBoolean("temChave"));
         assertEquals("o cofre ainda fora: nada sai", EnvioDePontos.Resultado.NADA, envio().enviar());
         assertTrue(pedidosAoNexus.isEmpty());
@@ -1152,9 +1118,9 @@ public class EquipeNaCascaTest {
 
     @Test
     public void aVoltaAoAppConfereDeNovoAContaQueOCofreNaoDeixouConferir() {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         partidaNova();
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         cifra.keystoreFora = true;
         c.pedirAparelho(CONTA_A, json -> true);
         assertFalse(chave.conferida());
@@ -1173,11 +1139,11 @@ public class EquipeNaCascaTest {
         // e a página de A não pediu outra. O cofre volta: o envio confere, acha a conta de B e nada sai, e a volta ao app faz
         // a troca de conta da R5 (fora do envio do serviço).
         chave.guardar(CHAVE_B, CONTA_B);
-        chave.aceitarAviso();
+        chave.aceitarTermo();
         encher(2);
         partidaNova();
         servico.rodando = true;
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         cifra.keystoreFora = true;
         List<String> respostas = new ArrayList<>();
         c.pedirAparelho(CONTA_A, respostas::add);
@@ -1201,17 +1167,14 @@ public class EquipeNaCascaTest {
     @Test
     public void aTelaQueAbreDesfazAConferenciaAteAPaginaDelaConferir() throws Exception {
         // A abertura com tela (o load do plugin) é o caso da R8: outra conta pode estar entrando. Nada sai até a página desta
-        // tela conferir, nem pelo religamento sem tela que viesse depois dela.
-        comChaveEAviso(CHAVE_A);
+        // tela conferir.
+        comChaveETermo(CHAVE_A);
         encher(1);
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         assertTrue(chave.conferida());
         c.aTelaAbriu();
         assertFalse(chave.conferida());
         assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
-        ChaveDaEquipe religada = new ChaveDaEquipe(app, cifra);
-        religada.retomarConferencia();
-        assertFalse("o religamento depois da tela também espera", religada.conferida());
         c.pedirAparelho(CONTA_A, json -> true);
         assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
         assertTrue(pedidosAoNexus.size() == 1);
@@ -1220,11 +1183,11 @@ public class EquipeNaCascaTest {
     @Test
     public void aChaveQueAPaginaEntregaConfere() throws Exception {
         // A partida a frio de A depois do 401 de ontem: a chave nova da mesma conta entra, e o dia de A sobe com ela.
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         encher(2);
         partidaNova();
         assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
-        casca(ANDROID_11).receberChave(true, CHAVE_B, CONTA_A);
+        casca().receberChave(true, CHAVE_B, CONTA_A);
         assertTrue(chave.conferida());
         assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
         assertEquals(CHAVE_B, pedidosAoNexus.get(0)[1]);
@@ -1233,7 +1196,7 @@ public class EquipeNaCascaTest {
 
     @Test
     public void oSairEATrocaDeContaVoltamANaoConferida() {
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_A, CONTA_A);
         assertTrue(chave.conferida());
         c.sair();
@@ -1245,14 +1208,14 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void naPartidaAFrioOAvisoSemPermissaoTambemEsperaAContaConferida() throws Exception {
-        tirar(O_TEMPO_TODO);
-        comChaveEAviso(CHAVE_A);
+    public void naPartidaAFrioOSemPermissaoTambemEsperaAContaConferida() throws Exception {
+        tirar(PRECISA, APROXIMADA);
+        chave.guardar(CHAVE_A, CONTA_A);
         partidaNova();
-        EquipeNaCasca c = casca(ANDROID_11);
+        EquipeNaCasca c = casca();
         c.reavaliar();
-        tela.continuarDaExplicacao.run();
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        tela.aceitarDoTermo.run();
+        responder(c, false, false);
         assertTrue("o lote sem permissão espera como o de pontos", pedidosAoNexus.isEmpty());
         assertFalse("e não conta como avisado", daCasca().contains("sem_permissao_em"));
         c.pedirAparelho(CONTA_A, json -> true);
@@ -1264,9 +1227,9 @@ public class EquipeNaCascaTest {
 
     @Test
     public void naPartidaAFrioOSairRevogaSemEsperarAConferencia() {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         partidaNova();
-        casca(ANDROID_11).sair();
+        casca().sair();
         assertEquals("a revogação vai com a chave velha", 1, pedidosAoNexus.size());
         assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
         assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
@@ -1277,7 +1240,7 @@ public class EquipeNaCascaTest {
     public void semChaveNemFilaOPedidoDoAparelhoNaoMexeEmNada() throws Exception {
         // A instalação nova: nada a tirar, e nada parado.
         List<String> respostas = new ArrayList<>();
-        casca(ANDROID_11).pedirAparelho(CONTA_A, respostas::add);
+        casca().pedirAparelho(CONTA_A, respostas::add);
         assertFalse(new JSONObject(respostas.get(0)).getBoolean("temChave"));
         assertTrue(servico.chamadas.isEmpty());
         assertEquals(0, tela.fechadas);
@@ -1285,9 +1248,9 @@ public class EquipeNaCascaTest {
 
     @Test
     public void oSairTambemApagaAMarcaDosTrintaMinutos() {
-        comChaveEAviso(CHAVE_A);
+        comChaveETermo(CHAVE_A);
         marcarSemPermissao(agora);
-        casca(ANDROID_11).sair();
+        casca().sair();
         assertFalse("a próxima conta não espera os 30 minutos de quem saiu", daCasca().contains("sem_permissao_em"));
         assertNull(chave.chave());
         assertNull(chave.conta());
@@ -1297,12 +1260,11 @@ public class EquipeNaCascaTest {
 
     @Test
     public void nadaDaChaveDaContaNemDoAparelhoVaiAoLog() {
-        tirar(O_TEMPO_TODO);
-        EquipeNaCasca c = casca(ANDROID_11);
+        tirar(PRECISA, APROXIMADA);
+        EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_A, CONTA_A);
-        tela.continuarDoAviso.run();
-        tela.continuarDaExplicacao.run();
-        c.aposOPedido(Collections.singletonMap(O_TEMPO_TODO, false));
+        tela.aceitarDoTermo.run();
+        responder(c, false, false);
         c.pedirAparelho(CONTA_A, json -> true);
         c.pedirAparelho(CONTA_B, json -> true); // a troca de conta
         c.receberChave(true, CHAVE_B, CONTA_B);
@@ -1353,32 +1315,29 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void aTelaDeVerdadeMostraOAvisoEAExplicacaoQueSoOContinuarFecha() {
+    public void aTelaDeVerdadeMostraOTermoQueSoOLiEAceitoFechaEOPedidoVaiDiretoAoAndroid() {
         AppCompatActivity activity = activity();
         List<List<String>> pedidos = new ArrayList<>();
         EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> pedidos.add(Arrays.asList(p)));
-        boolean[] seguiu = {false};
+        boolean[] aceitou = {false};
 
-        t.mostrarAviso(() -> seguiu[0] = true);
-        AlertDialog aviso = ultimoDialogo();
-        conferirDialogo(aviso, R.string.casca_equipe_aviso_titulo, R.string.casca_equipe_aviso_texto,
-            R.string.casca_equipe_aviso_continuar);
-        aviso.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        assertTrue(t.mostrarTermo(() -> aceitou[0] = true));
+        AlertDialog termo = ultimoDialogo();
+        conferirDialogo(termo, R.string.casca_equipe_termo_titulo, R.string.casca_equipe_termo_texto,
+            R.string.casca_equipe_termo_aceitar);
+        termo.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
         shadowOf(Looper.getMainLooper()).idle();
-        assertTrue(seguiu[0]);
-        assertFalse(aviso.isShowing());
+        assertTrue(aceitou[0]);
+        assertFalse(termo.isShowing());
 
-        t.explicarOTempoTodo(false, () -> t.pedir(new String[] {O_TEMPO_TODO}));
-        AlertDialog explicacao = ultimoDialogo();
-        assertNotEquals(aviso, explicacao);
-        conferirDialogo(explicacao, R.string.casca_equipe_permissao_titulo, R.string.casca_equipe_permissao_texto,
-            R.string.casca_equipe_permissao_continuar);
-        explicacao.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        // O pedido vai direto ao launcher do Android, sem diálogo nosso antes.
+        assertTrue(t.pedir(aLocalizacao().toArray(new String[0])));
         shadowOf(Looper.getMainLooper()).idle();
-        assertEquals(Collections.singletonList(Collections.singletonList(O_TEMPO_TODO)), pedidos);
+        assertEquals(Collections.singletonList(aLocalizacao()), pedidos);
+        assertEquals("nenhum diálogo depois do termo", termo, ShadowDialog.getLatestDialog());
 
-        // O Sair (ou o coleta:false) com o aviso na frente: ele sai da tela.
-        t.mostrarAviso(() -> fail("o aviso fechado pelo Sair não segue para a permissão"));
+        // O Sair (ou o coleta:false) com o termo na frente: ele sai da tela.
+        t.mostrarTermo(() -> fail("o termo fechado pelo Sair não é um aceite"));
         AlertDialog deNovo = ultimoDialogo();
         assertTrue(deNovo.isShowing());
         t.fechar();
@@ -1387,40 +1346,18 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void aTelaDeVerdadeExplicaOCaminhoPelosAjustesEOsAbre() {
-        AppCompatActivity activity = activity();
-        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada pedido ao Android"));
-        t.explicarOTempoTodo(true, t::abrirOsAjustes);
-        AlertDialog explicacao = ultimoDialogo();
-        conferirDialogo(explicacao, R.string.casca_equipe_permissao_titulo, R.string.casca_equipe_permissao_texto_ajustes,
-            R.string.casca_equipe_permissao_continuar);
-        explicacao.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
-        shadowOf(Looper.getMainLooper()).idle();
-        Intent aberta = shadowOf(activity).getNextStartedActivity();
-        assertEquals("os ajustes do app", Settings.ACTION_APPLICATION_DETAILS_SETTINGS, aberta.getAction());
-        assertEquals("package:" + app.getPackageName(), aberta.getDataString());
-
-        // O que o Android diz do pedido: ainda pede (a primeira recusa) ou não abre mais nada (a segunda).
-        shadowOf(app.getPackageManager()).setShouldShowRequestPermissionRationale(O_TEMPO_TODO, true);
-        assertTrue(t.oAndroidPedeDeNovo(O_TEMPO_TODO));
-        shadowOf(app.getPackageManager()).setShouldShowRequestPermissionRationale(O_TEMPO_TODO, false);
-        assertFalse(t.oAndroidPedeDeNovo(O_TEMPO_TODO));
-    }
-
-    @Test
-    public void osTextosDoAvisoDizemOQueQuandoPorQueQuemVeEPorQuantoTempo() {
-        // O que a seção 4.1 do desenho manda o aviso dizer (o texto ainda vai à aprovação do dono, do RH e do jurídico).
-        String aviso = app.getString(R.string.casca_equipe_aviso_texto);
-        for (String trecho : new String[] {"posição deste celular", "6h", "22h", "sem pausa", "aplicativo fechado",
-                "onde a equipe está", "rotas até as usinas", "PCM", "COS", "Performance", "Supervisão Campo",
-                "Responsáveis UFV", "administradores do Nexus", "7 dias", "1 ano", "notificação"}) {
-            assertTrue("o aviso não diz \"" + trecho + "\"", aviso.contains(trecho));
+    public void oTermoDizOQueQuandoPorQueQuemVePorQuantoTempoEOQueEscolher() {
+        // O que a seção 4.1 do desenho manda o termo dizer (o texto ainda vai à aprovação do dono, do RH e do jurídico), e a
+        // escolha na tela do Android que vem em seguida.
+        assertEquals("Termo de uso da localização", app.getString(R.string.casca_equipe_termo_titulo));
+        assertEquals("Li e aceito", app.getString(R.string.casca_equipe_termo_aceitar));
+        String termo = app.getString(R.string.casca_equipe_termo_texto);
+        for (String trecho : new String[] {"posição deste celular", "das 6h às 22h", "primeira abertura do dia",
+                "aplicativo fechado", "onde a equipe está", "rotas até as usinas", "PCM", "COS", "Performance",
+                "Supervisão Campo", "Responsáveis UFV", "administradores do Nexus", "7 dias", "1 ano", "notificação",
+                "Sair", "Durante o uso do app"}) {
+            assertTrue("o termo não diz \"" + trecho + "\"", termo.contains(trecho));
         }
-        assertTrue(app.getString(R.string.casca_equipe_permissao_texto).contains("Permitir o tempo todo"));
-        // O caminho pelos ajustes do app: os nomes que o Android dá, como no aviso da localização aproximada.
-        String pelosAjustes = app.getString(R.string.casca_equipe_permissao_texto_ajustes);
-        for (String trecho : new String[] {"Permissões", "Localização", "Permitir o tempo todo"}) {
-            assertTrue("a explicação pelos ajustes não diz \"" + trecho + "\"", pelosAjustes.contains(trecho));
-        }
+        assertFalse("nada de o tempo todo", termo.contains("tempo todo"));
     }
 }

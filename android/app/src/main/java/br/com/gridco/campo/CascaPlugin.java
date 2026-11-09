@@ -210,10 +210,11 @@ public class CascaPlugin extends Plugin {
             BuildConfig.VERSION_NAME);
         VIVO.set(this);
         // A coleta da posição da equipe (spec 2026-11-08): liga e desliga pelo que o Nexus disse da chave do aparelho (o
-        // equipeChave da página), pelo aviso, pela permissão o tempo todo e pela janela das 6h às 22h, na volta ao app e
-        // no Sair. O pedido da permissão vai pelo registro da AndroidX, que só aceita registrar antes de a tela começar (o
-        // load() roda dentro do onCreate), e a resposta volta à EquipeNaCasca. Antes do canal: a página só fala com ela
-        // depois de carregar. A tela que nasce desfaz a conta conferida antes dela (R8), até a página desta tela conferir.
+        // equipeChave da página), pelo termo de uso, pela localização durante o uso e pela janela das 6h às 22h, na volta
+        // ao app e no Sair. O pedido da localização vai pelo registro da AndroidX, que só aceita registrar antes de a tela
+        // começar (o load() roda dentro do onCreate), e a resposta volta à EquipeNaCasca. Antes do canal: a página só fala
+        // com ela depois de carregar. A tela que nasce desfaz a conta conferida antes dela (R8), até a página desta tela
+        // conferir.
         try {
             ActivityResultLauncher<String[]> pedidoDaEquipe = bridge.registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(), resultado -> {
@@ -888,14 +889,18 @@ public class CascaPlugin extends Plugin {
     // A volta ao app (a câmera, os ajustes, a Custom Tab do Fracttal): a checagem das 6 h e, depois de o técnico liberar
     // "Instalar apps desconhecidos", a retomada da instalação. A coleta da equipe, que liga na primeira abertura do dia (o
     // onResume vem logo depois do onCreate) ou na volta ao app, entre as 6h e as 22h (EquipeNaCasca.reavaliar, na thread
-    // do envio). E o token do aparelho de novo à página, se os avisos passaram a ligados nos ajustes ou se o Firebase deu
-    // outro token (PushNaCasca.voltouAoApp), na thread do espelho.
+    // do envio), com a tela à vista antes da decisão (o serviço iniciado com o app no fundo não teria a localização
+    // durante o uso). E o token do aparelho de novo à página, se os avisos passaram a ligados nos ajustes ou se o Firebase
+    // deu outro token (PushNaCasca.voltouAoApp), na thread do espelho.
     @Override
     protected void handleOnResume() {
         super.handleOnResume();
         if (atualizador != null) atualizador.verificar();
         EquipeNaCasca daEquipe = equipe;
-        if (daEquipe != null) daEquipe.reavaliar();
+        if (daEquipe != null) {
+            daEquipe.aTelaFicouAVista();
+            daEquipe.reavaliar();
+        }
         PushNaCasca conversa = push;
         if (conversa == null) return;
         try {
@@ -907,12 +912,21 @@ public class CascaPlugin extends Plugin {
         }
     }
 
+    // A tela fora da vista (o Início, outro app, a tela apagada): a decisão da equipe que ainda vier na thread do envio não
+    // liga o serviço com o app no fundo (EquipeNaCasca.aTelaSaiuDaVista). A coleta ligada segue.
+    @Override
+    protected void handleOnStop() {
+        super.handleOnStop();
+        EquipeNaCasca daEquipe = equipe;
+        if (daEquipe != null) daEquipe.aTelaSaiuDaVista();
+    }
+
     @Override
     protected void handleOnDestroy() {
         encerrado = true;
         VIVO.compareAndSet(this, null);
         if (atualizador != null) atualizador.encerrar(); // fecha o diálogo aberto; o download em curso termina sozinho
-        if (equipe != null) equipe.encerrar(); // o aviso ou a explicação da equipe abertos saem com a tela
+        if (equipe != null) equipe.encerrar(); // o termo da equipe aberto sai com a tela
         // A thread do espelho é do processo e fica: o que já está na fila dela ainda é gravado (é o que a página
         // mandou), e o encerrado impede que algo novo desta tela entre (aoReceber) ou volte à WebView (naUi).
         super.handleOnDestroy();

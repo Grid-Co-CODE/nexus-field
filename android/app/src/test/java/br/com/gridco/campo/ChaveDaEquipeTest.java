@@ -20,8 +20,8 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 
 /**
- * A chave do aparelho da coleta de equipe: cifrada em repouso com a conta dela, e o aviso aceito vale só para a chave em
- * uso.
+ * A chave do aparelho da coleta de equipe: cifrada em repouso com a conta dela, e o termo de uso aceito vale para a conta
+ * (a chave nova da mesma conta o mantém; outra conta o pede de novo).
  */
 @RunWith(RobolectricTestRunner.class)
 public class ChaveDaEquipeTest {
@@ -77,23 +77,61 @@ public class ChaveDaEquipeTest {
     }
 
     @Test
-    public void guardarAMesmaChaveDaFalseEMantemOAviso() {
+    public void guardarAMesmaChaveDaFalseEMantemOTermo() {
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         assertTrue(c.guardar("k1", CONTA_A));
-        c.aceitarAviso();
-        assertTrue(c.avisoAceito());
+        assertFalse("a conta nova ainda não aceitou", c.termoAceito());
+        c.aceitarTermo();
+        assertTrue(c.termoAceito());
         assertFalse(c.guardar("k1", CONTA_A));
-        assertTrue(c.avisoAceito());
+        assertTrue(c.termoAceito());
     }
 
     @Test
-    public void guardarOutraChaveDaTrueEZeraOAviso() {
+    public void aChaveNovaDaMesmaContaDaTrueEMantemOTermo() {
+        // O termo é da conta (R10): a chave revogada e refeita, ou a do 401, não mostra o termo de novo a quem já o aceitou.
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
-        c.aceitarAviso();
+        c.aceitarTermo();
         assertTrue(c.guardar("k2", CONTA_A));
-        assertFalse(c.avisoAceito());
+        assertTrue("a mesma conta", c.termoAceito());
         assertEquals("k2", c.chave());
+        c.apagarAChave(); // o 401 do envio
+        assertTrue("o 401 apaga só a chave: o termo fica com a conta", c.termoAceito());
+        assertTrue(c.guardar("k3", CONTA_A));
+        assertTrue(c.termoAceito());
+    }
+
+    @Test
+    public void oTermoAceitoEDaContaAOutraContaPedeDeNovo() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        c.aceitarTermo();
+        c.apagarAChave();
+        assertTrue("a chave de outra conta, depois do 401 de A", c.guardar("k2", CONTA_B));
+        assertFalse(c.termoAceito());
+        c.aceitarTermo();
+        c.apagar(); // o Sair, a troca de conta e o coleta:false
+        assertFalse(c.termoAceito());
+        // O aceite que chegasse sem chave guardada (o Li e aceito no meio do Sair) não vale para a conta seguinte.
+        c.aceitarTermo();
+        c.guardar("k3", CONTA_A);
+        assertFalse(c.termoAceito());
+        // Nem a conta que a cifra não lê: não se sabe se é a mesma.
+        c.aceitarTermo();
+        cifra.falharAoDecifrar = true;
+        c.guardar("k4", CONTA_A);
+        cifra.falharAoDecifrar = false;
+        assertFalse(c.termoAceito());
+    }
+
+    @Test
+    public void oAvisoAceitoDeAntesDoTermoNaoValeComoOTermo() {
+        // O aparelho de prova que aceitou o aviso de antes do termo (a marca "aviso_aceito"): ele não leu o termo.
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putBoolean("aviso_aceito", true).commit();
+        assertFalse(c.termoAceito());
     }
 
     @Test
@@ -142,12 +180,12 @@ public class ChaveDaEquipeTest {
     }
 
     @Test
-    public void aMesmaChaveDeOutraContaDaTrueEZeraOAviso() {
+    public void aMesmaChaveDeOutraContaDaTrueEZeraOTermo() {
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
-        c.aceitarAviso();
+        c.aceitarTermo();
         assertTrue(c.guardar("k1", CONTA_B));
-        assertFalse(c.avisoAceito());
+        assertFalse(c.termoAceito());
         assertEquals(CONTA_B, c.conta());
         assertEquals("k1", c.chave());
     }
@@ -247,73 +285,17 @@ public class ChaveDaEquipeTest {
         assertTrue(c.conferir(CONTA_A));
     }
 
-    // --- a conferência no disco, para o religamento sem tela ------------------------------------------------------------
-
-    /** O processo que o Android religa sem tela (o serviço da coleta): uma ChaveDaEquipe nova que retoma a do disco. */
-    private ChaveDaEquipe religadaPeloSistema() {
-        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
-        c.retomarConferencia();
-        return c;
-    }
+    // --- a conferência é só da memória -------------------------------------------------------------------------------
 
     @Test
-    public void oReligamentoSemTelaRetomaAConferenciaDaPaginaEATelaQueAbreADesfaz() {
-        // O caso: a coleta ligada, o processo morto no meio do dia (a falta de memória, o "tirar dos recentes" de quem mata
-        // o app) e o serviço religado pelo sistema, sem tela e sem página: nada subia até o técnico abrir o app de novo.
-        new ChaveDaEquipe(ctx, cifra).guardar("k1", CONTA_A);
-        ChaveDaEquipe religada = new ChaveDaEquipe(ctx, cifra);
-        assertFalse("o processo novo começa sem conferir", religada.conferida());
-        religada.retomarConferencia();
-        assertTrue("o religamento sem tela retoma a conferência que a página fez", religada.conferida());
-
-        // A tela que nasce (o load do plugin) desfaz, na memória e no disco, até a página dela conferir.
-        religada.aTelaAbriu();
-        assertFalse(religada.conferida());
-        assertFalse("o religamento seguinte não acha a conferência de antes da tela", religadaPeloSistema().conferida());
-
-        // A página da tela confere de novo: volta ao disco.
-        ChaveDaEquipe comTela = new ChaveDaEquipe(ctx, cifra);
-        comTela.aTelaAbriu();
-        assertTrue(comTela.conferir(CONTA_A));
-        assertTrue(religadaPeloSistema().conferida());
-
-        // A marca não diz de quem é: nem a conta nem a chave em claro no disco.
-        for (Object v : ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).getAll().values()) {
-            assertFalse(String.valueOf(v).contains(CONTA_A));
-            assertFalse(String.valueOf(v).contains("k1"));
-        }
-    }
-
-    @Test
-    public void tudoQueDesfazAConferenciaTiraTambemADoDisco() {
+    public void aConferenciaNaoVaiAoDiscoEOProcessoNovoComecaSemEla() {
+        // O serviço não volta sem a tela (R10): nenhum processo sem página retoma a conferência de antes, e o disco não a
+        // guarda. Antes, a marca "conferida" ia ao disco para o religamento do sistema.
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
-        assertFalse("a conferência de outra conta", c.conferir(CONTA_B));
-        assertFalse(religadaPeloSistema().conferida());
-
         assertTrue(c.conferir(CONTA_A));
-        cifra.keystoreFora = true;
-        try {
-            c.conferir(CONTA_A);
-            fail("o cofre que não respondeu agora não confere");
-        } catch (IllegalStateException esperado) {
-            // a chave e a conta continuam guardadas
-        }
-        cifra.keystoreFora = false;
-        assertFalse("o cofre fora", religadaPeloSistema().conferida());
-
-        assertTrue(c.conferir(CONTA_A));
-        c.apagarAChave();
-        assertFalse("o 401", religadaPeloSistema().conferida());
-
-        c.guardar("k2", CONTA_A);
-        c.apagar();
-        assertFalse("o Sair, a troca de conta e o coleta:false", religadaPeloSistema().conferida());
-
-        // Sem a chave no disco, a marca que sobrasse não confere nada.
-        c.guardar("k3", CONTA_A);
-        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("chave").commit();
-        assertFalse(religadaPeloSistema().conferida());
+        assertFalse(ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("conferida"));
+        assertFalse("o processo novo", new ChaveDaEquipe(ctx, cifra).conferida());
     }
 
     // --- R9: a conferência que o cofre não deixou fazer ---------------------------------------------------------------
@@ -345,7 +327,6 @@ public class ChaveDaEquipeTest {
         assertTrue("o cofre voltou: a mesma conta confere", partida.reconferir());
         assertTrue(partida.conferida());
         assertFalse(partida.precisaReconferir());
-        assertTrue("e vai ao disco, como a conferência da página", religadaPeloSistema().conferida());
     }
 
     @Test
@@ -364,7 +345,6 @@ public class ChaveDaEquipeTest {
         assertFalse("outra conta guardada: nada sai", partida.reconferir());
         assertFalse(partida.conferida());
         assertTrue("segue por refazer até a troca de conta da volta ao app", partida.precisaReconferir());
-        assertFalse(religadaPeloSistema().conferida());
         partida.apagar(); // a troca de conta
         assertFalse(partida.precisaReconferir());
         assertNull(partida.contaDaPagina());

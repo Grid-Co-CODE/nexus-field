@@ -21,10 +21,9 @@ import org.json.JSONObject;
  * chave do aparelho no Authorization.
  *
  * <ul>
- *   <li>Nada sai antes de a página conferir a conta da chave ({@link ChaveDaEquipe#conferida}, ou a conferência que o
- *       religamento sem tela retomou do disco): o lote e o aviso sem permissão devolvem {@link Resultado#NADA} sem pedido
- *       ao Nexus, e a fila e a chave ficam. A conferência que o cofre não deixou fazer (R9) é refeita antes de cada envio.
- *       A revogação do Sair não espera.</li>
+ *   <li>Nada sai antes de a página conferir a conta da chave ({@link ChaveDaEquipe#conferida}): o lote e o aviso sem
+ *       permissão devolvem {@link Resultado#NADA} sem pedido ao Nexus, e a fila e a chave ficam. A conferência que o cofre
+ *       não deixou fazer (R9) é refeita antes de cada envio. A revogação do Sair não espera.</li>
  *   <li>Só o 401 e o {@code coleta:false} do Nexus param o serviço e apagam a chave. O 401 apaga só a chave: a conta
  *       fica, dona da fila que sobrou ({@link ChaveDaEquipe#apagarAChave}). O coleta:false apaga a chave, a conta e a
  *       fila. Todo 5xx (o 503, com a Microsoft fora ou o servidor sem configuração, em especial) e a rede que cai dão
@@ -138,8 +137,8 @@ final class EnvioDePontos {
     }
 
     /**
-     * Sem a permissão "o tempo todo" (ou sem a notificação fixa à vista, que o Android 13+ trata como permissão) não há
-     * ponto a mandar, mas o Nexus precisa saber (o mapa separa quem negou de quem nunca abriu o app): lote vazio com
+     * Sem a permissão de localização (a precisa, durante o uso) ou sem a notificação fixa à vista (que o Android 13+ trata
+     * como permissão) não há ponto a mandar, mas o Nexus precisa saber (o mapa separa quem negou de quem nunca abriu o app): lote vazio com
      * {@code permissao: "sem"}, as mesmas respostas do envio normal.
      */
     Resultado avisarSemPermissao() {
