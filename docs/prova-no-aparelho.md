@@ -450,6 +450,10 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
 - [ ] Android 13 ou mais novo: negar a notificação do Nexus Field numa instalação nova: a coleta não liga (sem a
       notificação à vista não há coleta), e o mapa mostra o aparelho sem permissão.
 
+- [ ] O Celular pronto (1.2.2): com tudo dado, o Piloto do Nexus mostra a pessoa como **Celular pronto** depois do
+      primeiro lote. Tirar o Permitir o tempo todo (deixar só durante o uso) ou pôr a bateria em **Otimizada**, voltar ao
+      app: no lote seguinte, o Piloto mostra o que falta. Quem aceitou a versão 3 do termo vê a versão 4 ao abrir.
+
 ### O aviso das 6h
 
 O aviso das 6h (R12) é uma notificação local, sem o Nexus: o alarme é inexato, e com o celular em repouso pode chegar

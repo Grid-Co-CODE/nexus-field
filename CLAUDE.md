@@ -1115,8 +1115,15 @@ O site (App de Campo) e o Fracttal não mudam.
     durante o uso, e o pedido não volta até a próxima conta ou o próximo termo), ou com o tempo todo já dado; o pedido que
     não abriu ou foi interrompido pede na próxima volta. A resposta é reconhecida pelo nome da permissão, e não só pela
     memória: do Android 11 em diante o processo pode morrer nos ajustes, e a resposta chega a uma tela nova. A janela da
-    bateria espera a resposta (a ordem: a localização, o tempo todo, a bateria). O mapa não sabe do tempo todo: o
-    `permissao: "sem"` continua só para a falta da localização precisa ou da notificação.
+    bateria espera a resposta (a ordem: a localização, o tempo todo, a bateria). O `permissao: "sem"` continua só para a
+    falta da localização precisa ou da notificação; o tempo todo e a bateria vão nos `ajustes` (abaixo).
+  - **Os ajustes do celular em cada lote, o Celular pronto do Piloto (1.2.2, pedido do dono em 10/11/2026: "tem como
+    sabermos qual o técnico não aceitou tudo?").** `AjustesDaColeta.ler` monta `{termo, localizacao, tempoTodo,
+    bateriaSemRestricao, notificacao}` (a versão do termo aceita ou nulo; `"precisa"`, `"aproximada"` ou `"sem"`; três
+    sim ou não), e o `EnvioDePontos` o põe no campo `ajustes` de cada lote e do aviso sem permissão. Os ajustes que o
+    sistema não deixa ler agora não seguram os pontos: o lote vai sem eles. O Nexus que não os conhece os ignora. Só
+    depois do termo aceito (antes dele nada sai), e o termo versão 4 os diz na seção 2. O Início automático do Xiaomi
+    não entra: o Android não deixa nenhum app lê-lo, e ele fica no guia de instalação.
   - **A janela da bateria sem restrição (R15, o mesmo pedido do dono de 10/11/2026 que trouxe a R14).** Logo depois do
     termo aceito, da localização dada e da resposta ao pedido do tempo todo (a coleta que liga, ou a que já estava
     ligada, com a tela à vista), se o
@@ -1146,10 +1153,12 @@ O site (App de Campo) e o Fracttal não mudam.
     desligado, e um serviço de acessibilidade pode clicar sem olhar o estado. A girada da tela (a MainActivity não é
     recriada) e a volta ao app não ligam. No Robolectric a rolagem animada (TalkBack, teclado) só anda com o
     `computeScroll` que o teste chama, porque ele não desenha.
-  - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "3", o texto de 10/11/2026, R11, R13 e R15).** A marca
+  - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "4", o texto de 10/11/2026, R11, R13, R15 e o
+    Celular pronto).** A marca
     `termo_aceito` guarda a versão; outra versão, ou a marca booleana da R10 (só nos aparelhos de prova), mostra o termo de
     novo. Mudar o texto é mudar a constante e a primeira linha ("Versão N"): o `EquipeNaCascaTest` guarda o SHA-256 do
-    texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. A versão 3 (R15, 10/11/2026)
+    texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. A versão 4 (o Celular
+    pronto, 10/11/2026) diz na seção 2 que os ajustes do Nexus Field neste celular também vão ao Nexus; a 3 (R15, do mesmo dia)
     manda escolher o Permitir o tempo todo e a bateria sem restrição e diz que a coleta volta sozinha no mesmo dia depois
     de reiniciar ou atualizar; a 2 (R13, do mesmo dia) diz que o mapa mostra a última posição de cada técnico no ponto
     exato, também parado fora de usina, e que quem vê pode abrir o percurso de um período dos 7 dias; a 1 prometia só a

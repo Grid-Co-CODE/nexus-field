@@ -97,6 +97,32 @@ public class EnvioDePontosTest {
     }
 
     @Test
+    public void cadaLoteEOAvisoSemPermissaoLevamOsAjustesDaColeta() throws Exception {
+        // O "Celular pronto" do Piloto no Nexus (10/11/2026): o que falta no celular vai junto com o que ele já manda.
+        chave.guardar("k1", CONTA);
+        encher(2);
+        JSONObject ajustes = new JSONObject().put("termo", "4").put("tempoTodo", false);
+        EnvioDePontos comAjustes = new EnvioDePontos(chave, fila, falso, () -> AGORA, () -> ajustes);
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, comAjustes.enviar());
+        assertEquals(ajustes.toString(), new JSONObject(pedidos.get(0)[2]).getJSONObject("ajustes").toString());
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, comAjustes.avisarSemPermissao());
+        assertEquals("4", new JSONObject(pedidos.get(1)[2]).getJSONObject("ajustes").getString("termo"));
+    }
+
+    @Test
+    public void osAjustesQueNaoSeLeemNaoSeguramOsPontos() throws Exception {
+        chave.guardar("k1", CONTA);
+        encher(2);
+        EnvioDePontos quebrado = new EnvioDePontos(chave, fila, falso, () -> AGORA, () -> {
+            throw new IllegalStateException("o sistema não respondeu");
+        });
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, quebrado.enviar());
+        JSONObject corpo = new JSONObject(pedidos.get(0)[2]);
+        assertFalse(corpo.has("ajustes"));
+        assertEquals(2, corpo.getJSONArray("pontos").length());
+    }
+
+    @Test
     public void coletaFalsaParaApagaAChaveELimpaAFila() {
         chave.guardar("k1", CONTA);
         encher(5);

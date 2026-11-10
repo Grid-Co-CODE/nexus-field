@@ -9,7 +9,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
@@ -538,10 +537,8 @@ final class EquipeNaCasca {
         });
     }
 
-    // O PowerManager que não responde conta como liberado: sem saber, a casca não abre janela nenhuma.
     private boolean liberadoDaBateria() {
-        PowerManager energia = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
-        return energia == null || energia.isIgnoringBatteryOptimizations(app.getPackageName());
+        return AjustesDaColeta.bateriaSemRestricao(app);
     }
 
     // R9: a conferência que o cofre não deixou fazer, de novo na volta ao app. A conta guardada que se mostra de outra

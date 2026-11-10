@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.TimeZone;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -79,19 +80,33 @@ final class EnvioDePontos {
     private final Transporte transporte;
     private final LongSupplier relogio;
     private final int maximoDeBytes;
+    // Os ajustes do celular que vão em cada lote ({@link AjustesDaColeta}), ou null (os testes que não olham para eles).
+    private final Supplier<JSONObject> ajustes;
 
     EnvioDePontos(ChaveDaEquipe chave, FilaDePontos fila, Transporte transporte, LongSupplier relogio) {
-        this(chave, fila, transporte, relogio, MAXIMO_DE_BYTES);
+        this(chave, fila, transporte, relogio, MAXIMO_DE_BYTES, null);
+    }
+
+    /** Com os ajustes do celular em cada lote: o de produção ({@link ServicoDaEquipe}). */
+    EnvioDePontos(ChaveDaEquipe chave, FilaDePontos fila, Transporte transporte, LongSupplier relogio,
+            Supplier<JSONObject> ajustes) {
+        this(chave, fila, transporte, relogio, MAXIMO_DE_BYTES, ajustes);
     }
 
     /** O limite de bytes entra à parte só para o teste: um ponto tem uns 100 bytes, e 200 deles nunca chegam a 64 KB. */
     EnvioDePontos(ChaveDaEquipe chave, FilaDePontos fila, Transporte transporte, LongSupplier relogio,
             int maximoDeBytes) {
+        this(chave, fila, transporte, relogio, maximoDeBytes, null);
+    }
+
+    private EnvioDePontos(ChaveDaEquipe chave, FilaDePontos fila, Transporte transporte, LongSupplier relogio,
+            int maximoDeBytes, Supplier<JSONObject> ajustes) {
         this.chave = chave;
         this.fila = fila;
         this.transporte = transporte;
         this.relogio = relogio;
         this.maximoDeBytes = maximoDeBytes;
+        this.ajustes = ajustes;
     }
 
     /**
@@ -243,10 +258,23 @@ final class EnvioDePontos {
             o.put("aparelho", chave.aparelho());
             o.put("fuso", JanelaDaEquipe.fusoEmMinutos(relogio.getAsLong(), TimeZone.getDefault()));
             if (permissao != null) o.put("permissao", permissao);
+            JSONObject a = ajustesDeAgora();
+            if (a != null) o.put("ajustes", a);
             o.put("pontos", pontos);
             return o.toString();
         } catch (JSONException e) {
             throw new IllegalStateException("corpo inválido");
+        }
+    }
+
+    // Os ajustes que o sistema não deixou ler agora não seguram os pontos: o lote vai sem eles, e o próximo os leva.
+    private JSONObject ajustesDeAgora() {
+        if (ajustes == null) return null;
+        try {
+            return ajustes.get();
+        } catch (RuntimeException e) {
+            Log.w(CascaPlugin.TAG, "os ajustes do celular não foram lidos agora (" + e.getClass().getSimpleName() + ")");
+            return null;
         }
     }
 

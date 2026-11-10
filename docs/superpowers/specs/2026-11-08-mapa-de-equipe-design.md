@@ -112,7 +112,8 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   do próprio Android; do 11 em diante, o Android leva aos ajustes do app. Uma vez por conta e por termo; recusada, a
   coleta segue só com a durante o uso, como na 1.2.0, sem pedir de novo até a próxima conta ou o próximo termo. Do
   Android 9 para trás ela não existe à parte (a localização dada já vale com o app no fundo) e nada se pede. O mapa não
-  sabe dela: o `permissao: "sem"` continua só para a falta da localização precisa ou da notificação. Caso que a trouxe de
+  sabe dela pelo `permissao: "sem"` (que continua só para a falta da localização precisa ou da notificação), e sim pelos
+  `ajustes` de cada lote desde a 1.2.2 (seção 8). Caso que a trouxe de
   volta: em 10/11 o HyperOS e a atualização fecharam o app no meio do dia, e a coleta parava até a próxima abertura; o
   dono pediu "precisamos só ser mais independente... sem esses erros de ficar parando coleta nem nada" (e, entre as
   saídas propostas, "Faça os três"). A R10 a tinha tirado para ter menos telas; o custo de agora é uma tela do Android a
@@ -305,6 +306,12 @@ caminho e os nomes; o que mudar, ele avisa à sessão do Nexus Field antes de p�
     `{aparelho, fuso, permissao: "sem", pontos: []}` (no máximo um a cada 30 minutos), para o mapa separar quem negou de
     quem não abriu o app. O formato é o mesmo de antes do termo de uso (R10), quando o "sem" era a falta da "o tempo
     todo".
+  - Desde a 1.2.2 (o Celular pronto, pedido do dono em 10/11/2026: "tem como sabermos qual o técnico não aceitou
+    tudo?"), cada lote e o aviso sem permissão levam também `ajustes: {termo, localizacao, tempoTodo,
+    bateriaSemRestricao, notificacao}`: a versão do termo aceita (ou nulo), `"precisa"`, `"aproximada"` ou `"sem"`, e
+    três sim ou não. O Nexus que não os conhece os ignora (a 1.2.1 e as de antes não os mandam), e o Piloto mostra por
+    técnico Celular pronto ou o que falta. O termo versão 4 diz isso na seção 2. O Início automático do Xiaomi não vai:
+    o Android não deixa nenhum app lê-lo.
   - O Nexus descarta ponto com mais de 7 dias ou fora da janela, cifra a coordenada e grava.
   - Resposta: `200 {aceitos, coleta}` (`coleta: false` faz a casca parar até a próxima carga); `401` com a chave
     inválida ou revogada (a casca apaga a chave e para); qualquer `5xx` é como sem rede (a fila e a chave ficam).

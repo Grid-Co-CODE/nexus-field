@@ -128,15 +128,15 @@
       termo de novo.
     -->
     <string name="casca_equipe_termo_titulo">Termo de uso e privacidade da localização</string>
-    <string name="casca_equipe_termo_texto">Versão 3, de 10 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.
+    <string name="casca_equipe_termo_texto">Versão 4, de 10 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.
         \n\n<b>1. Quem é o responsável</b>
         \nA Grid Co. é a controladora dos dados deste termo, nos termos da Lei Geral de Proteção de Dados
         Pessoais (Lei nº 13.709/2018, a LGPD).
         \n\n<b>2. Quais dados</b>
         \nA posição deste celular (latitude e longitude), a precisão de cada leitura, a velocidade, se o celular
         está em deslocamento, a data, a hora e o fuso horário do celular. Junto vão um código do aparelho,
-        criado pelo próprio Nexus Field, e a sua conta da Grid Co., para saber de quem é cada posição. O
-        Nexus Field não coleta contatos, fotos, mensagens, arquivos, áudio nem o uso de outros aplicativos.
+        criado pelo próprio Nexus Field, e a sua conta da Grid Co., para saber de quem é cada posição.
+        Também vão os ajustes do Nexus Field neste celular que a coleta precisa (a versão deste termo aceita e se a localização, o Permitir o tempo todo, a bateria sem restrição e a notificação estão liberados), para a Grid Co. saber quando a coleta não consegue funcionar. O Nexus Field não coleta contatos, fotos, mensagens, arquivos, áudio nem o uso de outros aplicativos.
         \n\n<b>3. Quando</b>
         \nDas 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o aplicativo
         fechado depois disso, e a coleta volta sozinha se o celular reiniciar ou o aplicativo for atualizado no

@@ -683,21 +683,20 @@ public class EquipeNaCascaTest {
         daEquipe().edit().putString("termo_aceito", "1").commit();
         assertFalse("o aceite da versão 1 não vale mais", chave.termoAceito());
         oTermoVoltaEOAceiteGuardaAVersaoDeAgora();
-        assertEquals("3", daEquipe().getString("termo_aceito", null));
+        assertEquals(ChaveDaEquipe.TERMO_VERSAO, daEquipe().getString("termo_aceito", null));
         assertTrue(chave.termoAceito());
     }
 
     @Test
-    public void quemAceitouAVersao2VeOTermoDaVersao3DeNovoEOAceiteDa3Vale() {
-        // R15 (10/11/2026): o texto passou a pedir o Permitir o tempo todo e a bateria sem restrição, e a dizer que a coleta
-        // volta sozinha no mesmo dia depois de o celular reiniciar ou o aplicativo ser atualizado; quem aceitou a versão 2
-        // não leu isso.
+    public void quemAceitouAVersao3VeOTermoDaVersao4DeNovoEOAceiteDa4Vale() {
+        // O Celular pronto (10/11/2026): o texto passou a dizer que os ajustes do Nexus Field neste celular também vão ao
+        // Nexus; quem aceitou a versão 3 (a que pede o Permitir o tempo todo e a bateria sem restrição) não leu isso.
         chave.guardar(CHAVE_A, CONTA_A);
-        daEquipe().edit().putString("termo_aceito", "2").commit();
-        assertFalse("o aceite da versão 2 não vale mais", chave.termoAceito());
+        daEquipe().edit().putString("termo_aceito", "3").commit();
+        assertFalse("o aceite da versão 3 não vale mais", chave.termoAceito());
         oTermoVoltaEOAceiteGuardaAVersaoDeAgora();
-        assertEquals("3", daEquipe().getString("termo_aceito", null));
-        assertTrue("o aceite da versão 3 vale", chave.termoAceito());
+        assertEquals("4", daEquipe().getString("termo_aceito", null));
+        assertTrue("o aceite da versão 4 vale", chave.termoAceito());
     }
 
     @Test
@@ -2234,6 +2233,7 @@ public class EquipeNaCascaTest {
         TEXTO_DE_CADA_VERSAO.put("1", "7bf3bf6f12d6aeb38ecb3229e780fbcce48cd8af8c3c29301070ccf2a9c5f7b1");
         TEXTO_DE_CADA_VERSAO.put("2", "3e9742434fb1d7f4b48b4fc72308463cb370125f7eb198b039e1ba3d0e945840");
         TEXTO_DE_CADA_VERSAO.put("3", "292030c089bc624bf37dd9a22eb177a5916f7b66a3177933c79ac1c727726a5b");
+        TEXTO_DE_CADA_VERSAO.put("4", "a82d5069f3ce35b3505cd672ded5df43ed02de1381e689e6346ea64051cba1a0");
     }
 
     private static String sha256(String texto) throws Exception {
@@ -2264,7 +2264,8 @@ public class EquipeNaCascaTest {
                 "PCM, COS, Performance, Supervisão Campo e os Responsáveis UFV", "administradores do Nexus", "7 dias",
                 "1 ano", "24 horas", "Google Maps", "art. 18", "ANPD", "RH da Grid Co.", "Sair do aplicativo",
                 "a coleta volta sozinha se o celular reiniciar ou o aplicativo for atualizado no mesmo dia",
-                "escolha Permitir o tempo todo e deixe o Nexus Field sem restrição de bateria"}) {
+                "escolha Permitir o tempo todo e deixe o Nexus Field sem restrição de bateria",
+                "os ajustes do Nexus Field neste celular que a coleta precisa"}) {
             assertTrue("o termo não diz \"" + trecho + "\"", termo.contains(trecho));
         }
         assertFalse("a versão 3 não manda mais escolher a durante o uso", termo.contains("Durante o uso do app"));

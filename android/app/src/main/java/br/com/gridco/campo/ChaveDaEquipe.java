@@ -74,7 +74,7 @@ final class ChaveDaEquipe {
      * Mudar o texto é mudar esta constante (e a primeira linha), e o aceite da versão de antes deixa de valer: o técnico
      * vê o termo novo antes de a coleta ligar de novo.
      */
-    static final String TERMO_VERSAO = "3";
+    static final String TERMO_VERSAO = "4";
 
     // O aceite do termo (R10), e não o "aviso_aceito" de antes dele: quem aceitou o aviso num aparelho de prova não leu o
     // termo. Guarda a versão aceita (R11); a marca booleana que a primeira versão desta chave guardava, só nos aparelhos
@@ -340,6 +340,18 @@ final class ChaveDaEquipe {
     }
 
     /** O Li e aceito do termo de uso e privacidade, da conta da chave guardada e da versão de agora do texto. */
+    /**
+     * A versão do termo aceita neste aparelho, a de agora ou uma de antes, ou null (o Celular pronto do Nexus, nos
+     * {@link AjustesDaColeta}). A marca booleana de antes da versão não é uma versão: null. Não passa pela cifra.
+     */
+    synchronized String versaoDoTermoAceito() {
+        try {
+            return prefs.getString(K_TERMO, null);
+        } catch (ClassCastException e) {
+            return null;
+        }
+    }
+
     synchronized boolean termoAceito() {
         try {
             return TERMO_VERSAO.equals(prefs.getString(K_TERMO, null));

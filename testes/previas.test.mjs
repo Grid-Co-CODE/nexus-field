@@ -508,6 +508,7 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   const doTermo = compactar(d.getElementById('ok-equipe-termo').closest('li').querySelector('label').textContent);
   for (const trecho of [/aviso de privacidade inteiro/, /rola até o fim/, /jurídico confirmar/, /base legal \(seção 5\)/,
     /canal dos direitos \(seção 10, o RH\)/,
+    /versão 4 \(10\/11\/2026\).*ajustes do Nexus Field neste celular.*celular pronto/,
     /versão 3 \(10\/11\/2026\).*Permitir o tempo todo.*bateria sem restrição.*volta sozinha no mesmo dia/,
     /versão 2 .*ponto exato.*em casa ou no hotel.*percurso/, /jurídico precisa ver/]) {
     assert.match(doTermo, trecho, 'o item do termo diz o que se aprova nele');
@@ -516,7 +517,10 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // (R15, do mesmo dia): o fim manda escolher o Permitir o tempo todo e a bateria sem restrição, e a seção 3 diz que a
   // coleta volta sozinha no mesmo dia (as trocas do brief, palavra por palavra).
   const textoDoTermo = compactar(daEquipe.find((s) => s.nome === 'casca_equipe_termo_texto').texto);
-  assert.match(textoDoTermo, /^Versão 3, de 10 de novembro de 2026\./);
+  assert.match(textoDoTermo, /^Versão 4, de 10 de novembro de 2026\./);
+  // A versão 4 (o Celular pronto, 10/11/2026): a seção 2 diz que os ajustes do celular também vão ao Nexus.
+  assert.ok(textoDoTermo.includes('para saber de quem é cada posição. Também vão os ajustes do Nexus Field neste celular que a coleta precisa (a versão deste termo aceita e se a localização, o Permitir o tempo todo, a bateria sem restrição e a notificação estão liberados), para a Grid Co. saber quando a coleta não consegue funcionar. O Nexus Field não coleta'),
+    'a seção 2 da versão 4');
   assert.ok(textoDoTermo.includes('Das 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o '
     + 'aplicativo fechado depois disso, e a coleta volta sozinha se o celular reiniciar ou o aplicativo for atualizado no '
     + 'mesmo dia.'), 'a seção 3 da versão 3');
