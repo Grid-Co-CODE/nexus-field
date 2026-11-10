@@ -375,6 +375,23 @@ public class EnvioDePontosTest {
     }
 
     @Test
+    public void oCorteDoLoteContaTambemOsAjustes() throws Exception {
+        // A revisão do Celular pronto: o limite vale para o corpo inteiro, com os ajustes dentro.
+        chave.guardar("k1", CONTA);
+        encher(200);
+        StringBuilder grande = new StringBuilder();
+        for (int i = 0; i < 1500; i++) grande.append('x');
+        JSONObject ajustes = new JSONObject().put("termo", grande.toString());
+        EnvioDePontos pequeno = new EnvioDePontos(chave, fila, falso, () -> AGORA, 4000, () -> ajustes);
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, pequeno.enviar());
+        String corpo = pedidos.get(0)[2];
+        assertTrue(corpo.getBytes(StandardCharsets.UTF_8).length <= 4000);
+        assertTrue(new JSONObject(corpo).has("ajustes"));
+        int enviados = new JSONObject(corpo).getJSONArray("pontos").length();
+        assertTrue(enviados > 0 && enviados < 200);
+    }
+
+    @Test
     public void limitePadraoE64Kb() {
         assertEquals(64 * 1024, EnvioDePontos.MAXIMO_DE_BYTES);
     }

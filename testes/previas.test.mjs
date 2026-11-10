@@ -545,6 +545,10 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // A versão 2 (R13): o item não promete mais o que o mapa deixou de fazer (só a cidade de quem está parado fora de usina).
   assert.doesNotMatch(dito, /só a cidade/, 'o item do que o termo promete está na versão 2');
   assert.match(dito, /ponto exato/, 'o item do que o termo promete diz do ponto exato e do percurso');
+  // A versão 4 (o Celular pronto, R16): o item diz, em quais dados, os ajustes do celular que vão ao Nexus.
+  assert.match(termo, /os ajustes do Nexus Field neste celular que a coleta precisa/);
+  assert.match(dito, /quais dados \(.*os ajustes do celular que a coleta precisa: a versão do termo aceita e se a localização, o Permitir o tempo todo, a bateria sem restrição e a notificação estão liberados/,
+    'o item do que o termo promete diz os ajustes da versão 4');
   // A versão 3 (R15): o item promete o que vem depois do aceite, na ordem, e a coleta que volta sozinha só no dia começado.
   assert.match(dito, /localização \(a precisa, durante o uso\), o do Permitir o tempo todo e a janela da bateria sem restrição/);
   assert.match(dito, /volta sozinha se o celular reiniciar, o aplicativo for atualizado ou o Android fechar o aplicativo, e nunca sem a abertura do dia/);

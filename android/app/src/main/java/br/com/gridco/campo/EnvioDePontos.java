@@ -99,7 +99,8 @@ final class EnvioDePontos {
         this(chave, fila, transporte, relogio, maximoDeBytes, null);
     }
 
-    private EnvioDePontos(ChaveDaEquipe chave, FilaDePontos fila, Transporte transporte, LongSupplier relogio,
+    /** Os dois juntos só no teste do limite: o corte do lote conta também os ajustes. */
+    EnvioDePontos(ChaveDaEquipe chave, FilaDePontos fila, Transporte transporte, LongSupplier relogio,
             int maximoDeBytes, Supplier<JSONObject> ajustes) {
         this.chave = chave;
         this.fila = fila;
