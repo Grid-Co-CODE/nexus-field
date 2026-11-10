@@ -1156,7 +1156,8 @@ O site (App de Campo) e o Fracttal não mudam.
   - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "4", o texto de 10/11/2026, R11, R13, R15 e o
     Celular pronto).** A marca
     `termo_aceito` guarda a versão; outra versão, ou a marca booleana da R10 (só nos aparelhos de prova), mostra o termo de
-    novo. Mudar o texto é mudar a constante e a primeira linha ("Versão N"): o `EquipeNaCascaTest` guarda o SHA-256 do
+    novo. Mudar o texto é mudar a constante e a primeira linha ("Versão N") e, no Nexus, o `TERMO_ATUAL` de
+    `nexus/campo/equipe/__init__.py` (o Celular pronto do Piloto compara o `ajustes.termo` com ele): o `EquipeNaCascaTest` guarda o SHA-256 do
     texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. A versão 4 (o Celular
     pronto, 10/11/2026) diz na seção 2 que os ajustes do Nexus Field neste celular também vão ao Nexus; a 3 (R15, do mesmo dia)
     manda escolher o Permitir o tempo todo e a bateria sem restrição e diz que a coleta volta sozinha no mesmo dia depois
