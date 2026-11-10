@@ -72,6 +72,9 @@ import java.util.function.LongSupplier;
  *       resposta diz que há a chave, e o envio e a volta ao app conferem de novo até o cofre voltar (R9); a conta guardada
  *       que então se mostra de outra conta faz a troca de conta na volta ao app. O Sair e a troca de conta voltam a "não
  *       conferida"; a revogação do Sair não espera.</li>
+ *   <li><b>O aviso das 6h</b> ({@link AvisoDoInicio}, R12): a volta ao app agenda o do dia seguinte enquanto a chave e o
+ *       termo estão de pé (a chave que entra e o Li e aceito passam por ela), e o tira sem um dos dois. O toque nele só
+ *       abre o app: quem liga a coleta é esta volta ao app, como em qualquer abertura.</li>
  *   <li><b>Uma thread só</b> para o disco, a cifra e a rede: a do serviço ({@link ServicoDaEquipe.Pecas#execucao}), na
  *       ordem em que tudo chegou. O pedido do aparelho que vem depois de um Sair só é respondido depois de a chave sair (e
  *       a página pede outra), e a chave que chega enquanto um envio leva o 401 não é apagada por ele. O que mexe na tela
@@ -345,6 +348,10 @@ final class EquipeNaCasca {
             return;
         }
         if (chave.precisaReconferir()) reconferirNaVolta();
+        // O aviso das 6h (R12) acompanha a chave e o termo: a chave que entra com o termo aceito, o Li e aceito e cada
+        // volta ao app agendam o do dia seguinte (o Forçar parada apaga os alarmes do app, e a abertura os refaz); sem um
+        // dos dois, ele sai. Depois da troca de conta acima, para não agendar o da conta que saiu.
+        AvisoDoInicio.agendarSeVale(app, chave, relogio.getAsLong());
         boolean temChave;
         try {
             temChave = chave.chave() != null;

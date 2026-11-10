@@ -411,6 +411,9 @@ public class ServicoDaEquipe extends Service {
         if (!pedirPosicoes()) return;
         principal.postDelayed(envioPeriodico, ENVIO_MS);
         agendarOFim(agora);
+        // O aviso das 6h (AvisoDoInicio) cumpriu o papel: o técnico que abriu o app pelo ícone não fica com ele na barra
+        // até as 22h, pedindo um toque que já não muda nada.
+        AvisoDoInicio.tirarDaBarra(this);
         Log.i(TAG, "coleta da equipe ligada até as 22h");
     }
 

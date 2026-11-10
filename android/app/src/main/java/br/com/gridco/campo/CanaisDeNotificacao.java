@@ -46,6 +46,10 @@ import java.util.Arrays;
  * os outros três: o serviço o cria antes de entrar em primeiro plano, e quem a coleta não alcança (o supervisor, o
  * administrador, quem não está no piloto) não vê nos ajustes do Android um canal de localização que não é dele. A mesma
  * regra vale para ele: o que ele grava na primeira coleta não muda depois.
+ *
+ * E o quinto, "Início do dia" (R12, {@link #criarDoInicio}): o do aviso das 6h (AvisoDoInicio), com a importância e o som
+ * padrão, como o resumo (para ser visto, sem aparecer por cima da tela). Nasce quando o aviso passa a valer (a chave da
+ * equipe e o termo aceito), e não a cada abertura, pelo mesmo motivo do quarto; o que ele grava então não muda depois.
  */
 final class CanaisDeNotificacao {
 
@@ -115,6 +119,21 @@ final class CanaisDeNotificacao {
             NotificationManagerCompat.from(contexto).createNotificationChannel(equipe);
         } catch (RuntimeException e) {
             Log.w(CascaPlugin.TAG, "o canal da localização da equipe não foi criado: " + e.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * Cria (ou renomeia) o canal do aviso das 6h (AvisoDoInicio). Nunca lança: roda no receptor do alarme e na volta ao app.
+     */
+    static void criarDoInicio(Context contexto) {
+        try {
+            NotificationChannelCompat inicio = new NotificationChannelCompat.Builder(
+                    AvisoDoInicio.CANAL_INICIO, NotificationManagerCompat.IMPORTANCE_DEFAULT)
+                .setName(contexto.getString(R.string.notificacao_canal_inicio_do_dia))
+                .build();
+            NotificationManagerCompat.from(contexto).createNotificationChannel(inicio);
+        } catch (RuntimeException e) {
+            Log.w(CascaPlugin.TAG, "o canal do aviso das 6h não foi criado: " + e.getClass().getSimpleName());
         }
     }
 }

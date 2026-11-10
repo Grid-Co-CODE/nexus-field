@@ -987,4 +987,48 @@ public class ServicoDaEquipeTest {
         assertEquals(RitmoDaColeta.EM_DESLOCAMENTO_MS, fonte.intervalo);
         assertTrue(fonte.emDeslocamento);
     }
+
+    // ---- O aviso das 6h (R12) ------------------------------------------------------------------------------------------
+
+    private Notification avisoDas6h() {
+        return shadowOf(notificacoes()).getNotification(AvisoDoInicio.ID_DA_NOTIFICACAO);
+    }
+
+    private void tocarOAlarmeDas6h() {
+        new ReceptorDoInicio().onReceive(app,
+            new Intent(AvisoDoInicio.ACAO_DO_ALARME).setClass(app, ReceptorDoInicio.class));
+    }
+
+    @Test
+    public void aColetaQueLigaTiraOAvisoDas6hDaBarra() {
+        // O técnico abriu o app pelo ícone, sem tocar no aviso: ele sai quando a coleta liga, e não fica até as 22h
+        // pedindo um toque que já não muda nada.
+        chave.guardar("chave-ficticia", CONTA);
+        chave.aceitarTermo();
+        agora = em(6, 5);
+        assertTrue(AvisoDoInicio.mostrar(app, agora));
+        assertNotNull(avisoDas6h());
+        ServicoDaEquipe s = ligar();
+        assertTrue(ServicoDaEquipe.rodando());
+        assertNull("a coleta ligou: o aviso saiu", avisoDas6h());
+        assertNotNull("a notificação fixa ficou", shadowOf(s).getLastForegroundNotification());
+    }
+
+    @Test
+    public void comAColetaLigadaOAlarmeDas6hNaoMostraOAviso() {
+        // O Doze segurou o alarme até as 6h20, e o técnico abriu o app às 6h10: a coleta já está ligada.
+        chave.guardar("chave-ficticia", CONTA);
+        chave.aceitarTermo();
+        agora = em(6, 10);
+        ligar();
+        agora = em(6, 20);
+        tocarOAlarmeDas6h();
+        assertNull("a coleta já ligada: nada aparece", avisoDas6h());
+        // Parada (o Android que matou o app), o alarme que vier mostra.
+        morrerOProcesso();
+        assertFalse(ServicoDaEquipe.rodando());
+        agora = em(6, 30);
+        tocarOAlarmeDas6h();
+        assertNotNull(avisoDas6h());
+    }
 }

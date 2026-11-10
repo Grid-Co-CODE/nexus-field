@@ -166,7 +166,8 @@ do processo), anotar qual foi.
       sozinho em alguns segundos. **Testar avisos** de novo: **Aviso de teste enviado para 1 aparelho(s)**, e o resumo e a
       emergência de teste chegam. Nos mesmos ajustes estão os três canais, **Resumo do dia**, **Emergências** e
       **Emergências fora do expediente**. Um quarto, **Localização da equipe** (1.2.0), só aparece no aparelho em que a
-      coleta da posição da equipe já ligou.
+      coleta da posição da equipe já ligou, e um quinto, **Início do dia** (1.2.0, o aviso das 6h), no aparelho com a
+      chave da equipe e o termo de uso aceito.
 - [ ] Ainda nos ajustes, o som de **Emergências** é um som de alarme do aparelho (o Android mostra o nome do toque do
       despertador, ou algo como "Som de alarme padrão"), e não o som padrão de notificação. Se não for, o aparelho rodou um
       APK de depuração deste trabalho de antes do alarme (pela Release isso não acontece): o canal antigo não muda
@@ -401,16 +402,41 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       aparelho vira "sem sinal" depois de 30 min), e a coleta não volta sozinha, nem no mesmo dia (se o sistema tentar,
       o log diz "religamento da coleta da equipe pelo sistema, com o app no fundo: não volta"). Abrir o Nexus Field: a
       coleta liga de novo, sem o termo. É o custo que o dono aceitou ao tirar o "o tempo todo" (R10).
-- [ ] Sem abrir o app no dia, nada é coletado (o anti-objetivo da folga e das férias). Com a coleta ligada: (1)
-      reiniciar o celular; (2) noutro dia, Forçar parada do Nexus Field nos ajustes; (3) noutro dia, tirar o app dos
-      recentes no aparelho que o mata. Em cada caso, depois das 6h do dia seguinte e sem abrir o Nexus Field até o
-      meio da manhã: a notificação fixa não aparece, e o mapa não recebe nenhum ponto novo do aparelho. Abrir o Nexus
-      Field: a coleta liga.
+- [ ] Sem abrir o app no dia, nada é coletado (o anti-objetivo da folga e das férias), também com o aviso das 6h na
+      barra. Com a coleta ligada: (1) reiniciar o celular; (2) noutro dia, Forçar parada do Nexus Field nos ajustes; (3)
+      noutro dia, tirar o app dos recentes no aparelho que o mata. Em cada caso, depois das 6h do dia seguinte e sem
+      tocar no aviso nem abrir o Nexus Field até o meio da manhã: a notificação fixa não aparece, e o mapa não recebe
+      nenhum ponto novo do aparelho. Abrir o Nexus Field: a coleta liga.
 - [ ] A notificação desligada: nos ajustes do Android, desligar o canal **Localização da equipe** (ou as notificações do
       Nexus Field): a coleta para, e o mapa mostra o aparelho sem permissão (o aviso sai no máximo a cada 30 minutos).
       Religar e ver a coleta voltar na próxima volta ao app.
 - [ ] Android 13 ou mais novo: negar a notificação do Nexus Field numa instalação nova: a coleta não liga (sem a
       notificação à vista não há coleta), e o mapa mostra o aparelho sem permissão.
+
+### O aviso das 6h
+
+O aviso das 6h (R12) é uma notificação local, sem o Nexus: o alarme é inexato, e com o celular em repouso pode chegar
+alguns minutos depois. Cada item pede uma manhã; anote a hora em que o aviso chegou (só a hora, sem nada do aparelho).
+
+- [ ] O aviso chega às 6h ou poucos minutos depois: com a conta do piloto e o termo aceito, usar o Nexus Field num dia
+      e não abri-lo depois das 22h. Na manhã seguinte, com o celular parado e a tela apagada desde a noite, às 6h (ou
+      poucos minutos depois) aparece o aviso **Bom dia**, **Toque para abrir o Nexus Field e começar o dia.**, no canal
+      **Início do dia**, com o som padrão de notificação e sem aparecer por cima da tela. Antes das 6h, nada.
+- [ ] O toque abre e liga a coleta: tocar no aviso abre o Nexus Field (sem o termo de novo), a notificação fixa
+      **Localização da equipe ligada** aparece e o aviso sai da barra. O mapa recebe as posições do dia.
+- [ ] Aberto pelo ícone, sem tocar no aviso: quando a coleta liga, o aviso sai da barra sozinho.
+- [ ] A folga: não tocar no aviso nem abrir o Nexus Field: nada é coletado (o mapa não recebe pontos do aparelho), e o
+      aviso sai da barra sozinho às 22h.
+- [ ] Não chega depois do Sair: à noite, **Sair**; na manhã seguinte, nenhum aviso. Nem num aparelho fora do piloto (a
+      conta que o Nexus não escolheu, ou a conta Admin), nem numa conta que ainda não aceitou o termo.
+- [ ] Reiniciar o celular não perde o aviso: à noite, reiniciar o celular e não abrir o Nexus Field: o aviso chega às 6h.
+      Também depois de atualizar o Nexus Field por cima (o APK novo instalado à noite, sem abrir). No Xiaomi e afins, só
+      com o Início automático do guia de instalação ligado: anote se, sem ele, o aviso chegou.
+- [ ] O canal desligado não mostra: nos ajustes do Android, desligar o canal **Início do dia**: na manhã seguinte nada
+      aparece, e a coleta liga quando o Nexus Field for aberto. Religar o canal: o aviso volta na manhã seguinte.
+- [ ] O que apaga o alarme: com **Forçar parada** do Nexus Field à noite, o Android apaga os alarmes dele, e o aviso da
+      manhã seguinte não chega; a próxima abertura o refaz (o aviso volta no outro dia). No aparelho que mata o app ao
+      tirar dos recentes (Xiaomi e afins), tirar o Nexus Field dos recentes à noite e anotar se o aviso chegou.
 
 ### O técnico sem a permissão de localização e o Sair
 

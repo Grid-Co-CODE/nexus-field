@@ -42,6 +42,8 @@ import java.util.UUID;
  *       que ela não lê vale como sem conta.</li>
  *   <li>O id do aparelho é um UUID criado uma vez e sobrevive ao {@link #apagar}: é a identidade do aparelho, não o
  *       segredo.</li>
+ *   <li>O aviso das 6h ({@link AvisoDoInicio}, R12) só existe com a chave: a chave que sai leva o alarme e o aviso da
+ *       barra.</li>
  * </ul>
  */
 final class ChaveDaEquipe {
@@ -62,6 +64,7 @@ final class ChaveDaEquipe {
     // de prova, não é uma versão e não vale.
     private static final String K_TERMO = "termo_aceito";
 
+    private final Context app;
     private final SharedPreferences prefs;
     private final Cifra cifra;
     // Na memória: some com o processo e com a tela que nasce (uma ChaveDaEquipe por processo, a das
@@ -73,6 +76,7 @@ final class ChaveDaEquipe {
     private boolean porRefazer = false;
 
     ChaveDaEquipe(Context ctx, Cifra cifra) {
+        this.app = ctx.getApplicationContext();
         this.prefs = ctx.getSharedPreferences(ARQUIVO, Context.MODE_PRIVATE);
         this.cifra = cifra;
     }
@@ -178,24 +182,39 @@ final class ChaveDaEquipe {
         contaDaPagina = null;
     }
 
-    /** O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito e a conferência saem juntos. */
+    /**
+     * O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito e a conferência saem juntos, e o aviso
+     * das 6h com eles ({@link #semOAvisoDas6h}).
+     */
     synchronized void apagar() {
         prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_TERMO).commit();
         conferida = false;
         contaDaPagina = null;
         porRefazer = false;
+        semOAvisoDas6h();
     }
 
     /**
      * O 401 do envio (a chave que o Nexus não reconhece mais): sai só a chave. A conta fica, dona da fila que sobrou: a
      * mesma conta a sobe com a chave nova, e outra conta a apaga antes ({@link EquipeNaCasca}). Caso que criou a regra: A
      * trabalhou o dia sem sinal, a chave venceu e o primeiro envio levou o 401; com a conta apagada junto, B, que abriu o
-     * app no dia seguinte sem o Sair de A, mandava o dia de A ao Nexus em nome de B. O termo aceito fica com a conta.
+     * app no dia seguinte sem o Sair de A, mandava o dia de A ao Nexus em nome de B. O termo aceito fica com a conta; o
+     * aviso das 6h sai ({@link #semOAvisoDas6h}), e a chave nova da mesma conta o agenda de novo.
      */
     synchronized void apagarAChave() {
         prefs.edit().remove(K_CHAVE).commit();
         conferida = false;
         porRefazer = false;
+        semOAvisoDas6h();
+    }
+
+    // O aviso das 6h (R12) existe enquanto a chave existe: todo caminho em que ela sai passa por aqui (o Sair, a troca de
+    // conta e o coleta:false do registro ou do envio pelo apagar; o 401 pelo apagarAChave, também o do último envio das
+    // 22h, cuja resposta ninguém lê), e o alarme e o aviso da barra saem junto. Sem isto, cada um desses caminhos teria de
+    // lembrar de cancelar, e o esquecido acordaria à toa às 6h o celular de quem saiu (o aviso não apareceria: a decisão é
+    // da hora do alarme).
+    private void semOAvisoDas6h() {
+        AvisoDoInicio.cancelar(app);
     }
 
     // Conferida: a chave guardada é da conta que a página mandou.

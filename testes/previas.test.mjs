@@ -346,7 +346,8 @@ test('nenhuma string da casca fica sem quadro, e a tabela do teste não cita str
 
 test('os nomes dos canais de notificação estão no quadro dos ajustes: os que o CanaisDeNotificacao cria, e só eles', () => {
   const doJava = canaisDoJava();
-  assert.equal(doJava.length, 4, 'o teste achou os quatro canais do CanaisDeNotificacao (os três do servidor e o da equipe)');
+  assert.equal(doJava.length, 5,
+    'o teste achou os cinco canais do CanaisDeNotificacao (os três do servidor, o da equipe e o do aviso das 6h)');
   assert.deepEqual(stringsDosCanais().map((s) => s.nome).sort(), [...doJava].sort(),
     'todo notificacao_canal_* do strings.xml é o nome de um canal, e todo canal tira o nome de um deles');
 
@@ -390,9 +391,10 @@ test('toda string do strings.xml tem lugar na prévia: um prefixo novo não esca
   // applicationId, que o técnico não lê. Fora disso é texto novo sem quadro: ganha o quadro e o teste dele na prévia
   // antes de ir ao campo, ou entra aqui com o motivo de não aparecer ao técnico. Caso que criou a regra: os nomes dos
   // canais (18/10/2026) saíram do prefixo casca_ e ficaram fora da prévia sem nenhum teste reclamar. Os
-  // notificacao_equipe_* (a notificação fixa da localização da equipe) têm o quadro #t-equipe-notificacao.
-  const COM_QUADRO = [/^casca_[a-z_]+$/, /^notificacao_canal_[a-z_]+$/, /^notificacao_equipe_[a-z_]+$/, /^atalho_[a-z_]+$/,
-    /^(app_name|title_activity_main)$/];
+  // notificacao_equipe_* (a notificação fixa da localização da equipe) têm o quadro #t-equipe-notificacao, e os
+  // notificacao_inicio_* (o aviso das 6h, R12), o #t-equipe-inicio.
+  const COM_QUADRO = [/^casca_[a-z_]+$/, /^notificacao_canal_[a-z_]+$/, /^notificacao_equipe_[a-z_]+$/,
+    /^notificacao_inicio_[a-z_]+$/, /^atalho_[a-z_]+$/, /^(app_name|title_activity_main)$/];
   const SEM_TELA = ['package_name', 'custom_url_scheme'];
   const nomes = [...STRINGS.matchAll(/<string\b[^>]*\bname="([^"]*)"/g)].map((m) => m[1]);
   assert.ok(nomes.length >= 20, 'o teste leu as strings do strings.xml');
@@ -437,21 +439,65 @@ test('a notificação fixa da localização da equipe tem quadro: o título e o 
     'a legenda diz o canal, com o nome do strings.xml');
 });
 
+// O aviso das 6h (R12, o pedido do dono em 10/11/2026: "Só avisa, mas tem que coletar cara!"): o título e o texto são do
+// strings.xml (o AvisoDoInicio os mostra às 6h a quem tem a chave e o termo aceito), no canal próprio dele, que toca o som
+// padrão e não aparece por cima da tela. A hora do quadro é a do alarme.
+test('o aviso das 6h tem quadro: o título e o texto que o AvisoDoInicio mostra, no canal dele, às 6h', () => {
+  const fonte = lerArquivo(PASTA_JAVA + 'AvisoDoInicio.java');
+  const usadas = [...new Set([...fonte.matchAll(/R\.string\.(notificacao_inicio_\w+)/g)].map((m) => m[1]))].sort();
+  const strings = stringsDe('notificacao_inicio_');
+  assert.deepEqual(strings.map((s) => s.nome).sort(), usadas,
+    'todo notificacao_inicio_* do strings.xml é um texto que o AvisoDoInicio mostra, e ele só mostra esses');
+  const texto = (sufixo) => strings.find((s) => s.nome === `notificacao_inicio_${sufixo}`)?.texto;
+  assert.ok(texto('titulo') && texto('texto'), 'o título e o texto do aviso das 6h');
+
+  const canal = fonte.match(/new NotificationCompat\.Builder\(\w+, (CANAL_\w+)\)/);
+  const id = canal && fonte.match(new RegExp(`static final String ${canal[1]} = "(\\w+)";`));
+  assert.ok(id, 'o teste leu o canal do aviso das 6h');
+  const doCanal = canaisDetalhadosDoJava().find((c) => c.id === id[1]);
+  assert.ok(doCanal, `o CanaisDeNotificacao cria o canal ${id[1]}`);
+  assert.equal(doCanal.importancia, 'DEFAULT', 'o aviso das 6h tem importância padrão, para ser visto');
+  assert.equal(doCanal.som, 'padrão', 'e o som padrão de notificação');
+
+  const figura = doc().getElementById('t-equipe-inicio');
+  const quadro = figura?.querySelector('.celular.gaveta');
+  assert.ok(quadro, 'o quadro do aviso das 6h (figure#t-equipe-inicio)');
+  assert.equal(quadro.getAttribute('data-canal'), id[1]);
+  assert.equal(quadro.classList.contains('por-cima'), doCanal.importancia === 'HIGH', 'por cima da tela só a alta');
+  const de = (seletor) => compactar(quadro.querySelector(`.notificacao ${seletor}`)?.textContent ?? '');
+  assert.equal(de('.notificacao-app'), stringDoApp('app_name'));
+  assert.equal(de('.notificacao-titulo'), texto('titulo'));
+  assert.equal(de('.notificacao-texto'), texto('texto'));
+  assert.equal(de('.notificacao-hora'), '06:00', 'a hora do alarme');
+  const legenda = figura.querySelector('figcaption');
+  assert.equal(compactar(legenda.querySelector('.notificacao-canal')?.textContent ?? ''), textoDe(doCanal.nome),
+    'a legenda diz o canal, com o nome do strings.xml');
+  // A legenda diz quando ele não aparece e o que o toque faz: o aviso não coleta nada sozinho (a folga continua sem coleta).
+  const dita = compactar(legenda.textContent);
+  for (const [o, trecho] of [['quem tem a chave e o termo', /termo/], ['a coleta já ligada', /coleta já ligada/],
+    ['o toque abre e liga', /[Tt]ocar abre o Nexus Field/], ['a folga', /folga/], ['o Sair', /Sair/],
+    ['o canal desligado', /desligado/], ['o atraso do repouso', /minutos depois/]]) {
+    assert.match(dita, trecho, `a legenda do aviso das 6h diz ${o}`);
+  }
+});
+
 // A lista "O que aprovar" e a localização da equipe (spec 2026-11-08, seção 4.1): cada texto novo é aprovado pelo texto
 // inteiro (o dono da casca, o RH e o jurídico leem as palavras, e não um resumo), e o termo tem o item do que ele promete.
 test('a lista "O que aprovar" cita cada texto da localização da equipe, inteiro, e o que o termo promete', () => {
   const d = doc();
   const citados = [...d.querySelectorAll('#o-que-aprovar .cita')].map((e) => compactar(e.textContent));
-  const daEquipe = [...stringsDe('casca_equipe_'), ...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_canal_equipe_')];
+  const daEquipe = [...stringsDe('casca_equipe_'), ...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_canal_equipe_'),
+    ...stringsDe('notificacao_inicio_'), ...stringsDe('notificacao_canal_inicio_')];
   assert.deepEqual(stringsDe('casca_equipe_').map((s) => s.nome).sort(),
     ['casca_equipe_termo_aceitar', 'casca_equipe_termo_rolar', 'casca_equipe_termo_texto', 'casca_equipe_termo_titulo'],
     'a casca da equipe tem só o termo (R10) e a dica dele (R11): o aviso e a explicação da localização o tempo todo saíram');
-  assert.ok(daEquipe.length >= 6, 'o teste leu os textos da localização da equipe');
+  assert.ok(daEquipe.length >= 9, 'o teste leu os textos da localização da equipe e do aviso das 6h');
   for (const s of daEquipe) {
     assert.ok(citados.some((t) => t === s.texto), `a lista "O que aprovar" não cita o ${s.nome}: "${s.texto}"`);
   }
   // Cada item leva ao quadro certo, que existe.
-  for (const [item, quadro] of [['ok-equipe-termo', 't-equipe-termo'], ['ok-equipe-notificacao', 't-equipe-notificacao']]) {
+  for (const [item, quadro] of [['ok-equipe-termo', 't-equipe-termo'], ['ok-equipe-notificacao', 't-equipe-notificacao'],
+    ['ok-equipe-inicio', 't-equipe-inicio']]) {
     const li = d.getElementById(item)?.closest('li');
     assert.ok(li, `o item ${item} da lista "O que aprovar"`);
     assert.equal(li.querySelector('a.ver')?.getAttribute('href'), `#${quadro}`);
@@ -479,7 +525,7 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   const secao = d.getElementById('g-equipe')?.closest('section');
   assert.ok(secao, 'a seção Localização da equipe');
   assert.deepEqual([...secao.querySelectorAll('figure.item')].map((f) => f.id),
-    ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao']);
+    ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao', 't-equipe-inicio']);
   assert.ok(!/tempo todo/.test(secao.textContent), 'a seção da equipe não fala mais da localização o tempo todo');
   for (const li of d.querySelectorAll('#o-que-aprovar li')) {
     assert.ok(!/tempo todo/.test(li.textContent), `um item do "O que aprovar" ainda fala da o tempo todo: ${li.textContent}`);
@@ -608,7 +654,7 @@ test('os links "Ver" da lista têm alvo de toque de pelo menos 44 px', () => {
 
 test('os nomes entre aspas da lista "O que aprovar" são textos de verdade do aplicativo', () => {
   // A lista é uma terceira cópia dos títulos e dos botões; sem esta conferência ela envelhece sozinha.
-  const daEquipe = [...stringsDe('notificacao_equipe_')];
+  const daEquipe = [...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_inicio_')];
   const permitidos = new Set([...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos(), ...daEquipe].map((s) => s.texto));
   for (const nome of ['app_name', 'title_activity_main']) permitidos.add(stringDoApp(nome)); // o nome, Nexus Field
   const erro = new JSDOM(ERRO_HTML).window.document;
@@ -926,7 +972,7 @@ test('as notificações de exemplo: uma por quadro, no canal e na importância q
   const secao = secaoDeNotificacoes(d);
   assert.ok(secao, 'a seção Notificações');
   const canais = canaisDetalhadosDoJava();
-  assert.equal(canais.length, 4, 'o teste leu os quatro canais do CanaisDeNotificacao');
+  assert.equal(canais.length, 5, 'o teste leu os cinco canais do CanaisDeNotificacao');
   const osQueAbre = padraoDaOSDoJava();
 
   // A seção diz de quem é o texto e de qual servidor ele foi copiado.

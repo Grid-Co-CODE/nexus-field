@@ -10,9 +10,12 @@ import static org.junit.Assert.fail;
 import static org.robolectric.Shadows.shadowOf;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.app.Application;
 import android.app.Dialog;
+import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Typeface;
 import android.os.Looper;
@@ -56,6 +59,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowAlarmManager;
 import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.shadows.ShadowLog;
 
@@ -1313,6 +1317,79 @@ public class EquipeNaCascaTest {
         assertFalse("a próxima conta não espera os 30 minutos de quem saiu", daCasca().contains("sem_permissao_em"));
         assertNull(chave.chave());
         assertNull(chave.conta());
+    }
+
+    // --- o aviso das 6h (R12) -------------------------------------------------------------------------------------------
+
+    /** Os alarmes do aviso das 6h agendados agora (os que mandam a ação dele ao receptor), pela hora em que tocam. */
+    private List<Long> alarmesDas6h() {
+        AlarmManager alarmes = (AlarmManager) app.getSystemService(Context.ALARM_SERVICE);
+        List<Long> deles = new ArrayList<>();
+        for (ShadowAlarmManager.ScheduledAlarm a : shadowOf(alarmes).getScheduledAlarms()) {
+            if (a.operation == null) continue;
+            Intent alvo = shadowOf(a.operation).getSavedIntent();
+            if (alvo != null && AvisoDoInicio.ACAO_DO_ALARME.equals(alvo.getAction())) deles.add(a.getTriggerAtMs());
+        }
+        return deles;
+    }
+
+    /** O aviso das 6h está na barra. */
+    private boolean avisoDas6hNaBarra() {
+        NotificationManager nm = (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+        return shadowOf(nm).getNotification(AvisoDoInicio.ID_DA_NOTIFICACAO) != null;
+    }
+
+    @Test
+    public void aVoltaAoAppComAChaveEOTermoAgendaOAvisoDas6hDoDiaSeguinte() {
+        // A cada volta ao app, também depois do Forçar parada (que apaga os alarmes do app) ou do boot que o Android não
+        // entregou: a primeira abertura refaz o alarme do dia seguinte.
+        comChaveETermo(CHAVE_A);
+        casca().reavaliar();
+        assertEquals(Collections.singletonList(em(10, 6, 0)), alarmesDas6h());
+        casca().reavaliar();
+        assertEquals("não empilha", 1, alarmesDas6h().size());
+    }
+
+    @Test
+    public void oTermoAceitoEAChaveQueEntraAgendamOAvisoDas6h() {
+        // A chave sem o termo: nada agendado; o Li e aceito agenda.
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        assertEquals(1, tela.termos);
+        assertTrue("sem o termo, nenhum aviso", alarmesDas6h().isEmpty());
+        tela.aceitarDoTermo.run();
+        assertEquals(Collections.singletonList(em(10, 6, 0)), alarmesDas6h());
+
+        // O 401 apaga a chave e leva o alarme; a chave nova da mesma conta (o termo já aceito) o agenda de novo.
+        chave.apagarAChave();
+        assertTrue("o 401 leva o alarme", alarmesDas6h().isEmpty());
+        c.receberChave(true, CHAVE_B, CONTA_A);
+        assertEquals(Collections.singletonList(em(10, 6, 0)), alarmesDas6h());
+    }
+
+    @Test
+    public void oSairOColetaFalseEATrocaDeContaCancelamOAvisoDas6h() {
+        dar(Manifest.permission.POST_NOTIFICATIONS);
+        comChaveETermo(CHAVE_A);
+        casca().reavaliar();
+        assertTrue(AvisoDoInicio.mostrar(app, em(9, 6, 5)));
+        semRede = new IOException("sem rede");
+        casca().sair();
+        assertTrue("o Sair leva o alarme, mesmo sem rede", alarmesDas6h().isEmpty());
+        assertFalse("e o aviso da barra", avisoDas6hNaBarra());
+
+        semRede = null;
+        comChaveETermo(CHAVE_A);
+        casca().reavaliar();
+        assertEquals(1, alarmesDas6h().size());
+        casca().receberChave(false, null, CONTA_A);
+        assertTrue("o coleta:false leva o alarme", alarmesDas6h().isEmpty());
+
+        comChaveETermo(CHAVE_A);
+        casca().reavaliar();
+        assertEquals(1, alarmesDas6h().size());
+        casca().pedirAparelho(CONTA_B, json -> true);
+        assertTrue("a troca de conta leva o alarme: B ainda não aceitou o termo", alarmesDas6h().isEmpty());
     }
 
     // --- o log --------------------------------------------------------------------------------------------------------

@@ -97,6 +97,18 @@
     <string name="notificacao_equipe_texto">Até as 22h, o Nexus Field envia a posição deste celular para o mapa da equipe.</string>
 
     <!--
+      O aviso das 6h (R12, o pedido do dono em 10/11/2026, depois do piloto em que a coleta só ligou na abertura das
+      07:46: "Só avisa, mas tem que coletar cara!"; AvisoDoInicio). Textos novos, PENDENTES de aprovação do dono da casca:
+      vão à prévia (docs/previas/telas.html, a seção Localização da equipe, #t-equipe-inicio, e o quadro dos ajustes,
+      #t-canais) e só valem depois de aprovados. O nome do canal tem o prefixo dos canais; o id (inicio_do_dia) fica no
+      código, e o canal só nasce no aparelho com a chave da equipe e o termo aceito. O título e o texto do aviso têm
+      prefixo próprio, notificacao_inicio_: o texto é do Nexus Field, não do servidor.
+    -->
+    <string name="notificacao_canal_inicio_do_dia">Início do dia</string>
+    <string name="notificacao_inicio_titulo">Bom dia</string>
+    <string name="notificacao_inicio_texto">Toque para abrir o Nexus Field e começar o dia.</string>
+
+    <!--
       O termo de uso e privacidade da localização da equipe (spec 2026-11-08, seção 4.1; EquipeNaCasca e TermoDaEquipe), a
       única tela da casca antes de a coleta ligar (R10, 08/11/2026: no lugar do aviso e da explicação da localização o
       tempo todo, a pedido do dono). Desde a R11 (09/11/2026, o pedido do dono: "Quero que o termo de notificação inclua

@@ -1027,7 +1027,8 @@ dono da casca, o RH e o jurídico aprovarem na prévia (a seção Localização 
 O site (App de Campo) e o Fracttal não mudam.
 
 - **A regra.** Liga na primeira abertura (ou na volta ao app) entre 6h e 22h na hora do celular, e para às 22h; 6:00:00
-  vale e 22:00:00 não (`JanelaDaEquipe`). Sem botão de pausa (decisão do dono). Só vale para quem o Nexus diz
+  vale e 22:00:00 não (`JanelaDaEquipe`). Às 6h, o aviso **Bom dia** chama essa abertura (R12, abaixo); sozinho, ele
+  não coleta nada. Sem botão de pausa (decisão do dono). Só vale para quem o Nexus diz
   `coleta: true` ao dar a chave: supervisor, administrador, aparelho de prova e quem está fora do piloto não veem o termo
   nem coleta, e por isso a 1.2.0 pode ir a todos os aparelhos. `coleta: false` ou 401 param o serviço e apagam a chave.
   Ritmo (`RitmoDaColeta`, instância com estado: 3 leituras paradas seguidas): 2 min em deslocamento, 10 min parado.
@@ -1062,6 +1063,26 @@ O site (App de Campo) e o Fracttal não mudam.
     (`SEM_A_NOTIFICACAO`: a coleta ligada para, e o Nexus recebe o `permissao: "sem"`, como sem a permissão; antes, o
     mapa mostrava o aparelho só como "sem sinal"). A notificação arrastada (Android 14+) volta na hora, pelo
     `deleteIntent` (`REPOR`).
+  - **O aviso das 6h (R12, `AvisoDoInicio` e `ReceptorDoInicio`; o pedido do dono em 10/11/2026, depois do piloto em
+    que a coleta só ligou às 07:46, na abertura: "Só avisa, mas tem que coletar cara!").** Todo dia às 6h na hora do
+    celular, a notificação **Bom dia** / "Toque para abrir o Nexus Field e começar o dia." no quinto canal, "Início do
+    dia" (`inicio_do_dia`: som e importância padrão, sem categoria; nasce quando o aviso passa a valer). O toque abre a
+    MainActivity pela porta interna, e a volta ao app liga a coleta pelo caminho de sempre. Ligar sozinho às 6h foi
+    recusado: exigiria o "o tempo todo" (R10) e coletaria em folga. Aparece só com a chave guardada e o termo da versão
+    de agora aceito (`vale`, sem a cifra), a coleta parada e a hora na janela, decidido na hora do alarme (o alarme que
+    sobrou não mostra nada a quem saiu; sem a chave ou o termo, o próximo nem é agendado). Sai da barra no toque, quando a
+    coleta liga (`ServicoDaEquipe.ligarColeta`) ou às 22h (`setTimeoutAfter`). O alarme é o `setAndAllowWhileIdle` do
+    `RTC_WAKEUP`: sem alarme exato, e o `setWindow` não toca no Doze (espera a janela de manutenção, que de madrugada
+    leva horas); o Android pode atrasá-lo uns minutos. Quem agenda: o próprio alarme (o do dia seguinte), cada volta ao
+    app com a chave e o termo de pé (a chave que entra e o Li e aceito passam por ela; o Forçar parada apaga os alarmes
+    do app, e a abertura os refaz) e o `ReceptorDoInicio` no `BOOT_COMPLETED`, no `MY_PACKAGE_REPLACED` e no
+    `TIMEZONE_CHANGED` (o alarme das 6h de Brasília tocaria às 5h em Mato Grosso: fora da janela nada aparece, e o
+    próximo vai às 6h do fuso novo). O receptor não é exportado: o sistema alcança o receptor não exportado, e nenhum app
+    de fora manda um "Bom dia". Quem cancela: a chave que sai (`ChaveDaEquipe.apagar` e `apagarAChave`: o Sair, a troca
+    de conta, o `coleta:false` e o 401, também o do último envio das 22h, cuja resposta ninguém lê) leva o alarme e o
+    aviso da barra. Falta no aparelho: a hora de chegada com o celular em repouso, o boot no Xiaomi sem o Início
+    automático e o "tirar dos recentes" que apaga os alarmes. O celular desligado às 6h perde o aviso do dia (o boot só
+    reagenda o do dia seguinte).
   - `EquipeNaCasca`: a regra (`decidir`, pura: a janela, a chave, o termo aceito, a localização precisa e a notificação à
     vista; a conta conferida é do envio) e quem a executa. Uma tela nossa só (R10, o pedido do dono depois da prévia:
     "essa quantidade de telas e avisos atrapalham muito a experiência"): o **Termo de uso e privacidade da localização**,
@@ -1154,14 +1175,15 @@ O site (App de Campo) e o Fracttal não mudam.
   um `rede` (o TypeError do fetch do CORS), e não um `http404`.
 - **O que não se faz.** Coordenada, chave, e-mail ou id de aparelho no log (`Log`) ou nos `erro` da página; o token
   Microsoft no nativo; botão de pausa; coletar fora da janela, sem a notificação fixa à vista ou com `coleta: false`;
-  pedir a localização "o tempo todo" ou iniciar o serviço com o app no fundo; tela nossa além do termo; mudar o texto do
+  pedir a localização "o tempo todo" ou iniciar o serviço com o app no fundo (o aviso das 6h só abre o app; quem liga é
+  a abertura); alarme exato (`SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM`); tela nossa além do termo; mudar o texto do
   termo sem mudar a `TERMO_VERSAO`; o Li e aceito que liga antes do fim do texto; texto novo de interface sem o
   `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do "O que aprovar", com o texto
   inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega). Xiaomi e afins: a coleta com o app
   fechado depende do Início automático e da bateria sem restrições, que o guia de instalação (`docs/instalacao/`) manda
   ligar; o app morto pelo sistema para a coleta até a próxima abertura. O roteiro do piloto é a seção "A localização da
   equipe" do `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às 22h, a tela apagada, as
-  marcas).
+  marcas, o aviso das 6h).
 
 ## Distribuição
 

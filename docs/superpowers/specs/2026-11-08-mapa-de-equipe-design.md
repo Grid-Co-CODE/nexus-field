@@ -43,7 +43,10 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 ## 3. Decisões do dono
 
 - **Quando liga:** na primeira abertura do Nexus Field no dia, entre 6h e 22h, e vai até as 22h (08/11). Em férias ou
-  folga, sem abrir o app, nada é coletado. Antes disso ele tinha dito "das 06:00 às 22:00", por causa da hora extra.
+  folga, sem abrir o app, nada é coletado. Antes disso ele tinha dito "das 06:00 às 22:00", por causa da hora extra. Às
+  6h, um aviso no celular chama essa abertura (10/11, R12, depois do piloto em que a coleta só ligou às 07:46: "Só avisa,
+  mas tem que coletar cara!"); ligar sozinho às 6h foi recusado, porque pediria a localização "o tempo todo" e coletaria
+  em folga.
 - **Sem pausa:** "não pode" (08/11). Ligada, a coleta não tem botão de parar até as 22h.
 - **Quem vê:** os setores PCM, COS, Performance, Supervisão Campo e Responsáveis UFV, todos o mapa inteiro (08/11).
 - **Rota:** "Abrir a rota no Google Maps ou Waze", do ponto do técnico até a usina escolhida (08/11; ver a seção 9 sobre
@@ -106,6 +109,15 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   de rede com o celular parado, dentro da precisão das leituras, não conta como deslocamento). Sem sinal, os pontos
   esperam no celular e saem quando o sinal voltar. Sem a notificação fixa à vista, a coleta não liga, e o mapa mostra o
   técnico como sem permissão.
+- **O aviso das 6h (R12, 10/11).** Todo dia às 6h na hora do celular (com o celular em repouso, pode chegar alguns
+  minutos depois: o alarme é inexato, sem a permissão de alarme exato), a notificação "Bom dia", "Toque para abrir o
+  Nexus Field e começar o dia.", num canal próprio ("Início do dia", com o som padrão). O toque abre o Nexus Field, e a
+  abertura liga a coleta pelo caminho de sempre; o aviso sozinho não coleta nada, e quem está de folga o ignora. Só
+  aparece com a chave do aparelho e o termo da versão atual aceito, e com a coleta ainda parada; decide na hora do
+  alarme, então o Sair, o `coleta: false` e o 401 (que apagam a chave e cancelam o alarme) não deixam nada aparecer. Sai
+  da barra no toque, quando a coleta liga ou às 22h. O alarme volta depois de reiniciar o celular, de atualizar o app e
+  de mudar o fuso, e cada abertura do app o refaz (o "Forçar parada" apaga os alarmes do app). Com a notificação negada
+  ou o canal desligado, nada aparece.
 - **O que a casca faz com as respostas do Nexus.** O 200 só vale com o `coleta` booleano: o `true` tira os pontos da
   fila, o `false` para; sem o campo, nulo ou de outro tipo, é como sem rede (nada sai da fila nem se apaga). O 4xx que
   não é o 401 é o lote recusado, que sai da fila para não travar os seguintes; o 403, o 404, o 405 (o acesso ou a rota,
@@ -181,7 +193,9 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 
 - O Android pode adiar ou cortar a coleta em celular com economia de bateria agressiva, mesmo com os ajustes do guia: o
   mapa mostra "sem sinal há X min" e não esconde o buraco.
-- O técnico que não abre o app no dia não aparece no mapa naquele dia.
+- O técnico que não abre o app no dia (nem toca no aviso das 6h) não aparece no mapa naquele dia. O aviso pode chegar
+  alguns minutos depois das 6h com o celular em repouso; o celular desligado às 6h perde o aviso do dia; e o "Forçar
+  parada" (ou o "tirar dos recentes" de quem mata o app, conforme a marca) apaga o alarme até a próxima abertura.
 - Abrir rota manda ao Google a posição do técnico e a da usina, no clique de quem pediu.
 - Entre os 7 dias e a limpeza da T.I., o ponto velho continua no banco, cifrado, sem uso.
 - Sem a notificação fixa à vista não há coleta: no Android 13 ou mais novo com a notificação do Nexus Field negada, ou com

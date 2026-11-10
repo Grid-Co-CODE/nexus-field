@@ -100,6 +100,23 @@
             android:foregroundServiceType="location" />
 
         <!--
+          O aviso das 6h (R12, AvisoDoInicio): o alarme das 6h chega aqui e mostra o aviso; o boot, a atualização do app
+          e o fuso novo só reagendam o alarme (o Android não o guarda de um boot para o outro). Não exportado: o alarme é
+          um PendingIntent explícito do próprio app, e os três eventos vêm do sistema, que alcança o receptor não
+          exportado (o exported só barra os outros apps). Assim nenhum app de fora manda um "Bom dia" a qualquer hora. A
+          ação do alarme fica fora do filtro.
+        -->
+        <receiver
+            android:name=".ReceptorDoInicio"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
           Se um dia chegar uma mensagem com notificação (e não só dados), o próprio Firebase a mostra: no canal do resumo
           (o mais calmo dos três), e não no "Miscellaneous" que ele criaria, e com o G branco no lugar do quadrado cinza.
         -->
@@ -133,6 +150,9 @@
     <!-- O celular acordado durante o envio dos pontos (ServicoDaEquipe): com a tela apagada ele dorme entre uma posição e
          outra. O Firebase também a traz, mas a coleta não fica dependendo de outra biblioteca para tê-la. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- O aviso das 6h (AvisoDoInicio): o alarme volta depois de o celular religar. O alarme é inexato (o
+         setAndAllowWhileIdle), e por isso nem SCHEDULE_EXACT_ALARM nem USE_EXACT_ALARM entram. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Sem o required="false", a permissão CAMERA faz a câmera parecer obrigatória (lint
          PermissionImpliesUnsupportedChromeOsHardware). As duas são pedidas em tempo de execução. -->
