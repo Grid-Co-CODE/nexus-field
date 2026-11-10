@@ -87,7 +87,7 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   pedido do Android que vem em seguida (Durante o uso do app). O texto rola dentro do diálogo e o "Li e aceito", sempre à
   vista embaixo, só liga depois de o fim do texto aparecer na tela (com uma dica logo acima enquanto isso; o texto que
   cabe inteiro libera na hora; o TalkBack e o teclado rolam igual). O aceite guarda a versão do texto (`TERMO_VERSAO`,
-  "1", o de 09/11/2026): o texto que mudar muda a versão, e quem aceitou a de antes vê o termo de novo. Os textos vão à
+  "2", o de 10/11/2026, R13; a "1" foi a de 09/11/2026): o texto que mudar muda a versão, e quem aceitou a de antes vê o termo de novo. Os textos vão à
   prévia (`docs/previas/telas.html`), ao RH e ao jurídico (do jurídico confirmar: a base legal e o RH como canal dos
   direitos), e só valem depois de aprovados. Casos que criaram a regra: o dono viu a prévia com o aviso e as duas
   explicações da localização "o tempo todo" e pediu "só cria um termo de uso para eles darem ok, essa quantidade de

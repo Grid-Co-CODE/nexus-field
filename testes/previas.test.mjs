@@ -529,6 +529,9 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
     assert.match(termo, trecho, `o termo diz ${pergunta}`);
     assert.ok(new RegExp(pergunta).test(dito), `o item do que o termo promete cobre: ${pergunta}`);
   }
+  // A versão 2 (R13): o item não promete mais o que o mapa deixou de fazer (só a cidade de quem está parado fora de usina).
+  assert.doesNotMatch(dito, /só a cidade/, 'o item do que o termo promete está na versão 2');
+  assert.match(dito, /ponto exato/, 'o item do que o termo promete diz do ponto exato e do percurso');
   // A seção da equipe tem o termo e a notificação, e nada do aviso nem da o tempo todo.
   const secao = d.getElementById('g-equipe')?.closest('section');
   assert.ok(secao, 'a seção Localização da equipe');
