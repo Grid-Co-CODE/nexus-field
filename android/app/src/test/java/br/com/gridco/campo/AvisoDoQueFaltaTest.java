@@ -66,6 +66,7 @@ public class AvisoDoQueFaltaTest {
         fusoDeAntes = TimeZone.getDefault();
         TimeZone.setDefault(BRASILIA);
         app.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().clear().commit();
+        app.getSharedPreferences("equipe_falta", Context.MODE_PRIVATE).edit().clear().commit();
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS, PRECISA, APROXIMADA, TEMPO_TODO);
         liberarABateria(true);
         chave = new ChaveDaEquipe(app, new CifraFalsa());
@@ -236,6 +237,57 @@ public class AvisoDoQueFaltaTest {
         xiaomiNoModo(AppOpsManager.MODE_IGNORED);
         conferir();
         assertEquals("Falta: Início automático" + FIM_DO_TEXTO, textoDoAviso());
+    }
+
+    // --- o som: uma vez por dia para cada lista ---------------------------------------------------------------------
+
+    /** O aviso de agora tocou: não foi postado em silêncio (o setSilent do NotificationCompat o põe no grupo silencioso). */
+    private static boolean tocou(Notification n) {
+        assertNotNull("o aviso do que falta na barra", n);
+        return !NotificationCompat.GROUP_KEY_SILENT.equals(n.getGroup());
+    }
+
+    /** O técnico limpa o aviso da barra. */
+    private void limpar() {
+        notificacoes().cancel(AvisoDoQueFalta.ID_DA_NOTIFICACAO);
+        assertNull(oAviso());
+    }
+
+    @Test
+    public void oSomValeUmaVezPorDiaParaCadaListaMesmoDepoisDeLimpar() {
+        // A revisão da Task 14 (10/11/2026): sem a marca, o aviso limpo com algo ainda faltando voltava tocando a cada
+        // envio (de 2 a 10 min com a coleta ligada), porque o setOnlyAlertOnce só cala o aviso que ainda está na barra.
+        comChaveETermo();
+        shadowOf(app).denyPermissions(TEMPO_TODO);
+        conferir();
+        assertTrue("o primeiro aviso do dia toca", tocou(oAviso()));
+
+        limpar();
+        agora = em(9, 9, 10);
+        conferir();
+        assertFalse("o mesmo dia e a mesma lista, depois de limpar: volta em silêncio", tocou(oAviso()));
+        assertEquals("Falta: Permitir o tempo todo" + FIM_DO_TEXTO, textoDoAviso());
+
+        limpar();
+        liberarABateria(false);
+        conferir();
+        assertTrue("outra lista toca", tocou(oAviso()));
+
+        limpar();
+        agora = em(9, 21, 50);
+        conferir();
+        assertFalse("a mesma lista no fim do dia: silêncio", tocou(oAviso()));
+
+        limpar();
+        agora = em(10, 6, 5);
+        conferir();
+        assertTrue("o dia seguinte, na hora do celular, toca de novo", tocou(oAviso()));
+
+        // O apagar (o Sair, a troca de conta, o coleta:false) tira a marca: a próxima conta ouve o aviso dela.
+        chave.apagar();
+        comChaveETermo();
+        conferir();
+        assertTrue("depois do apagar, toca de novo", tocou(oAviso()));
     }
 
     // --- quando não aparece ------------------------------------------------------------------------------------------

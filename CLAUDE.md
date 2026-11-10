@@ -1163,7 +1163,11 @@ O site (App de Campo) e o Fracttal não mudam.
     para abrir os ajustes do Nexus Field.", no sexto canal, "Ajustes da localização" (`ajustes_da_localizacao`:
     importância e som padrão, nasce com o primeiro aviso), id fixo 3.000.002, `setOnlyAlertOnce`, sem ser fixo (o técnico
     limpa, e ele volta na próxima conferência se ainda faltar), e o toque abre os detalhes do app (no HyperOS, a mesma
-    tela tem as permissões, a bateria e o Início automático) sem tirá-lo. Aparece com a regra do aviso das 6h (a chave, o
+    tela tem as permissões, a bateria e o Início automático) sem tirá-lo. O som vale uma vez por dia para cada lista: a
+    marca `tocou` (nas preferências `equipe_falta`) guarda o dia na hora do celular e a lista do último aviso que tocou, e
+    o mesmo dia com a mesma lista vai em silêncio (`setSilent`), também depois de limpo; outra lista ou outro dia toca, e
+    o `apagar` tira a marca. Caso (a revisão de 10/11/2026): o `setOnlyAlertOnce` só cala o aviso que ainda está na barra,
+    e o limpo voltava tocando a cada envio. Aparece com a regra do aviso das 6h (a chave, o
     termo de agora, nenhum Sair por terminar) e a hora na janela, faltando um dos quatro (o Início automático só
     desligado; a falta da notificação não entra, porque sem ela o aviso não aparece); a lista sai dos mesmos ajustes que
     vão ao Nexus. Sai quando nada falta, fora da janela (às 22h pelo `setTimeoutAfter`) e com a chave que sai (o

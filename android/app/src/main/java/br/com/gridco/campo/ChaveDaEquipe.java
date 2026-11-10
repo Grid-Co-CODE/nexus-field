@@ -245,7 +245,8 @@ final class ChaveDaEquipe {
     /**
      * O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito, a janela da bateria, o pedido do tempo
      * todo e a tela do Início automático por fazer e a conferência (a da memória e a do disco) saem juntos, e o aviso das
-     * 6h e o do que falta com eles ({@link #semOsAvisos}).
+     * 6h e o do que falta com eles ({@link #semOsAvisos}), com a marca do som do aviso do que falta (a próxima conta ouve o
+     * aviso dela).
      */
     synchronized void apagar() {
         prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_TERMO).remove(K_CONFERIDA).remove(K_BATERIA)
@@ -254,6 +255,7 @@ final class ChaveDaEquipe {
         contaDaPagina = null;
         porRefazer = false;
         semOsAvisos();
+        AvisoDoQueFalta.esquecer(app);
     }
 
     /**

@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.util.Log;
@@ -15,7 +16,9 @@ import androidx.core.content.ContextCompat;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
+import java.util.Locale;
 import java.util.TimeZone;
 
 /**
@@ -40,8 +43,14 @@ import java.util.TimeZone;
  *       aviso das 6h, {@link ChaveDaEquipe}), com o termo que deixou de valer e fora da janela (às 22h ele sai sozinho, pelo
  *       {@code setTimeoutAfter}). Não é fixo: o técnico pode limpá-lo, e ele volta na próxima conferência se ainda faltar.
  *       O toque não o tira: na volta dos ajustes, a conferência o atualiza em silêncio ou o tira.</li>
+ *   <li><b>O som, uma vez por dia para cada lista</b>: o aviso que volta no mesmo dia (na hora do celular) com a mesma lista
+ *       vai em silêncio ({@code setSilent}), também depois de o técnico limpá-lo; outra lista, ou outro dia, toca de novo.
+ *       A marca é o dia e a lista do último aviso que tocou, e o {@link ChaveDaEquipe#apagar} a tira ({@link #esquecer}).
+ *       Caso que criou a regra (a revisão da Task 14, 10/11/2026): o {@code setOnlyAlertOnce} só cala o aviso que ainda
+ *       está na barra, e o limpo com algo faltando voltava tocando a cada envio, de 2 a 10 min com a coleta ligada.</li>
  *   <li>Um canal próprio, "Ajustes da localização" ({@link CanaisDeNotificacao#criarDosAjustes}), com a importância e o som
- *       padrão, que nasce com o primeiro aviso; o mesmo id, que toca só da primeira vez ({@code setOnlyAlertOnce}).</li>
+ *       padrão, que nasce com o primeiro aviso; o mesmo id, que não toca de novo enquanto está na barra
+ *       ({@code setOnlyAlertOnce}).</li>
  *   <li>Nada de chave, conta ou id de aparelho no log, nem o texto das exceções: só o nome da classe.</li>
  * </ul>
  */
@@ -58,6 +67,10 @@ final class AvisoDoQueFalta {
     private static final String TAG = CascaPlugin.TAG;
     // O código do PendingIntent do toque (uma activity).
     private static final int CODIGO = ID_DA_NOTIFICACAO;
+    // O dia (na hora do celular) e a lista do último aviso que tocou: o mesmo dia com a mesma lista vai em silêncio. Fora
+    // do backup, como tudo (regras_dados.xml).
+    private static final String PREFERENCIAS = "equipe_falta";
+    private static final String CHAVE_TOCOU = "tocou";
 
     private AvisoDoQueFalta() {
     }
@@ -100,7 +113,7 @@ final class AvisoDoQueFalta {
             if (faltas.isEmpty()) {
                 tirar(app);
             } else if (podeMostrar) {
-                mostrar(app, texto(app, faltas), agora);
+                mostrar(app, emLista(faltas), agora);
             }
         } catch (RuntimeException e) {
             Log.w(TAG, "o aviso do que falta não foi conferido agora (" + e.getClass().getSimpleName() + ")");
@@ -132,10 +145,6 @@ final class AvisoDoQueFalta {
         return faltas;
     }
 
-    /** "Falta: " e a lista, com a vírgula e o "e" no último, e o que o toque faz. */
-    static String texto(Context contexto, List<String> faltas) {
-        return contexto.getString(R.string.notificacao_falta_texto, emLista(faltas));
-    }
 
     // A casca só fala português (o strings.xml é tools:locale="pt"): a vírgula entre os itens e o "e" antes do último
     // ficam aqui, e os nomes no strings.xml.
@@ -143,6 +152,15 @@ final class AvisoDoQueFalta {
         int n = itens.size();
         if (n == 1) return itens.get(0);
         return String.join(", ", itens.subList(0, n - 1)) + " e " + itens.get(n - 1);
+    }
+
+    /** A chave que sai ({@link ChaveDaEquipe#apagar}): esquece o dia e a lista do último aviso que tocou. Nunca lança. */
+    static void esquecer(Context contexto) {
+        try {
+            preferencias(contexto).edit().remove(CHAVE_TOCOU).apply();
+        } catch (RuntimeException e) {
+            Log.w(TAG, "a marca do aviso do que falta não foi apagada (" + e.getClass().getSimpleName() + ")");
+        }
     }
 
     /** Tira o aviso da barra (nada falta, a chave que saiu, fora da janela). Nunca lança. */
@@ -154,9 +172,9 @@ final class AvisoDoQueFalta {
         }
     }
 
-    // Mostra, ou atualiza em silêncio (o mesmo id e o setOnlyAlertOnce), o aviso. Sem a permissão de notificação (Android
-    // 13+) nada aparece: é a falta que este aviso não diz.
-    private static void mostrar(Context app, String texto, long agora) {
+    // Mostra, ou atualiza em silêncio (o mesmo id e o setOnlyAlertOnce), o aviso, com o som só uma vez por dia para cada
+    // lista (a marca). Sem a permissão de notificação (Android 13+) nada aparece: é a falta que este aviso não diz.
+    private static void mostrar(Context app, String lista, long agora) {
         // A permissão aqui mesmo, antes do notify (o lint MissingPermission só a enxerga no mesmo método).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS)
@@ -168,6 +186,10 @@ final class AvisoDoQueFalta {
         PendingIntent toque = PendingIntent.getActivity(app, CODIGO, ajustes,
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         long fim = JanelaDaEquipe.fimDaJanela(agora, TimeZone.getDefault());
+        String texto = app.getString(R.string.notificacao_falta_texto, lista);
+        String marca = dia(agora) + "\n" + lista;
+        SharedPreferences prefs = preferencias(app);
+        boolean jaTocou = marca.equals(prefs.getString(CHAVE_TOCOU, null));
         NotificationCompat.Builder b = new NotificationCompat.Builder(app, CANAL_AJUSTES)
             .setSmallIcon(R.drawable.ic_notificacao)
             .setContentTitle(app.getString(R.string.notificacao_falta_titulo))
@@ -179,12 +201,26 @@ final class AvisoDoQueFalta {
             // Android 7, sem canais: a prioridade e o som da própria notificação fazem o papel do canal, como no aviso
             // das 6h.
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setDefaults(NotificationCompat.DEFAULT_SOUND);
+            .setDefaults(NotificationCompat.DEFAULT_SOUND)
+            .setSilent(jaTocou);
         if (fim > agora) b.setTimeoutAfter(fim - agora);
         try {
             NotificationManagerCompat.from(app).notify(ID_DA_NOTIFICACAO, b.build());
         } catch (RuntimeException e) {
             Log.w(TAG, "o aviso do que falta foi recusado pelo sistema (" + e.getClass().getSimpleName() + ")");
+            return;
         }
+        if (!jaTocou) prefs.edit().putString(CHAVE_TOCOU, marca).apply();
+    }
+
+    // O dia do celular (o fuso dele), para a marca do som.
+    private static String dia(long agora) {
+        Calendar c = Calendar.getInstance(TimeZone.getDefault());
+        c.setTimeInMillis(agora);
+        return String.format(Locale.ROOT, "%04d-%03d", c.get(Calendar.YEAR), c.get(Calendar.DAY_OF_YEAR));
+    }
+
+    private static SharedPreferences preferencias(Context contexto) {
+        return contexto.getApplicationContext().getSharedPreferences(PREFERENCIAS, Context.MODE_PRIVATE);
     }
 }

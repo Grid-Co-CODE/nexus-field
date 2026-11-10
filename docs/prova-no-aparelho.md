@@ -416,16 +416,15 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       ajustes do Nexus Field (o log diz "a tela do Início automático do HyperOS não abriu"), onde ele também está: anote
       o modelo e a versão do HyperOS. Ligar o Nexus Field nela e voltar: nada mais aparece. Noutra conta de teste (ou
       depois do **Sair**), desligá-lo antes e recusar: a coleta segue igual, e a tela não volta para a mesma conta (fechar
-      e abrir o app, reiniciar o celular). Num aparelho com ele já ligado, ou de outra marca, nenhuma tela. Pelo cabo, o
-      estado do Nexus Field (só o dele) se confere com `adb shell appops get br.com.gridco.nexusfield 10008`: `allow`
-      ligado, `ignore` desligado; antes e depois da tela, a mudança tem de aparecer.
+      e abrir o app, reiniciar o celular). Num aparelho com ele já ligado, ou de outra marca, nenhuma tela.
 - [ ] O aviso do que falta (1.2.3): recusar o Permitir o tempo todo, a bateria e o Início automático no fluxo do termo.
       No meio dos pedidos nada aparece; na volta ao app depois da última tela, chega o aviso **Falta liberar no
       celular**, **Falta: Permitir o tempo todo, bateria sem restrição e Início automático. Toque para abrir os ajustes do
       Nexus Field.** (o Início automático só num Xiaomi), no canal **Ajustes da localização**, com o som padrão e sem
       aparecer por cima da tela. Tocar nele abre os ajustes do Nexus Field. Liberar um dos três e voltar ao app: o aviso
       muda a lista sem tocar de novo. Liberar tudo e voltar ao app: o aviso some. Limpá-lo da barra com algo ainda
-      faltando: ele volta na próxima volta ao app ou no envio seguinte (uns 2 a 10 min com a coleta ligada). Antes das 6h
+      faltando: ele volta na próxima volta ao app ou no envio seguinte (uns 2 a 10 min com a coleta ligada), em silêncio
+      no mesmo dia e com a mesma lista; com outra lista, ou no dia seguinte, ele toca de novo. Antes das 6h
       e depois das 22h, nada; às 22h ele sai sozinho. Depois do **Sair**, ele some e não volta. Às 6h e depois de
       reiniciar o celular, com algo faltando, ele aparece sem abrir o app (no Xiaomi, só com o Início automático ligado:
       anote se, sem ele, apareceu).
@@ -610,3 +609,5 @@ e ids de aparelho nunca aparecem, e se aparecerem é defeito. Cada aviso que a p
 - O teto das recriações (o renderer que morre 4 vezes em 60 s mostra a tela "Sem internet" em vez de piscar): não há
   como provocar sem ferramenta; o teste de JVM (`TetoDeRecriacaoTest`) e a montagem são a prova.
 - A WebView antiga (sem os recursos de que a casca precisa): só num aparelho com a WebView desatualizada.
+- Para quem programa, com o cabo (só leitura): o estado do Início automático do Nexus Field no Xiaomi sai em
+  `adb shell appops get br.com.gridco.nexusfield 10008` (`allow` ligado, `ignore` desligado).
