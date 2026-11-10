@@ -68,8 +68,10 @@ import java.util.function.LongSupplier;
  *       ligado perto de metade do tempo). A leitura com um número que não é finito (o NaN de um provedor com defeito) é
  *       descartada: a fila não a escreve. Cada posição vai à {@link FilaDePontos}, e o {@link EnvioDePontos} manda o lote
  *       mais antigo a cada {@link #ENVIO_MS}, numa thread só para o disco e a rede.</li>
- *   <li>Na partida a frio a coleta segue igual e o lote espera na fila até a página conferir a conta da chave
- *       ({@link ChaveDaEquipe#conferida}); enquanto isso o envio nem acorda o celular nem recomeça a contar
+ *   <li>Na partida a frio o envio vale com a conta conferida no disco por uma página de antes (R14,
+ *       {@link ChaveDaEquipe#conferida}): depois da atualização, do Forçar parada ou do reinício, a coleta que liga com a
+ *       tela apagada envia sem esperar a página. Sem conferência nenhuma (a chave da 1.2.0), a coleta segue igual e o lote
+ *       espera na fila até a página conferir; enquanto isso o envio nem acorda o celular nem recomeça a contar
  *       ({@link EnvioDePontos#podeEnviar}), e o primeiro lote depois da conferência sai com a posição seguinte.</li>
  *   <li>O envio não depende só do Handler, que conta o tempo de CPU acordada: com a tela apagada (no bolso, no suporte do
  *       carro) o celular dorme entre uma posição e outra, e os 2 min do Handler levariam horas no relógio (o mapa diria

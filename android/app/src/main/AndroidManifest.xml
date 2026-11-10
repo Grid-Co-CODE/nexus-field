@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       allowBackup=false e as regras de dados: os nomes das chaves guardadas no aparelho têm e-mail de técnico, e nada
@@ -154,6 +155,13 @@
     <!-- O aviso das 6h (AvisoDoInicio): o alarme volta depois de o celular religar. O alarme é inexato (o
          setAndAllowWhileIdle), e por isso nem SCHEDULE_EXACT_ALARM nem USE_EXACT_ALARM entram. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- A janela do próprio Android que pede a bateria sem restrição (R15, EquipeNaCasca), logo depois do termo de uso e
+         da localização, uma vez por conta: liberado da otimização de bateria, o Android 12+ deixa ligar a coleta com o
+         app no fundo, e o HyperOS fecha menos o app. O BatteryLife do lint fala da regra da loja do Google, e o Nexus
+         Field não é da loja (sai pela Release do GitHub). -->
+    <uses-permission
+        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+        tools:ignore="BatteryLife" />
 
     <!-- Sem o required="false", a permissão CAMERA faz a câmera parecer obrigatória (lint
          PermissionImpliesUnsupportedChromeOsHardware). As duas são pedidas em tempo de execução. -->

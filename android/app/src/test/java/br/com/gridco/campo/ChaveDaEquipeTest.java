@@ -279,12 +279,14 @@ public class ChaveDaEquipeTest {
         c.guardar("k1", CONTA_A);
         assertTrue("a chave que a página entrega é da conta que a trouxe", c.conferida());
 
-        // O processo novo (o Android matou o app): a chave e a conta no disco, e nada conferido na memória.
+        // O processo novo (a atualização, o Forçar parada, o Android que matou o app): a chave, a conta e a marca da
+        // conferência no disco (R14), e o envio não espera a página.
         ChaveDaEquipe outraPartida = new ChaveDaEquipe(ctx, cifra);
-        assertFalse(outraPartida.conferida());
+        assertTrue("a conferência de antes vale na partida nova", outraPartida.conferida());
         assertEquals("k1", outraPartida.chave());
         assertFalse("outra conta não confere", outraPartida.conferir(CONTA_B));
         assertFalse(outraPartida.conferida());
+        assertFalse("nem na partida seguinte", new ChaveDaEquipe(ctx, cifra).conferida());
         assertTrue(outraPartida.conferir(CONTA_A));
         assertTrue(outraPartida.conferida());
         assertFalse("a conferência seguinte, de outra conta, desfaz", outraPartida.conferir(CONTA_B));
@@ -298,6 +300,8 @@ public class ChaveDaEquipeTest {
         assertFalse(outraPartida.guardar("k1", CONTA_A));
         assertTrue("a página entregou a chave desta conta", outraPartida.conferida());
 
+        // A chave guardada sem a marca (a da 1.2.0): a chave nova que a cifra não guarda não confere.
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("conta_conferida").commit();
         ChaveDaEquipe terceira = new ChaveDaEquipe(ctx, cifra);
         cifra.falharAoCifrar = true;
         try {
@@ -337,17 +341,131 @@ public class ChaveDaEquipeTest {
         assertTrue(c.conferir(CONTA_A));
     }
 
-    // --- a conferência é só da memória -------------------------------------------------------------------------------
+    // --- a conferência no disco, presa à conta (R14) --------------------------------------------------------------------
+
+    private static final String MARCA = "conta_conferida";
+
+    private boolean temAMarca() {
+        return ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains(MARCA);
+    }
 
     @Test
-    public void aConferenciaNaoVaiAoDiscoEOProcessoNovoComecaSemEla() {
-        // O serviço não volta sem a tela (R10): nenhum processo sem página retoma a conferência de antes, e o disco não a
-        // guarda. Antes, a marca "conferida" ia ao disco para o religamento do sistema.
+    public void aConferenciaVaiAoDiscoCifradaEPresaAContaGuardada() {
+        // Caso que criou a regra (10/11/2026): a atualização fechou o app, a coleta religou e só enviou quando o dono abriu
+        // o app, 27 min depois; com a tela apagada a página não roda, e só ela conferia a conta.
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
-        assertTrue(c.conferir(CONTA_A));
-        assertFalse(ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("conferida"));
-        assertFalse("o processo novo", new ChaveDaEquipe(ctx, cifra).conferida());
+        assertTrue(temAMarca());
+        for (Object v : ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).getAll().values()) {
+            assertFalse("a conta conferida não fica em claro", String.valueOf(v).contains(CONTA_A));
+        }
+        assertTrue("a partida nova lê a marca", new ChaveDaEquipe(ctx, cifra).conferida());
+
+        // A marca é da conta guardada: com outra conta no lugar dela (sem passar pela conferência), não vale.
+        String deB = Base64.encodeToString(cifra.cifrar(CONTA_B), Base64.NO_WRAP);
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("conta", deB).commit();
+        assertFalse(new ChaveDaEquipe(ctx, cifra).conferida());
+    }
+
+    @Test
+    public void aConferenciaDoDiscoNaoPassaPelaCifra() {
+        // O serviço pergunta na thread principal (EnvioDePontos.podeEnviar), antes de acordar o celular.
+        new ChaveDaEquipe(ctx, cifra).guardar("k1", CONTA_A);
+        CifraFalsa fora = new CifraFalsa();
+        fora.keystoreFora = true;
+        ChaveDaEquipe partida = new ChaveDaEquipe(ctx, fora);
+        assertTrue(partida.conferida());
+        assertEquals(0, fora.cifradas + fora.decifradas);
+    }
+
+    @Test
+    public void aChaveSemAMarcaEsperaAPaginaConferir() {
+        // A chave que a 1.2.0 guardou (de antes da marca): a primeira partida da versão nova espera a página, como antes.
+        new ChaveDaEquipe(ctx, cifra).guardar("k1", CONTA_A);
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove(MARCA).commit();
+        ChaveDaEquipe partida = new ChaveDaEquipe(ctx, cifra);
+        assertFalse(partida.conferida());
+        assertTrue(partida.conferir(CONTA_A));
+        assertTrue("a página conferiu: a marca vai ao disco", temAMarca());
+        assertTrue(new ChaveDaEquipe(ctx, cifra).conferida());
+    }
+
+    @Test
+    public void aTelaQueNasceNaoApagaAMarca() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        c.aTelaAbriu();
+        assertTrue(temAMarca());
+        assertTrue("a página da tela nova confere de novo; até lá, vale a de antes", c.conferida());
+        assertTrue(new ChaveDaEquipe(ctx, cifra).conferida());
+    }
+
+    @Test
+    public void oSairOColetaFalseEO401ApagamAMarca() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        c.apagar(); // o Sair, a troca de conta e o coleta:false
+        assertFalse(temAMarca());
+        assertFalse(new ChaveDaEquipe(ctx, cifra).conferida());
+
+        c.guardar("k2", CONTA_A);
+        assertTrue(temAMarca());
+        c.apagarAChave(); // o 401
+        assertFalse(temAMarca());
+        assertFalse(new ChaveDaEquipe(ctx, cifra).conferida());
+        assertTrue("a chave nova da mesma conta confere de novo", c.guardar("k3", CONTA_A));
+        assertTrue(new ChaveDaEquipe(ctx, cifra).conferida());
+    }
+
+    @Test
+    public void aPaginaDeOutraContaEOCofreQueLeOutraContaApagamAMarca() {
+        new ChaveDaEquipe(ctx, cifra).guardar("k1", CONTA_A);
+        ChaveDaEquipe partida = new ChaveDaEquipe(ctx, cifra);
+        assertFalse(partida.conferir(CONTA_B));
+        assertFalse(temAMarca());
+        assertFalse(new ChaveDaEquipe(ctx, cifra).conferida());
+
+        // R9: o cofre fora no pedido do aparelho de B, e o cofre que volta lendo a conta de A.
+        assertTrue(partida.conferir(CONTA_A));
+        assertTrue(temAMarca());
+        cifra.keystoreFora = true;
+        try {
+            partida.conferir(CONTA_B);
+            fail("o cofre fora");
+        } catch (IllegalStateException esperado) {
+            // por refazer
+        }
+        assertFalse("a página falou e o cofre não disse de quem é a chave: a marca de antes não vale", temAMarca());
+        cifra.keystoreFora = false;
+        assertFalse(partida.reconferir());
+        assertFalse(temAMarca());
+        assertFalse(new ChaveDaEquipe(ctx, cifra).conferida());
+    }
+
+    // --- a janela da bateria, uma vez por conta e por termo -----------------------------------------------------------
+
+    @Test
+    public void oLiEAceitoDeixaAJanelaDaBateriaPorPedirUmaVez() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        assertFalse("sem o termo, nada a pedir", c.bateriaPorPedir());
+        c.aceitarTermo();
+        assertTrue(c.bateriaPorPedir());
+        c.bateriaPedida();
+        assertFalse(c.bateriaPorPedir());
+        assertFalse("também na partida nova", new ChaveDaEquipe(ctx, cifra).bateriaPorPedir());
+        c.apagarAChave(); // o 401: a mesma conta, o mesmo termo
+        assertTrue(c.guardar("k2", CONTA_A));
+        assertFalse("a chave nova da mesma conta não pede de novo", c.bateriaPorPedir());
+
+        c.aceitarTermo(); // o próximo termo (a versão nova do texto)
+        assertTrue(c.bateriaPorPedir());
+        assertTrue(c.guardar("k3", CONTA_B)); // a próxima conta: o termo sai, e a janela vem depois do aceite dela
+        assertFalse(c.bateriaPorPedir());
+        c.aceitarTermo();
+        assertTrue(c.bateriaPorPedir());
+        c.apagar(); // o Sair
+        assertFalse(c.bateriaPorPedir());
     }
 
     // --- R9: a conferência que o cofre não deixou fazer ---------------------------------------------------------------

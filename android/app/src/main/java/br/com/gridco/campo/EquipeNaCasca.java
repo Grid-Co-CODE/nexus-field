@@ -1,10 +1,16 @@
 package br.com.gridco.campo;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 
@@ -40,6 +46,14 @@ import java.util.function.LongSupplier;
  *       abertura (dois pedidos de uma vez empilhariam as telas); negada, ou negada de vez (o Android não mostra mais o
  *       pedido), nenhuma tela nossa a mais: o Nexus sabe, e o guia diz como liberar nos ajustes. Vale a precisa: a
  *       aproximada erra por quilômetros, e o ponto no mapa e o Abrir rota precisam dele.</li>
+ *   <li><b>A bateria sem restrição</b> (R15, o pedido do dono em 10/11/2026: "precisamos só ser mais independente... sem
+ *       esses erros de ficar parando coleta nem nada"): logo depois do termo aceito e da localização dada, com a coleta
+ *       ligando (ou já ligada) e a tela à vista, se o Android ainda aplica a otimização de bateria ao Nexus Field, a janela
+ *       do próprio Android que pede a liberação ({@link Tela#pedirSemRestricaoDeBateria}), sem tela nossa antes. Uma vez por
+ *       conta e por termo ({@link ChaveDaEquipe#bateriaPorPedir}): recusada, não volta até a próxima conta ou o próximo
+ *       termo, e a coleta segue igual. Por que importa: liberado da otimização, o Android 12+ deixa o app ligar o serviço
+ *       em primeiro plano com o app no fundo (é uma das exceções da regra), e o HyperOS fecha menos o app. O Início
+ *       automático do Xiaomi não tem janela do Android: é o guia de instalação que o pede.</li>
  *   <li><b>O serviço só liga com a tela à vista</b> ({@link #aTelaFicouAVista}, do onResume ao onStop): a decisão que roda
  *       na thread do envio depois de o técnico sair do app (a chave que o Nexus deu com o app já no fundo, a volta ao app
  *       atrás de um envio pendurado) não o liga. Iniciado com o app no fundo, ele não teria a localização durante o uso do
@@ -65,13 +79,18 @@ import java.util.function.LongSupplier;
  *       ficava com a chave, o termo aceito e a fila de A, e as posições de B iam ao Nexus em nome de A (ou o dia de A em
  *       nome de B). A mesma conta, depois do 401, fica com a fila, que sobe com a chave nova. O cofre que não respondeu
  *       agora não muda nada: a próxima carga confere de novo.</li>
- *   <li><b>Nada sai em nome de uma conta que a página não conferiu</b> ({@link ChaveDaEquipe#conferida}): a tela que
- *       nasce ({@link #aTelaAbriu}) volta a "não conferida", e na partida a frio a coleta liga com a chave guardada e
- *       guarda na fila (a abertura sem sinal também coleta); o envio, o aviso sem permissão inclusive, espera até o pedido
- *       do aparelho achar a chave da mesma conta ou a chave nova entrar. O cofre que não lê a conta não confere: a
- *       resposta diz que há a chave, e o envio e a volta ao app conferem de novo até o cofre voltar (R9); a conta guardada
- *       que então se mostra de outra conta faz a troca de conta na volta ao app. O Sair e a troca de conta voltam a "não
- *       conferida"; a revogação do Sair não espera.</li>
+ *   <li><b>Nada sai em nome de uma conta que nenhuma página conferiu</b> ({@link ChaveDaEquipe#conferida}): a conferência
+ *       vai também ao disco, presa à conta guardada (R14), e a partida nova e a tela que nasce ({@link #aTelaAbriu}) a
+ *       mantêm: depois da atualização, do Forçar parada ou do reinício, a coleta que liga com a tela apagada (a página não
+ *       roda) envia. A página confere a cada carga: a mesma conta mantém; outra conta faz a troca de conta da R5 no pedido
+ *       do aparelho ({@link #pedirAparelho}), antes de qualquer envio dela, e dali em diante nada sai em nome da anterior.
+ *       O custo aceito pelo dono: no celular dividido, os pontos entre a partida e a carga da página vão em nome da conta
+ *       anterior. Sem conferência nenhuma (a chave da 1.2.0, de antes da marca), a coleta guarda na fila, e o envio, o
+ *       aviso sem permissão inclusive, espera o pedido do aparelho achar a chave da mesma conta ou a chave nova entrar. O
+ *       cofre que não lê a conta não confere: a resposta diz que há a chave, e o envio e a volta ao app conferem de novo
+ *       até o cofre voltar (R9); a conta guardada que então se mostra de outra conta faz a troca de conta na volta ao app.
+ *       O Sair, a troca de conta, o coleta:false e o 401 desfazem a conferência, também a do disco; a revogação do Sair não
+ *       espera.</li>
  *   <li><b>O aviso das 6h</b> ({@link AvisoDoInicio}, R12): a volta ao app agenda o do dia seguinte enquanto a chave e o
  *       termo estão de pé (a chave que entra e o Li e aceito passam por ela), e o tira sem um dos dois. O toque nele só
  *       abre o app: quem liga a coleta é esta volta ao app, como em qualquer abertura.</li>
@@ -133,8 +152,9 @@ final class EquipeNaCasca {
     }
 
     /**
-     * O que o técnico vê e responde: o termo e o pedido da localização ao Android ({@link TelaDaActivity}). Tudo na thread
-     * de UI. O que devolve false não apareceu (a tela saindo): a casca não fica esperando uma resposta que não vem.
+     * O que o técnico vê e responde: o termo, o pedido da localização ao Android e a janela da bateria do Android
+     * ({@link TelaDaActivity}). Tudo na thread de UI. O que devolve false não apareceu (a tela saindo): a casca não fica
+     * esperando uma resposta que não vem.
      */
     interface Tela {
         /** O termo de uso da localização, que não fecha tocando fora nem pelo Voltar; o Li e aceito roda {@code aceitar}. */
@@ -145,6 +165,12 @@ final class EquipeNaCasca {
 
         /** Tira da tela o termo que estiver aberto (o Sair, a coleta que deixou de valer, a tela saindo). */
         void fechar();
+
+        /**
+         * A janela do próprio Android que pede a bateria sem restrição para o Nexus Field (R15). A resposta não volta à
+         * casca: recusada ou aceita, a coleta segue igual. False só com a tela saindo (a próxima volta ao app tenta).
+         */
+        boolean pedirSemRestricaoDeBateria();
     }
 
     private final Context app;
@@ -164,6 +190,9 @@ final class EquipeNaCasca {
     // O termo acabou de ser aceito nesta tela e a localização falta: o pedido do Android vem agora, uma vez. Fora disso a
     // casca não pede (o Antes de começar da MainActivity pede a cada abertura).
     private boolean pedirDepoisDoTermo = false;
+    // Só na thread do trabalho. A janela da bateria a caminho da tela: a decisão seguinte (a volta ao app, a chave que
+    // chega) não abre outra por cima antes de a marca sair.
+    private boolean bateriaACaminho = false;
     // A tela à vista (do onResume ao onStop, na thread de UI): só com ela o serviço liga.
     private volatile boolean aVista = false;
     // Os Sair pedidos cuja chave ainda não saiu do aparelho. A decisão que já esperava na thread antes do Sair (a volta
@@ -328,8 +357,9 @@ final class EquipeNaCasca {
     }
 
     /**
-     * A tela que nasce (o load do plugin): a conta conferida antes dela não vale até a página desta tela conferir (R8),
-     * também no processo que sobreviveu à noite.
+     * A tela que nasce (o load do plugin): a conta que a página da tela de antes mandou não é a desta. A conferência fica
+     * (R14): com a tela apagada a página não roda, e a coleta que liga com esta tela envia; a página desta tela confere
+     * quando carregar.
      */
     void aTelaAbriu() {
         trabalhar(chave::aTelaAbriu);
@@ -375,6 +405,7 @@ final class EquipeNaCasca {
                 }
                 Log.i(TAG, "a casca liga a coleta da equipe");
                 servico.iniciar();
+                pedirABateria();
                 break;
             case PARAR:
                 if (rodando) Log.i(TAG, "a casca desliga a coleta da equipe");
@@ -394,8 +425,38 @@ final class EquipeNaCasca {
                 avisarSemPermissao("sem a notificação fixa à vista");
                 break;
             default:
+                // O NADA dentro da janela é a coleta já ligada com tudo em dia: a janela da bateria que não abriu (a tela
+                // saindo) abre agora.
+                if (rodando) pedirABateria();
                 break;
         }
+    }
+
+    // R15: logo depois do termo aceito e da localização dada (a coleta que liga, ou que já está ligada), a janela do
+    // próprio Android que pede a bateria sem restrição, uma vez por conta e por termo. A marca sai quando a janela abriu:
+    // recusada (ou só fechada), ela não volta; a que não abriu (a tela saindo) fica por pedir. Com o app já liberado, nada
+    // a pedir, e a marca sai também (a liberação tirada depois nos ajustes não traz a janela fora do fluxo do termo).
+    private void pedirABateria() {
+        if (!aVista || esperandoOTecnico || bateriaACaminho || !chave.bateriaPorPedir()) return;
+        if (liberadoDaBateria()) {
+            chave.bateriaPedida();
+            return;
+        }
+        bateriaACaminho = true;
+        Log.i(TAG, "a casca pede ao Android a bateria sem restrição, logo depois do termo e da localização");
+        naTela(() -> {
+            boolean abriu = tela.pedirSemRestricaoDeBateria();
+            trabalhar(() -> {
+                bateriaACaminho = false;
+                if (abriu) chave.bateriaPedida();
+            });
+        });
+    }
+
+    // O PowerManager que não responde conta como liberado: sem saber, a casca não abre janela nenhuma.
+    private boolean liberadoDaBateria() {
+        PowerManager energia = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
+        return energia == null || energia.isIgnoringBatteryOptimizations(app.getPackageName());
     }
 
     // R9: a conferência que o cofre não deixou fazer, de novo na volta ao app. A conta guardada que se mostra de outra
@@ -424,7 +485,8 @@ final class EquipeNaCasca {
     }
 
     // O Li e aceito: aceito pela conta da chave de agora, e o pedido do Android logo em seguida, se faltar a localização
-    // (também para quem a negou antes nesta tela: a chave nova é de outra conta).
+    // (também para quem a negou antes nesta tela: a chave nova é de outra conta). O aceite deixa a janela da bateria por
+    // pedir (ChaveDaEquipe.aceitarTermo), e ela vem quando a coleta liga, com a localização dada.
     private void termoAceito() {
         esperandoOTecnico = false;
         chave.aceitarTermo();
@@ -705,6 +767,24 @@ final class EquipeNaCasca {
                 Log.w(TAG, "o pedido da localização não abriu (" + e.getClass().getSimpleName() + ")");
                 return false;
             }
+        }
+
+        // O BatteryLife do lint avisa que a loja do Google só aceita esta janela em poucos casos: o Nexus Field não é da
+        // loja (sai pela Release do GitHub), e a janela é decisão do dono (R15).
+        @SuppressLint("BatteryLife")
+        @Override
+        public boolean pedirSemRestricaoDeBateria() {
+            if (!ativa()) return false;
+            Intent janela = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:" + activity.getPackageName()));
+            try {
+                activity.startActivity(janela);
+            } catch (ActivityNotFoundException | SecurityException e) {
+                // O Android sem esta janela (há fabricante que a tira): nada a tentar de novo, e o guia de instalação
+                // diz o caminho nos ajustes.
+                Log.w(TAG, "a janela da bateria sem restrição não abriu (" + e.getClass().getSimpleName() + ")");
+            }
+            return true;
         }
 
         @Override

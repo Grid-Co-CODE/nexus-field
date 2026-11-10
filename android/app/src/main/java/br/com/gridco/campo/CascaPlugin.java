@@ -213,8 +213,8 @@ public class CascaPlugin extends Plugin {
         // equipeChave da página), pelo termo de uso, pela localização durante o uso e pela janela das 6h às 22h, na volta
         // ao app e no Sair. O pedido da localização vai pelo registro da AndroidX, que só aceita registrar antes de a tela
         // começar (o load() roda dentro do onCreate), e a resposta volta à EquipeNaCasca. Antes do canal: a página só fala
-        // com ela depois de carregar. A tela que nasce desfaz a conta conferida antes dela (R8), até a página desta tela
-        // conferir.
+        // com ela depois de carregar. A tela que nasce esquece a conta que a página da tela de antes mandou; a conta
+        // conferida fica (R14), e a página desta tela confere de novo quando carregar.
         try {
             ActivityResultLauncher<String[]> pedidoDaEquipe = bridge.registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(), resultado -> {

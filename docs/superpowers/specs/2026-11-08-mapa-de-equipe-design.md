@@ -138,13 +138,25 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   aceito e sobrevive ao 401 (que apaga só a chave): a mesma conta sobe a fila com a chave nova, sem ver o termo de novo, e
   outra conta não a herda. O Sair, a troca de conta e o `coleta:false` apagam tudo (o próximo login vê o termo de novo).
   Uma conta ilegível (Keystore invalidado, backup restaurado) conta como fila sem dona, e a fila é apagada.
-- **O envio espera a conta conferida.** A coleta liga com a chave guardada e guarda os pontos, mas nada sai (nem o aviso
-  de que falta a permissão) até a página da tela que abriu conferir a conta: o pedido do aparelho da mesma conta, ou a
-  chave nova guardada. O custo: o app aberto sem token (sem sinal, sessão vencida) coleta e só envia depois da
-  conferência; a fila guarda 24 h e no máximo 1000 pontos. A revogação do Sair não espera. A conferência fica só na
-  memória (o serviço não volta sem a tela, e nenhum processo sem página precisa dela), e a tela que abre a desfaz até a
-  página dela conferir. O cofre do aparelho que falha na conferência não deixa o dia parado: o envio e a volta ao app
-  conferem de novo quando ele voltar.
+- **O envio espera a conta conferida, e a conferência fica guardada no celular (R14, 10/11).** A coleta liga com a chave
+  guardada e guarda os pontos, mas nada sai (nem o aviso de que falta a permissão) sem uma página que tenha conferido a
+  conta: o pedido do aparelho da mesma conta, ou a chave nova guardada. A conferência vai também ao disco, presa à conta
+  (a conta guardada, cifrada, que só vale enquanto for a guardada hoje), e sobrevive à partida nova e à tela que nasce:
+  depois da atualização, do Forçar parada ou do reinício, a coleta que liga com a tela apagada (a página não roda) envia
+  sem esperar a página. Caso que criou a regra: a atualização das 10:23 de 10/11 fechou o app, a coleta religou e coletou
+  a cada 2 min, e só enviou às 10:50, quando o dono abriu o app. A página continua conferindo a cada carga: a mesma conta
+  mantém; outra conta faz a troca de conta (para, apaga a fila, a chave, o termo e a conferência, e revoga) antes de
+  qualquer envio dela. O Sair, a troca de conta, o `coleta:false`, o 401 e o cofre que lê outra conta apagam a
+  conferência guardada. A chave guardada pela 1.2.0 não tem a conferência no disco: a primeira abertura da versão nova
+  espera a página, como antes; e o app aberto sem token nem conferência (sem sinal, sessão vencida) coleta e só envia
+  depois dela (a fila guarda 24 h e no máximo 1000 pontos). A revogação do Sair não espera. O cofre do aparelho que falha
+  na conferência não deixa o dia parado: o envio e a volta ao app conferem de novo quando ele voltar.
+- **A bateria sem restrição (R15, 10/11).** Logo depois do termo aceito e da localização dada, se o Android ainda aplica
+  a otimização de bateria ao Nexus Field, a casca abre a janela do próprio Android que pede a liberação, sem tela nossa
+  antes; uma vez por conta e por termo (recusada, não volta até a próxima conta ou o próximo termo), e a coleta funciona
+  igual com a recusa. Sem a otimização, o Android 12 ou mais novo deixa o app ligar o serviço em primeiro plano com o app
+  no fundo (uma das exceções da regra), e o HyperOS fecha menos o app. O Início automático do Xiaomi não tem janela do
+  Android: fica no guia de instalação.
 - **A nova tentativa da página.** O que não terminou (o token ainda sem login, a falha do nativo ou do Nexus) tenta de novo
   no online e na volta ao app, no máximo a cada 10 min contados do pedido ao nativo; com o pedido no ar nada começa outro
   (o token ou o POST que não respondem em 10 min contam como falha), e depois do Sair nada. Terminou: há chave
@@ -154,7 +166,8 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   saem como aviso `equipe` no log, com um motivo de lista fechada (o token sem id, o 401, a rede ou o CORS...) e sem
   coordenada nem chave.
 - **Xiaomi e afins.** A coleta com o app fechado depende do "Início automático" e da bateria sem restrições, que o guia
-  de instalação já manda ligar para os avisos (`docs/instalacao/`). O guia ganha a linha da localização.
+  de instalação já manda ligar para os avisos (`docs/instalacao/`); a bateria, a casca também pede pela janela do Android
+  depois do termo (acima). O guia ganha a linha da localização.
 
 ### 4.2 No Nexus (chat "Nexus (Usinas 360)")
 
@@ -203,6 +216,10 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   alguns minutos depois das 6h com o celular em repouso; o celular desligado às 6h perde o aviso do dia; e o "Forçar
   parada" (ou o "tirar dos recentes" de quem mata o app, conforme a marca) apaga o alarme até a próxima abertura.
 - Abrir rota manda ao Google a posição do técnico e a da usina, no clique de quem pediu.
+- A conta conferida guardada no celular (R14, aceito pelo dono em 10/11/2026): num celular dividido em que outra pessoa
+  abre o app sem o Sair da anterior, os pontos entre a partida do app e a carga da página vão em nome da conta anterior
+  (antes, esperavam a página). A carga da página corrige dali em diante: a troca de conta para a coleta, apaga a fila e
+  revoga a chave da anterior, e nada mais sai em nome dela.
 - Entre os 7 dias e a limpeza da T.I., o ponto velho continua no banco, cifrado, sem uso.
 - O ponto exato e o percurso mostram a casa ou o hotel de quem está parado fora de usina: risco aceito pelo dono em
   10/11/2026 (R13), com o aviso no termo da versão 2 e o registro de quem abriu o mapa e o percurso; o jurídico revê.

@@ -17,14 +17,21 @@ import java.util.UUID;
  *       regra: no aparelho dividido, B que entrava sem o Sair de A ficava com a chave, o aviso aceito e a fila de A, e as
  *       posições de B iam ao Nexus em nome de A. Ela aponta para a pessoa: guardada cifrada, como a chave, e entra e sai
  *       junto com ela, menos no 401 do envio ({@link #apagarAChave}): aí a conta fica, dona da fila que sobrou.</li>
- *   <li>A conta conferida ({@link #conferida}) começa "não conferida" em cada processo e em cada tela que nasce
- *       ({@link #aTelaAbriu}), e só a página a confere, pelo pedido do aparelho da mesma conta ({@link #conferir}) ou pela
- *       chave nova que ela entrega ({@link #guardar}). Até lá a coleta segue e guarda na fila, e nada sai ao Nexus
- *       ({@link EnvioDePontos}). Caso que criou a regra (R8): na partida a frio, o onResume ligava a coleta com a chave
- *       guardada antes de a página mandar a conta, e o primeiro lote (uns 1 min 45 s depois) levava em nome de A as
- *       posições de B, que entrou sem o Sair de A e cujo login foi mais lento que isso. Ela fica só na memória: o serviço
- *       não volta sem a tela (o Android que mata o app para a coleta até a próxima abertura, {@link ServicoDaEquipe}), e
- *       nenhum processo sem página precisa dela.</li>
+ *   <li>A conta conferida ({@link #conferida}): só a página a confere, pelo pedido do aparelho da mesma conta
+ *       ({@link #conferir}) ou pela chave nova que ela entrega ({@link #guardar}). Sem conferência a coleta segue e guarda
+ *       na fila, e nada sai ao Nexus ({@link EnvioDePontos}). Caso que criou a regra (R8): na partida a frio, o onResume
+ *       ligava a coleta com a chave guardada antes de a página mandar a conta, e o primeiro lote (uns 1 min 45 s depois)
+ *       levava em nome de A as posições de B, que entrou sem o Sair de A e cujo login foi mais lento que isso.</li>
+ *   <li>A conferência vai também ao disco, presa à conta (R14): a marca {@code conta_conferida} é a conta guardada
+ *       cifrada, a mesma do {@code conta}, e só vale enquanto as duas forem iguais e a chave estiver guardada. A partida
+ *       nova (a atualização, o Forçar parada, o reinício, o app morto pelo sistema) e a tela que nasce
+ *       ({@link #aTelaAbriu}) a mantêm, e o envio sai sem a página; a página continua conferindo a cada carga. Caso que
+ *       criou a regra (10/11/2026): a atualização fechou o app, a coleta religou e coletou a cada 2 min, e só enviou 27
+ *       min depois, quando o dono abriu o app; com a tela apagada o JavaScript da página não roda, e só ela conferia. O
+ *       Sair, a troca de conta, o coleta:false, o 401, a página de outra conta e o cofre que lê outra conta a apagam, como
+ *       apagam a da memória. O custo aceito pelo dono: no celular dividido em que outra pessoa abre o app sem o Sair da
+ *       anterior, os pontos entre a partida e a carga da página vão em nome da anterior (antes, esperavam); a página dela
+ *       faz a troca de conta, e dali em diante nada sai em nome da anterior.</li>
  *   <li>O cofre que não respondeu na conferência (R9): a conta da página fica guardada na memória
  *       ({@link #contaDaPagina}), e o envio e a volta ao app conferem de novo ({@link #reconferir}) até o cofre voltar.
  *       Caso que criou a regra: com a R8 e a R7 juntas, um soluço do Keystore na carga deixava o envio parado até a
@@ -44,6 +51,10 @@ import java.util.UUID;
  *       segredo.</li>
  *   <li>O aviso das 6h ({@link AvisoDoInicio}, R12) só existe com a chave: a chave que sai leva o alarme e o aviso da
  *       barra.</li>
+ *   <li>A janela da bateria sem restrição (R15, {@link EquipeNaCasca}) fica por pedir a cada Li e aceito
+ *       ({@link #bateriaPorPedir}) e sai quando a janela abriu ({@link #bateriaPedida}): uma vez por conta e por termo.
+ *       Recusada, não volta até a próxima conta ou o próximo termo, que pedem o aceite de novo; o 401 (a mesma conta) não
+ *       a traz de volta.</li>
  * </ul>
  */
 final class ChaveDaEquipe {
@@ -64,12 +75,19 @@ final class ChaveDaEquipe {
     // termo. Guarda a versão aceita (R11); a marca booleana que a primeira versão desta chave guardava, só nos aparelhos
     // de prova, não é uma versão e não vale.
     private static final String K_TERMO = "termo_aceito";
+    // A conta conferida pela página, no disco (R14): os mesmos bytes cifrados do K_CONTA de quando a página conferiu.
+    // Comparar o cifrado com o cifrado não passa pela cifra (o serviço pergunta na thread principal), e a conta guardada
+    // que muda sem conferência (outra cifra, outra conta) deixa a marca sem valor. O nome não é o "conferida" de um APK
+    // de desenvolvimento de 09/11 (um sim ou não, que não dizia de quem era): o que ele tenha deixado não vale.
+    private static final String K_CONFERIDA = "conta_conferida";
+    // A janela da bateria sem restrição por pedir (R15): posta pelo Li e aceito, tirada quando a casca a abre.
+    private static final String K_BATERIA = "bateria_por_pedir";
 
     private final Context app;
     private final SharedPreferences prefs;
     private final Cifra cifra;
-    // Na memória: some com o processo e com a tela que nasce (uma ChaveDaEquipe por processo, a das
-    // ServicoDaEquipe.Pecas).
+    // Na memória (uma ChaveDaEquipe por processo, a das ServicoDaEquipe.Pecas): a página desta partida conferiu. A do
+    // disco é a K_CONFERIDA.
     private boolean conferida = false;
     // A conta que a página desta tela mandou no último pedido do aparelho, e se a conferência dela ficou por refazer
     // porque o cofre não respondeu (R9).
@@ -93,9 +111,10 @@ final class ChaveDaEquipe {
 
     /**
      * Guarda a chave e a conta dela, as duas cifradas, de uma vez. True se é outra chave ou outra conta que as de antes.
-     * Outra conta que a guardada (ou sem conta guardada, ou com a que a cifra não lê) esquece o termo aceito; a chave nova
-     * da mesma conta o mantém. Guardada (ou a mesma de antes), a conta fica conferida: é a chave que a página
-     * desta tela entregou, da conta que ela mandou. A cifra que falha lança antes, e a conferência fica como estava.
+     * Outra conta que a guardada (ou sem conta guardada, ou com a que a cifra não lê) esquece o termo aceito e a janela da
+     * bateria por pedir; a chave nova da mesma conta os mantém. Guardada (ou a mesma de antes), a conta fica conferida,
+     * também no disco: é a chave que a página desta tela entregou, da conta que ela mandou. A cifra que falha lança antes,
+     * e a conferência fica como estava.
      */
     synchronized boolean guardar(String chave, String conta) {
         String contaGuardada = conta();
@@ -105,8 +124,10 @@ final class ChaveDaEquipe {
         }
         String cifrada = Base64.encodeToString(cifra.cifrar(chave), Base64.NO_WRAP);
         String contaCifrada = Base64.encodeToString(cifra.cifrar(conta), Base64.NO_WRAP);
-        SharedPreferences.Editor gravacao = prefs.edit().putString(K_CHAVE, cifrada).putString(K_CONTA, contaCifrada);
-        if (!conta.equals(contaGuardada)) gravacao.remove(K_TERMO);
+        // A conta conferida vai no mesmo commit: a chave nova e a marca dela chegam juntas ao disco.
+        SharedPreferences.Editor gravacao = prefs.edit().putString(K_CHAVE, cifrada).putString(K_CONTA, contaCifrada)
+            .putString(K_CONFERIDA, contaCifrada);
+        if (!conta.equals(contaGuardada)) gravacao.remove(K_TERMO).remove(K_BATERIA);
         gravacao.commit();
         conferidaPelaPagina(conta);
         return true;
@@ -132,9 +153,10 @@ final class ChaveDaEquipe {
 
     /**
      * A página desta partida mandou a conta dela (o pedido do aparelho): com a chave guardada da MESMA conta, a conta fica
-     * conferida e o envio sai; sem chave, ou com a de outra conta, não. Lança com o cofre que não
-     * respondeu agora, e nada fica conferido (o que estava deixa de estar): o cofre que não lê a conta não confere, e a
-     * conferência fica por refazer ({@link #reconferir}, R9) até o cofre voltar.
+     * conferida (também no disco) e o envio sai; sem chave, ou com a de outra conta, não, e a marca do disco sai. Lança com
+     * o cofre que não respondeu agora, e nada fica conferido (o que estava deixa de estar, também no disco: a página falou,
+     * e não se sabe se é a mesma conta): o cofre que não lê a conta não confere, e a conferência fica por refazer
+     * ({@link #reconferir}, R9) até o cofre voltar.
      */
     synchronized boolean conferir(String conta) {
         desfazer();
@@ -148,13 +170,16 @@ final class ChaveDaEquipe {
 
     /**
      * A conferência que o cofre não deixou fazer (R9), de novo, com a conta que a página mandou: true se a chave guardada é
-     * da mesma conta (e então conferida). A de outra conta não confere e segue por refazer: a troca de
-     * conta da R5 é da volta ao app ou do próximo pedido do aparelho, fora do envio do serviço. Lança com o cofre que
-     * ainda não responde. Sem nada por refazer, devolve a conferência de agora.
+     * da mesma conta (e então conferida, também no disco). A de outra conta não confere, não deixa marca no disco e segue
+     * por refazer: a troca de conta da R5 é da volta ao app ou do próximo pedido do aparelho, fora do envio do serviço.
+     * Lança com o cofre que ainda não responde. Sem nada por refazer, devolve a conferência de agora.
      */
     synchronized boolean reconferir() {
-        if (!precisaReconferir()) return conferida;
-        if (chave() == null || !contaDaPagina.equals(conta())) return false;
+        if (!precisaReconferir()) return conferida();
+        if (chave() == null || !contaDaPagina.equals(conta())) {
+            semAMarca();
+            return false;
+        }
         conferidaPelaPagina(contaDaPagina);
         return true;
     }
@@ -169,26 +194,41 @@ final class ChaveDaEquipe {
         return contaDaPagina;
     }
 
-    /** A conta da chave guardada foi conferida pela página: só então o envio sai. */
+    /**
+     * A conta da chave guardada foi conferida pela página, nesta partida ou numa de antes (a marca no disco, R14): só então
+     * o envio sai. Não passa pela cifra: o serviço pergunta na thread principal ({@link EnvioDePontos#podeEnviar}).
+     */
     synchronized boolean conferida() {
-        return conferida;
+        return conferida || conferidaNoDisco();
     }
 
     /**
-     * A tela que nasce (o load do plugin): a conferência de antes não vale até a página desta tela conferir (R8: outra conta
-     * pode estar entrando, também no processo que sobreviveu à noite).
+     * A conferência de uma partida de antes, que esta ainda não tinha usado: passa a valer também na memória, e o true é
+     * só desta primeira vez (o envio leva ao log que saiu sem esperar a página). Não passa pela cifra.
+     */
+    synchronized boolean retomarConferencia() {
+        if (conferida || !conferidaNoDisco()) return false;
+        conferida = true;
+        return true;
+    }
+
+    /**
+     * A tela que nasce (o load do plugin): a conta que a página da tela de antes mandou não é a desta, que manda a dela ao
+     * carregar. A conferência fica, na memória e no disco (R14): com a tela apagada a página não roda, e a coleta que liga
+     * com esta tela envia. A página desta tela confere quando carregar: a mesma conta mantém, outra faz a troca de conta
+     * (EquipeNaCasca.pedirAparelho) antes de qualquer envio dela.
      */
     synchronized void aTelaAbriu() {
-        desfazer();
         contaDaPagina = null;
+        porRefazer = false;
     }
 
     /**
-     * O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito e a conferência saem juntos, e o aviso
-     * das 6h com eles ({@link #semOAvisoDas6h}).
+     * O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito, a janela da bateria por pedir e a
+     * conferência (a da memória e a do disco) saem juntos, e o aviso das 6h com eles ({@link #semOAvisoDas6h}).
      */
     synchronized void apagar() {
-        prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_TERMO).commit();
+        prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_TERMO).remove(K_CONFERIDA).remove(K_BATERIA).commit();
         conferida = false;
         contaDaPagina = null;
         porRefazer = false;
@@ -199,11 +239,12 @@ final class ChaveDaEquipe {
      * O 401 do envio (a chave que o Nexus não reconhece mais): sai só a chave. A conta fica, dona da fila que sobrou: a
      * mesma conta a sobe com a chave nova, e outra conta a apaga antes ({@link EquipeNaCasca}). Caso que criou a regra: A
      * trabalhou o dia sem sinal, a chave venceu e o primeiro envio levou o 401; com a conta apagada junto, B, que abriu o
-     * app no dia seguinte sem o Sair de A, mandava o dia de A ao Nexus em nome de B. O termo aceito fica com a conta; o
-     * aviso das 6h sai ({@link #semOAvisoDas6h}), e a chave nova da mesma conta o agenda de novo.
+     * app no dia seguinte sem o Sair de A, mandava o dia de A ao Nexus em nome de B. O termo aceito fica com a conta; a
+     * conferência sai (a da memória e a do disco), e a chave nova a refaz; o aviso das 6h sai ({@link #semOAvisoDas6h}), e
+     * a chave nova da mesma conta o agenda de novo.
      */
     synchronized void apagarAChave() {
-        prefs.edit().remove(K_CHAVE).commit();
+        prefs.edit().remove(K_CHAVE).remove(K_CONFERIDA).commit();
         conferida = false;
         porRefazer = false;
         semOAvisoDas6h();
@@ -218,17 +259,40 @@ final class ChaveDaEquipe {
         AvisoDoInicio.cancelar(app);
     }
 
-    // Conferida: a chave guardada é da conta que a página mandou.
+    // Conferida, na memória e no disco: a chave guardada é da conta que a página mandou. A marca é a conta guardada tal
+    // como está cifrada no disco (a conta conferida é ela), e só se grava se mudou.
     private void conferidaPelaPagina(String conta) {
         conferida = true;
         contaDaPagina = conta;
         porRefazer = false;
+        String guardada = prefs.getString(K_CONTA, null);
+        if (guardada != null && !guardada.equals(prefs.getString(K_CONFERIDA, null))) {
+            gravar(prefs.edit().putString(K_CONFERIDA, guardada));
+        }
     }
 
-    // Deixa de estar conferida (a conferência de outra conta, o cofre fora, a tela que nasce).
+    // Deixa de estar conferida, na memória e no disco (a conferência de outra conta, o cofre fora).
     private void desfazer() {
         conferida = false;
         porRefazer = false;
+        semAMarca();
+    }
+
+    private void semAMarca() {
+        if (prefs.contains(K_CONFERIDA)) gravar(prefs.edit().remove(K_CONFERIDA));
+    }
+
+    // A marca vale com a chave guardada e para a conta guardada hoje: o cifrado da conta conferida é o mesmo do da conta
+    // guardada. Não passa pela cifra.
+    private boolean conferidaNoDisco() {
+        String marca = prefs.getString(K_CONFERIDA, null);
+        return marca != null && prefs.contains(K_CHAVE) && marca.equals(prefs.getString(K_CONTA, null));
+    }
+
+    // O commit, e não o apply, como nos outros caminhos desta classe: a marca tem de chegar ao disco antes de o envio
+    // seguir, na thread dele.
+    private static void gravar(SharedPreferences.Editor gravacao) {
+        gravacao.commit();
     }
 
     private String decifrada(String nome) {
@@ -251,8 +315,25 @@ final class ChaveDaEquipe {
         }
     }
 
-    /** O Li e aceito: guarda a versão do texto que o técnico leu até o fim. */
+    /**
+     * O Li e aceito: guarda a versão do texto que o técnico leu até o fim, e deixa a janela da bateria sem restrição por
+     * pedir (R15): é o aceite da conta e do termo que a traz, uma vez.
+     */
     synchronized void aceitarTermo() {
-        prefs.edit().putString(K_TERMO, TERMO_VERSAO).commit();
+        prefs.edit().putString(K_TERMO, TERMO_VERSAO).putBoolean(K_BATERIA, true).commit();
+    }
+
+    /** A janela da bateria sem restrição ainda por pedir, desde o último Li e aceito desta conta. */
+    synchronized boolean bateriaPorPedir() {
+        try {
+            return prefs.getBoolean(K_BATERIA, false) && termoAceito();
+        } catch (ClassCastException e) {
+            return false;
+        }
+    }
+
+    /** A janela da bateria aberta (ou nada a pedir, com o app já liberado): até o próximo Li e aceito, ela não volta. */
+    synchronized void bateriaPedida() {
+        if (prefs.contains(K_BATERIA)) gravar(prefs.edit().remove(K_BATERIA));
     }
 }

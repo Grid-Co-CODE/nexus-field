@@ -1094,6 +1094,18 @@ O site (App de Campo) e o Fracttal não mudam.
     mostra mais o pedido), nenhuma tela a mais: o `permissao: "sem"` ao Nexus no máximo a cada 30 min (o mapa separa quem
     negou de quem não abriu o app; o 4xx do Nexus conta como respondido), e o guia de instalação diz o caminho nos
     ajustes. Fora da janela nada aparece ao técnico. Uma thread só para disco, cifra e rede (a do serviço).
+  - **A janela da bateria sem restrição (R15, o mesmo pedido do dono de 10/11/2026 que trouxe a R14).** Logo depois do
+    termo aceito e da localização dada (a coleta que liga, ou a que já estava ligada, com a tela à vista), se o
+    `PowerManager.isIgnoringBatteryOptimizations` diz que não, a casca abre a janela do próprio Android,
+    `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (a permissão `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` no manifesto; o
+    `BatteryLife` do lint, calado no manifesto e no código, fala da regra da loja do Google, e o Nexus Field não é da
+    loja), sem tela nossa antes. Uma vez por conta e por termo: o Li e aceito deixa a marca `bateria_por_pedir`, que sai
+    quando a janela abre (recusada, não volta até a próxima conta ou o próximo termo; o 401 da mesma conta não a traz) ou
+    com o app já liberado; a que não abriu (a tela saindo) abre na próxima volta. A coleta funciona igual com a recusa.
+    Por que importa: sem a otimização de bateria, o Android 12+ deixa o app ligar o serviço em primeiro plano com o app no
+    fundo (é uma das exceções da regra), o que o religamento sozinho da R15 usa, e o HyperOS fecha menos o app. O Android
+    sem a janela (há fabricante que a tira) só deixa um aviso no log. O Início automático do Xiaomi não tem janela do
+    Android: fica no guia de instalação.
   - **O termo é o aviso de privacidade inteiro, e só se aceita depois de rolar até o fim (R11, o pedido do dono em
     09/11/2026: "Quero que o termo de notificação inclua tudo referente a LGPD e seja que nem as empresas grandes fazem,
     aparece a pessoa tem que rolar até o final para aceitar").** O texto (12 seções; o jurídico ainda confirma a base
@@ -1125,7 +1137,8 @@ O site (App de Campo) e o Fracttal não mudam.
   - `ChaveDaEquipe` (cifrada pela `Cifra`/Keystore; o `commit()` do `apagarAChave` e dos outros é de propósito, no
     lugar do `apply()`, porque a gravação tem de chegar ao disco antes de o envio seguir, na thread dele; o termo aceito
     fica na marca `termo_aceito`, com a versão, e não na `aviso_aceito` de antes dele: quem aceitou o aviso num aparelho
-    de prova não leu o termo),
+    de prova não leu o termo; a conta conferida, na `conta_conferida`, e a janela da bateria por pedir, na
+    `bateria_por_pedir`),
     `FilaDePontos` (SQLite: no máximo 1000 pontos e nada com mais de 24 h; passou, sai o mais velho; o ponto que não se
     lê sai antes do lote, que segue com os outros) e `EnvioDePontos` (todo 5xx, o 403, o 404, o 405, o 408, o 429, o 3xx e a falta de
     rede deixam fila e chave intactas; o outro 4xx é o lote recusado, que sai da fila; só o 401 apaga a chave; o 200 só
@@ -1147,19 +1160,28 @@ O site (App de Campo) e o Fracttal não mudam.
   e a conta que a cifra não lê, sim; o Sair esquece a conta, e o próximo login vê o termo). Caso que criou a regra: a
   conta A sem sinal o dia todo, a chave vence, o 401; a conta B entra no dia seguinte sem o Sair de A e herdaria o dia
   de A. A conta ilegível (Keystore invalidado, backup restaurado) conta como fila sem dona, e a fila é apagada.
-- **O envio espera a conta conferida (R8, R9).** `ChaveDaEquipe.conferida` começa "não conferida" em cada processo e em
-  cada tela que nasce (o `aTelaAbriu` do `load()` do plugin); confere o pedido do aparelho da mesma conta ou a chave nova
-  guardada; desfazem o Sair, a troca de conta, o `coleta:false`, o 401, a conferência de outra conta e o cofre fora.
-  Enquanto não conferida, `EnvioDePontos.enviar` e o `avisarSemPermissao` devolvem NADA sem rede (a coleta segue e
-  guarda, sem acordar o celular nem recomeçar a contar o envio, `podeEnviar`; a revogação do Sair não espera). Caso: a
-  partida a frio com a chave de outra conta, que enviaria o primeiro lote uns 1 min 45 s depois do `onResume`, antes de o
-  login da nova conta chegar. O custo aceito: o app aberto sem token coleta e só envia depois que a página confere a
-  conta (a fila guarda 24 h e 1000 pontos). A conferência fica só na memória: o serviço não volta sem a tela (R10), e
-  nenhum processo sem página precisa dela (a marca no disco que o religamento retomava saiu com ele). O cofre que não lê
-  a conta na conferência responde `temChave: true` (para não
-  pedir uma chave que o cofre fora não guarda), guarda na memória a conta da página (`contaDaPagina`), e o envio e a volta
-  ao app conferem de novo até ele voltar (R9); a conta guardada que então se mostra de outra conta não manda nada e faz a
-  troca de conta na volta ao app.
+- **O envio espera a conta conferida, e a conferência fica no disco, presa à conta (R8, R9, R14).** Só a página confere
+  a conta da chave guardada: o pedido do aparelho da mesma conta, ou a chave nova guardada. Sem conferência nenhuma,
+  `EnvioDePontos.enviar` e o `avisarSemPermissao` devolvem NADA sem rede (a coleta segue e guarda, sem acordar o celular
+  nem recomeçar a contar o envio, `podeEnviar`; a revogação do Sair não espera). Caso da R8: a partida a frio com a chave
+  de outra conta, que enviaria o primeiro lote uns 1 min 45 s depois do `onResume`, antes de o login da nova conta
+  chegar. **A conferência vai também ao disco (R14, o pedido do dono em 10/11/2026: "precisamos só ser mais
+  independente... sem esses erros de ficar parando coleta nem nada")**: a marca `conta_conferida` é a conta guardada
+  cifrada, os mesmos bytes do `conta`, e só vale com a chave guardada e enquanto as duas forem iguais (comparar cifrado
+  com cifrado não passa pela cifra, e o serviço pergunta na thread principal). A partida nova e a tela que nasce (o
+  `aTelaAbriu` do `load()` do plugin, que só esquece a `contaDaPagina`) a mantêm, e o envio sai sem a página; o log diz
+  uma vez por partida "conferida numa partida de antes". Caso: a atualização das 10:23 fechou o app, a coleta religou e
+  coletou a cada 2 min, e só enviou às 10:50, quando o dono abriu o app; na reprodução, a coleta ligou com a tela apagada
+  (o JavaScript da WebView não roda) e só enviou ao desbloquear. A página continua conferindo a cada carga: a mesma conta
+  mantém; outra conta faz a troca da R5 antes de qualquer envio dela. Apagam a marca, como a conferência da memória: o
+  Sair, a troca de conta, o `coleta:false`, o 401, a página de outra conta, a página com o cofre fora (ela falou, e não se
+  sabe se é a mesma conta) e o cofre que volta lendo outra conta. **O custo aceito pelo dono**: num celular dividido em
+  que outra pessoa abre o app sem o Sair da anterior, os pontos entre a partida e a carga da página vão em nome da conta
+  anterior (antes, esperavam); a carga da página corrige dali em diante. A chave que a 1.2.0 guardou não tem a marca: a
+  primeira partida da versão nova espera a página, como antes. O cofre que não lê a conta na conferência responde
+  `temChave: true` (para não pedir uma chave que o cofre fora não guarda), guarda na memória a conta da página
+  (`contaDaPagina`), e o envio e a volta ao app conferem de novo até ele voltar (R9); a conta guardada que então se mostra
+  de outra conta não manda nada e faz a troca de conta na volta ao app.
 - **A nova tentativa da página (R7).** Terminou: `temChave: true`, ou o `equipeChave` com a chave ou com o `coleta:false`
   entregue ao nativo. A falha antes do nativo (sem login, token sem id, sem `crypto`) tenta na hora no online e na volta
   ao app; a que chegou ao nativo ou ao Nexus tenta no máximo uma vez a cada 10 min, contados do pedido ao nativo (o
@@ -1183,10 +1205,11 @@ O site (App de Campo) e o Fracttal não mudam.
   termo sem mudar a `TERMO_VERSAO`; o Li e aceito que liga antes do fim do texto; texto novo de interface sem o
   `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do "O que aprovar", com o texto
   inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega). Xiaomi e afins: a coleta com o app
-  fechado depende do Início automático e da bateria sem restrições, que o guia de instalação (`docs/instalacao/`) manda
-  ligar; o app morto pelo sistema para a coleta até a próxima abertura. O roteiro do piloto é a seção "A localização da
-  equipe" do `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às 22h, a tela apagada, as
-  marcas, o aviso das 6h).
+  fechado depende do Início automático e da bateria sem restrições: a bateria, a casca pede pela janela do Android depois
+  do termo (R15), e o guia de instalação (`docs/instalacao/`) manda ligar as duas; o app morto pelo sistema para a coleta
+  até a próxima abertura. O roteiro do piloto é a seção "A localização da equipe" do `docs/prova-no-aparelho.md`; falta o
+  piloto no aparelho (bateria, a parada às 22h, a tela apagada, as marcas, o aviso das 6h, a conta conferida guardada e
+  a janela da bateria).
 
 ## Distribuição
 

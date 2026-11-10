@@ -104,6 +104,7 @@ public class EnvioDePontosTest {
         assertEquals(EnvioDePontos.Resultado.PARAR, envio().enviar());
         assertNull(chave.chave());
         assertEquals(0, fila.tamanho());
+        assertFalse("a conta conferida no disco sai junto (R14)", temAMarca());
     }
 
     @Test
@@ -116,13 +117,35 @@ public class EnvioDePontosTest {
         assertEquals(5, fila.tamanho());
         // A conta fica: é a dona da fila que sobrou (a mesma conta a sobe com a chave nova; outra conta a apaga antes).
         assertEquals(CONTA, chave.conta());
+        assertFalse("a conta conferida no disco sai junto (R14)", temAMarca());
+    }
+
+    // A marca da conta conferida no disco (R14).
+    private boolean temAMarca() {
+        return ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("conta_conferida");
     }
 
     @Test
-    public void semAContaConferidaNestaPartidaNadaSaiMasORevogarNaoEspera() throws Exception {
+    public void aContaConferidaSobreviveAPartidaNovaEOEnvioSaiSemAPagina() throws Exception {
+        // R14, o caso de 10/11/2026: a atualização fechou o app, a coleta religou com a tela apagada e os pontos só subiram
+        // quando o dono abriu o app (a página, que não roda com a tela apagada, conferia a conta).
         chave.guardar("k1", CONTA);
         encher(3);
-        // A partida a frio: a chave e a conta no disco, e a página desta partida ainda não mandou a conta.
+        chave = new ChaveDaEquipe(ctx, new CifraFalsa()); // a partida nova, sem a página
+        assertTrue(envio().podeEnviar());
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
+        assertEquals(1, pedidos.size());
+        assertEquals("k1", pedidos.get(0)[1]);
+        assertEquals(0, fila.tamanho());
+        assertEquals("o aviso sem permissão também", EnvioDePontos.Resultado.ENVIADO, envio().avisarSemPermissao());
+    }
+
+    @Test
+    public void semAContaConferidaNadaSaiMasORevogarNaoEspera() throws Exception {
+        chave.guardar("k1", CONTA);
+        encher(3);
+        // A partida a frio com a chave que a 1.2.0 guardou, de antes da marca: a página ainda não mandou a conta.
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("conta_conferida").commit();
         chave = new ChaveDaEquipe(ctx, new CifraFalsa());
         assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
         assertEquals("nem o aviso sem permissão", EnvioDePontos.Resultado.NADA, envio().avisarSemPermissao());
@@ -135,8 +158,10 @@ public class EnvioDePontosTest {
         assertEquals(1, pedidos.size());
         assertEquals(0, fila.tamanho());
 
-        // O Sair de outra partida: a revogação vai com a chave velha, sem esperar conferência nenhuma.
+        // O Sair de outra partida, de novo sem a marca: a revogação vai com a chave velha, sem esperar conferência nenhuma.
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("conta_conferida").commit();
         chave = new ChaveDaEquipe(ctx, new CifraFalsa());
+        assertFalse(chave.conferida());
         envio().revogar();
         assertEquals(2, pedidos.size());
         assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidos.get(1)[0]);
@@ -242,7 +267,10 @@ public class EnvioDePontosTest {
         chave.guardar("k1", CONTA);
         assertTrue(envio().podeEnviar());
         chave = new ChaveDaEquipe(ctx, new CifraFalsa());
-        assertFalse("a partida a frio, antes da página", envio().podeEnviar());
+        assertTrue("a partida a frio, antes da página: a conferência do disco (R14)", envio().podeEnviar());
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("conta_conferida").commit();
+        chave = new ChaveDaEquipe(ctx, new CifraFalsa());
+        assertFalse("a chave de antes da marca, antes da página", envio().podeEnviar());
         CifraFalsa fora = new CifraFalsa();
         fora.keystoreFora = true;
         chave = new ChaveDaEquipe(ctx, fora);

@@ -381,7 +381,16 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       (09/11/2026, que dizia só a cidade fora de usina) vê a versão 2 (10/11/2026, o ponto exato e o percurso) de novo.
 - [ ] Logo depois do **Li e aceito**: o pedido do próprio Android, sem outra tela do Nexus Field antes; escolher
       **Durante o uso do app** (com a localização precisa). Com a localização já liberada (o **Antes de começar** da
-      instalação), nenhum pedido aparece: a coleta liga direto.
+      instalação), nenhum pedido de localização aparece: a coleta liga direto.
+- [ ] A janela da bateria, uma vez depois do termo: logo depois do **Li e aceito** e da localização dada, com a coleta
+      ligando, aparece a janela do próprio Android que pede deixar o Nexus Field sem restrição de bateria (o texto é do
+      Android e muda com a versão e a marca: anote o que apareceu), sem outra tela do Nexus Field antes, e a notificação
+      fixa **Localização da equipe ligada** já está na barra (a coleta liga antes da janela). Recusar: a coleta segue
+      igual, e a janela não volta para a mesma conta (fechar e abrir o app, reiniciar o celular, voltar no dia
+      seguinte). Noutra conta de teste (ou depois do **Sair**), o termo e a janela aparecem de novo. Aceitar: em
+      Configurações, Bateria, o Nexus Field fica **Sem restrições** (o nome muda com a marca), e a janela não volta. Num
+      aparelho com o Nexus Field já liberado antes do termo, nenhuma janela aparece. Se o aparelho não tiver a janela, o
+      log da casca diz "a janela da bateria sem restrição não abriu" e nada mais acontece: anote o modelo.
 - [ ] O termo é uma vez por conta: fechar e abrir o Nexus Field, reiniciar o celular, voltar no dia seguinte: o termo não
       aparece de novo para a mesma conta.
 - [ ] A coleta liga: a notificação fixa **Localização da equipe ligada** fica na barra, sem som e sem vibração.
@@ -485,16 +494,27 @@ alguns minutos depois. Cada item pede uma manhã; anote a hora em que o aviso ch
 - [ ] A troca de conta (as duas contas de teste no mesmo celular): com a conta A coletando, entrar com a B **sem** o Sair
       da A (o login da página trocando de conta). Nada sai em nome da A depois disso, a fila da A não sobe com a chave da
       B, e a B vê o termo (o **Li e aceito** liga a coleta). Voltar ao A pelo mesmo caminho: o mesmo, com o termo de novo.
-- [ ] A abertura em modo avião: com o aparelho em modo avião, abrir o Nexus Field (a chave já estava guardada): a coleta
-      liga e guarda os pontos na fila. Tirar o modo avião: os pontos sobem depois que a página confere a conta (o log
-      da casca diz que a conta da chave da equipe foi conferida nesta partida), e não antes. O custo que o desenho
-      aceitou: o app aberto sem token coleta e guarda, e só envia depois dessa conferência; a fila guarda 24 h e no
+- [ ] Outra conta na página depois da partida nova (R14): com a conta A coletando, **Forçar parada** do Nexus Field,
+      abri-lo e apagar a tela logo em seguida (a página não carrega) e deixar uns minutos: os pontos vão em nome da A (o
+      custo que o dono aceitou). Desbloquear e entrar com a conta B na página, sem o Sair da A: a troca de conta (a coleta
+      para, a fila e a chave da A saem, a chave da A é revogada), a B vê o termo, e nada mais sai em nome da A, nem depois
+      de outra partida.
+- [ ] A abertura em modo avião: com o aparelho em modo avião, abrir o Nexus Field (a chave já estava guardada, e a conta
+      já conferida num dia de antes): a coleta liga e guarda os pontos na fila. Tirar o modo avião: os pontos sobem no
+      envio seguinte, sem esperar a página (o log da casca diz uma vez "a conta da chave da equipe conferida numa partida
+      de antes"). Só a chave guardada pela 1.2.0, sem a conferência guardada, espera a página conferir na primeira
+      abertura da versão nova (o log "a conta da chave da equipe conferida nesta partida"); a fila guarda 24 h e no
       máximo 1000 pontos.
 - [ ] A nova tentativa ao voltar o sinal: abrir o Nexus Field em modo avião com o aparelho sem chave, tirar o modo avião
       e esperar: a página pede a chave sozinha quando a rede volta (ou na volta ao app), no máximo a cada 10 minutos, e a
       coleta liga (com o termo, se a conta ainda não o aceitou).
-- [ ] A partida a frio: tirar o Nexus Field dos recentes e abrir com a chave guardada: nenhum envio de pontos antes do
-      log "a conta da chave da equipe conferida nesta partida".
+- [ ] A conta conferida guardada (R14, o caso de 10/11/2026: depois da atualização, os pontos só subiam quando o app
+      vinha à tela): com a coleta ligada e a conta já conferida, (1) atualizar o Nexus Field por cima; (2) noutra hora,
+      **Forçar parada**; (3) noutra hora, reiniciar o celular. Em cada caso, abrir o Nexus Field e apagar a tela antes de
+      a página carregar (ou abri-lo com a tela apagada, como a instalação pelo cabo faz), sem desbloquear: a coleta liga,
+      e os pontos chegam ao mapa com a tela apagada (uns 2 minutos em deslocamento), sem esperar o app à vista (o log diz
+      "conferida numa partida de antes: o envio sai sem esperar a página"). Desbloquear: a página confere a mesma conta,
+      e nada muda.
 
 ### Os avisos `equipe` do log
 

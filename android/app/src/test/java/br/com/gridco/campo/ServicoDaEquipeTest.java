@@ -539,14 +539,43 @@ public class ServicoDaEquipeTest {
 
     // ---- O envio espera a conta conferida -------------------------------------------------------------------------------
 
+    /**
+     * A partida a frio com a chave que a 1.2.0 guardou, de antes da conta conferida no disco (R14): a chave e a conta no
+     * disco, e nenhuma conferência, nem na memória nem no disco, até a página desta tela conferir.
+     */
+    private void partidaNovaComAChaveDeAntesDaMarca() {
+        app.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("conta_conferida").commit();
+        chave = new ChaveDaEquipe(app, new CifraFalsa());
+        montarAsPecas();
+    }
+
+    @Test
+    public void naPartidaNovaComAContaConferidaNoDiscoOEnvioSaiComATelaApagada() {
+        // R14, o caso de 10/11/2026 (11:00): a coleta religou com a tela apagada, e os pontos só subiram às 11:09, ao
+        // desbloquear (o JavaScript da página não roda com a tela apagada, e só ela conferia a conta).
+        agora = em(10, 0);
+        chave.guardar("chave-ficticia", CONTA);
+        chave = new ChaveDaEquipe(app, new CifraFalsa()); // a partida nova: a atualização, o Forçar parada, o reinício
+        montarAsPecas();
+        ligar();
+        long t0 = System.currentTimeMillis() - 300_000;
+        desdeOBoot += ServicoDaEquipe.ENVIO_MS;
+        fonte.receptor.posicao(posicao(t0, LAT, LON, 0.2f));
+        assertEquals("a posição com o envio vencido manda, sem a página",
+            Arrays.asList(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_POSICOES), pedidosAoNexus);
+        assertEquals("com o celular acordado até a resposta", 1,
+            shadowOf(ShadowPowerManager.getLatestWakeLock()).getTimesHeld());
+        rodarOLacoPrincipal();
+        assertEquals(0, fila.tamanho());
+    }
+
     @Test
     public void oEnvioQueEsperaAContaNaoAcordaOCelularNemRecomecaAContaDoEnvio() {
         // Na partida a frio com a tela, à espera da página: nem o Handler nem a posição com o envio vencido acordam o
         // celular, e a conta do envio não recomeça, para o primeiro lote depois da conferência não esperar mais 2 min.
         agora = em(10, 0);
         chave.guardar("chave-ficticia", CONTA);
-        chave = new ChaveDaEquipe(app, new CifraFalsa());
-        montarAsPecas();
+        partidaNovaComAChaveDeAntesDaMarca();
         ligar();
         long t0 = System.currentTimeMillis() - 300_000;
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ServicoDaEquipe.ENVIO_MS));
@@ -754,13 +783,12 @@ public class ServicoDaEquipeTest {
     }
 
     @Test
-    public void naPartidaAFrioAColetaGuardaEOEnvioEsperaAPaginaConferirAConta() {
-        // A chave e a conta no disco, de antes, e o processo novo (o Android matou o app): a coleta liga e guarda como
+    public void naPartidaAFrioSemAContaConferidaAColetaGuardaEOEnvioEsperaAPaginaConferirAConta() {
+        // A chave e a conta da 1.2.0 no disco, sem a conta conferida, e o processo novo: a coleta liga e guarda como
         // sempre, e nada vai ao Nexus até a página desta partida mandar a conta (o pedido do aparelho, na EquipeNaCasca).
         agora = em(10, 0);
         chave.guardar("chave-ficticia", CONTA);
-        chave = new ChaveDaEquipe(app, new CifraFalsa());
-        montarAsPecas();
+        partidaNovaComAChaveDeAntesDaMarca();
         ligar();
         long t0 = System.currentTimeMillis() - 300_000;
         desdeOBoot += ServicoDaEquipe.ENVIO_MS;

@@ -17,8 +17,11 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.text.Spanned;
 import android.text.style.StyleSpan;
 import android.view.KeyEvent;
@@ -129,17 +132,26 @@ public class EquipeNaCascaTest {
     }
 
     /**
-     * A tela de mentira: guarda o Li e aceito do termo e os pedidos ao Android; com {@code saindo}, nada abre. Ela só tem o
-     * termo e o pedido do Android: nenhuma outra tela nossa existe para a casca abrir.
+     * A tela de mentira: guarda o Li e aceito do termo, os pedidos ao Android e as janelas da bateria; com {@code saindo},
+     * nada abre. Ela só tem o termo e as janelas do Android: nenhuma outra tela nossa existe para a casca abrir.
      */
     private static final class TelaFalsa implements EquipeNaCasca.Tela {
         int termos;
         int fechadas;
+        /** A janela do próprio Android que pede a bateria sem restrição (R15). */
+        int baterias;
         boolean saindo;
         /** O fechar que lança (o diálogo que a tela não tirou agora). */
         boolean lancarNoFechar;
         Runnable aceitarDoTermo;
         final List<List<String>> pedidos = new ArrayList<>();
+
+        @Override
+        public boolean pedirSemRestricaoDeBateria() {
+            if (saindo) return false;
+            baterias++;
+            return true;
+        }
 
         @Override
         public boolean mostrarTermo(Runnable aceitar) {
@@ -1102,22 +1114,204 @@ public class EquipeNaCascaTest {
         assertTrue(pedidosAoNexus.isEmpty());
     }
 
-    // --- nada sai em nome de uma conta que esta partida não conferiu --------------------------------------------------
+    // --- a janela da bateria sem restrição (R15) ----------------------------------------------------------------------
+
+    private void liberarDaBateria(boolean liberado) {
+        PowerManager energia = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
+        shadowOf(energia).setIgnoringBatteryOptimizations(app.getPackageName(), liberado);
+    }
+
+    @Test
+    public void aJanelaDaBateriaAbreUmaVezLogoDepoisDoTermoEDaLocalizacao() {
+        // O pedido do dono em 10/11/2026 ("precisamos só ser mais independente"): sem a otimização de bateria, o HyperOS
+        // fecha menos o app e o Android 12+ deixa religar a coleta com o app no fundo.
+        tirar(PRECISA, APROXIMADA);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        assertEquals("com o termo na frente, nada", 0, tela.baterias);
+        tela.aceitarDoTermo.run();
+        assertEquals("com o pedido da localização na frente, nada", 0, tela.baterias);
+        responder(c, true, true);
+        assertEquals(1, servico.iniciados);
+        assertEquals("logo depois da localização dada, a janela do próprio Android", 1, tela.baterias);
+        assertEquals("nenhuma tela nossa antes", 1, tela.termos);
+
+        // A volta da janela, com a recusa: a coleta segue igual, e a janela não volta.
+        servico.rodando = true;
+        c.reavaliar();
+        assertEquals(1, tela.baterias);
+        partidaNova();
+        casca().reavaliar();
+        assertEquals("nem na partida nova", 1, tela.baterias);
+        assertEquals(0, servico.parados);
+        assertEquals(1, servico.iniciados);
+    }
+
+    @Test
+    public void comALocalizacaoJaDadaAJanelaDaBateriaVemLogoDepoisDoLiEAceito() {
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertTrue(tela.pedidos.isEmpty());
+        assertEquals(1, servico.iniciados);
+        assertEquals(1, tela.baterias);
+    }
+
+    @Test
+    public void comOAppJaLiberadoAJanelaDaBateriaNaoAbre() {
+        liberarDaBateria(true);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals(1, servico.iniciados);
+        assertEquals(0, tela.baterias);
+        // A liberação tirada depois, nos ajustes: a janela não aparece fora do fluxo do termo.
+        liberarDaBateria(false);
+        servico.rodando = true;
+        c.reavaliar();
+        assertEquals(0, tela.baterias);
+    }
+
+    @Test
+    public void recusadaAJanelaSoVoltaComAProximaContaOuOProximoTermo() {
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals(1, tela.baterias);
+        servico.rodando = true;
+        c.reavaliar();
+        c.receberChave(true, CHAVE_B, CONTA_A); // a chave nova da mesma conta, a do 401
+        assertEquals("a mesma conta e o mesmo termo", 1, tela.baterias);
+
+        // A próxima conta: B entra sem o Sair de A, e a janela vem depois do aceite do termo de B.
+        c.pedirAparelho(CONTA_B, json -> true);
+        c.receberChave(true, CHAVE_B, CONTA_B);
+        assertEquals(1, tela.baterias);
+        tela.aceitarDoTermo.run();
+        assertEquals(2, tela.baterias);
+
+        // O próximo termo: o texto que muda pede o aceite de novo, e a janela vem depois dele.
+        servico.rodando = true;
+        app.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "1").commit();
+        c.reavaliar();
+        assertEquals(2, tela.baterias);
+        tela.aceitarDoTermo.run();
+        assertEquals(3, tela.baterias);
+    }
+
+    @Test
+    public void semALocalizacaoAJanelaEsperaALocalizacaoDadaEATelaAVista() {
+        tirar(PRECISA, APROXIMADA);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        responder(c, false, false);
+        assertEquals("negada, nada", 0, tela.baterias);
+        c.reavaliar();
+        assertEquals(0, tela.baterias);
+
+        // A localização dada mais tarde (o Antes de começar da próxima abertura): a janela vem logo depois, com a tela à
+        // vista.
+        dar(PRECISA, APROXIMADA);
+        c.aTelaSaiuDaVista();
+        c.reavaliar();
+        assertEquals("a tela fora da vista: nada", 0, tela.baterias);
+        c.aTelaFicouAVista();
+        c.reavaliar();
+        assertEquals(1, servico.iniciados);
+        assertEquals(1, tela.baterias);
+    }
+
+    @Test
+    public void aJanelaQueNaoAbriuComATelaSaindoAbreNaProximaVolta() {
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.saindo = true;
+        tela.aceitarDoTermo.run();
+        assertEquals(0, tela.baterias);
+        tela.saindo = false;
+        servico.rodando = true;
+        // A decisão que roda com o app no fundo (a chave que chega depois de o técnico sair do app): nada abre, e a janela
+        // segue por pedir (o Android 10+ nem deixa uma activity abrir do fundo).
+        c.aTelaSaiuDaVista();
+        c.reavaliar();
+        assertEquals(0, tela.baterias);
+        c.aTelaFicouAVista();
+        c.reavaliar();
+        assertEquals(1, tela.baterias);
+        c.reavaliar();
+        assertEquals(1, tela.baterias);
+    }
+
+    @Test
+    public void aTelaDeVerdadeAbreAJanelaDaBateriaDoProprioAndroid() {
+        AppCompatActivity activity = activity();
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        assertTrue(t.pedirSemRestricaoDeBateria());
+        Intent aberta = shadowOf(activity).getNextStartedActivity();
+        assertNotNull(aberta);
+        assertEquals(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, aberta.getAction());
+        assertEquals("package:" + app.getPackageName(), aberta.getDataString());
+        assertNull("nenhum diálogo nosso antes", ShadowDialog.getLatestDialog());
+
+        // O Android sem a janela (o fabricante que a tirou): nada quebra, e nada fica para tentar de novo.
+        shadowOf(app).checkActivities(true);
+        assertTrue(t.pedirSemRestricaoDeBateria());
+        controle.pause().stop().destroy();
+        assertFalse("a tela saindo: a próxima volta ao app tenta", t.pedirSemRestricaoDeBateria());
+    }
+
+    @Test
+    public void oManifestoPedeAPermissaoDaJanelaDaBateria() throws Exception {
+        List<String> pedidas = Arrays.asList(app.getPackageManager()
+            .getPackageInfo(app.getPackageName(), PackageManager.GET_PERMISSIONS).requestedPermissions);
+        assertTrue(pedidas.contains(Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS));
+    }
+
+    // --- nada sai em nome de uma conta que nenhuma página conferiu ----------------------------------------------------
 
     /**
-     * O processo novo (o Android matou o app, ou o celular reiniciou): a chave, a conta e a fila no disco, e nada da
-     * memória da partida anterior. A casca e o envio montados depois desta chamada usam a chave nova.
+     * O processo novo (a atualização, o Forçar parada, o celular reiniciado, o Android que matou o app): a chave, a conta,
+     * a conta conferida (R14) e a fila no disco, e nada da memória da partida anterior. A casca e o envio montados depois
+     * desta chamada usam a chave nova.
      */
     private void partidaNova() {
         chave = new ChaveDaEquipe(app, cifra);
     }
 
+    /** O processo novo com a chave que a 1.2.0 guardou, de antes da conta conferida no disco. */
+    private void partidaNovaSemAMarca() {
+        app.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().remove("conta_conferida").commit();
+        partidaNova();
+    }
+
+    private boolean temAMarca() {
+        return app.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("conta_conferida");
+    }
+
     @Test
-    public void naPartidaAFrioAColetaLigaENadaSaiAntesDeAPaginaConferirAConta() {
-        // O caso: o onResume liga a coleta com a chave guardada antes de a página mandar a conta (5 s depois do load, mais
-        // o token e o resumo), e o primeiro lote saía uns 1 min 45 s depois, em nome da conta da chave.
+    public void naPartidaAFrioAColetaLigaEOEnvioSaiSemEsperarAPagina() throws Exception {
+        // R14, o caso de 10/11/2026: a atualização das 10:23 fechou o app, a coleta religou e coletou a cada 2 min, e só
+        // enviou às 10:50, quando o dono abriu o app (com a tela apagada a página não roda, e só ela conferia a conta).
         comChaveETermo(CHAVE_A);
         partidaNova();
+        EquipeNaCasca c = casca();
+        c.aTelaAbriu(); // a tela que nasce, sem a página carregar (a tela apagada)
+        c.reavaliar();
+        assertEquals("a coleta liga com a chave guardada (a abertura sem sinal também coleta)", 1, servico.iniciados);
+        encher(3);
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
+        assertEquals(1, pedidosAoNexus.size());
+        assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
+        assertEquals(3, new JSONObject(pedidosAoNexus.get(0)[2]).getJSONArray("pontos").length());
+        assertEquals(0, fila.tamanho());
+    }
+
+    @Test
+    public void naPartidaAFrioSemAMarcaNadaSaiAntesDeAPaginaConferirAConta() {
+        // A chave da 1.2.0, de antes da marca: o onResume liga a coleta, e o envio espera a página conferir, como antes.
+        comChaveETermo(CHAVE_A);
+        partidaNovaSemAMarca();
         EquipeNaCasca c = casca();
         c.reavaliar();
         assertEquals("a coleta liga com a chave guardada (a abertura sem sinal também coleta)", 1, servico.iniciados);
@@ -1135,13 +1329,14 @@ public class EquipeNaCascaTest {
     public void oPedidoDoAparelhoDaMesmaContaConfereEOEnvioSobeAFila() throws Exception {
         comChaveETermo(CHAVE_A);
         encher(3);
-        partidaNova();
+        partidaNovaSemAMarca();
         EquipeNaCasca c = casca();
         assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
         List<String> respostas = new ArrayList<>();
         c.pedirAparelho(CONTA_A, respostas::add);
         assertTrue(new JSONObject(respostas.get(0)).getBoolean("temChave"));
         assertTrue(chave.conferida());
+        assertTrue("a conferência vai ao disco, para a próxima partida (R14)", temAMarca());
         assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
         assertEquals(1, pedidosAoNexus.size());
         assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
@@ -1150,22 +1345,43 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void naPartidaAFrioComOutraContaNadaSaiuEmNomeDaChaveEAFilaSai() throws Exception {
-        // O celular de A na mão de B, que abriu o app sem o Sair de A: a coleta ligou com a chave de A e guardou as
-        // posições de B, e nenhuma delas foi ao Nexus em nome de A.
+    public void naPartidaAFrioOutraContaNaPaginaFazATrocaENadaMaisSaiEmNomeDaAnterior() throws Exception {
+        // O celular de A na mão de B, que abriu o app sem o Sair de A. O custo aceito (R14): entre a partida e a carga da
+        // página, os pontos vão em nome de A. A página de B faz a troca da R5, e dali em diante nada sai em nome de A.
         comChaveETermo(CHAVE_A);
         partidaNova();
         EquipeNaCasca c = casca();
+        c.aTelaAbriu();
         c.reavaliar();
+        encher(2);
+        assertEquals("antes da página, em nome de A (o custo aceito)", EnvioDePontos.Resultado.ENVIADO, envio().enviar());
         encher(3);
-        assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
-        c.pedirAparelho(CONTA_B, json -> true);
-        assertEquals("só o revogar da chave de A", 1, pedidosAoNexus.size());
-        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
-        assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
-        assertEquals(0, fila.tamanho());
+        List<String> respostas = new ArrayList<>();
+        c.pedirAparelho(CONTA_B, respostas::add);
+        assertFalse("a página de B registra a conta dela", new JSONObject(respostas.get(0)).getBoolean("temChave"));
+        assertEquals("o lote e o revogar da chave de A", 2, pedidosAoNexus.size());
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(1)[0]);
+        assertEquals(CHAVE_A, pedidosAoNexus.get(1)[1]);
+        assertEquals("os pontos de depois da partida saíram com a fila de A", 0, fila.tamanho());
         assertNull(chave.chave());
         assertFalse(chave.conferida());
+        assertFalse(temAMarca());
+        assertEquals("parar", servico.chamadas.get(servico.chamadas.size() - 1));
+
+        // Nada mais sai em nome de A: nem nesta partida, nem na próxima, e o que B coletar sobe só com a chave de B.
+        encher(1);
+        assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
+        assertEquals(EnvioDePontos.Resultado.NADA, envio().avisarSemPermissao());
+        partidaNova();
+        assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
+        assertEquals(2, pedidosAoNexus.size());
+        c = casca();
+        c.receberChave(true, CHAVE_B, CONTA_B); // o ponto sem dona sai antes da chave de B entrar
+        assertEquals(0, fila.tamanho());
+        encher(1);
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
+        assertEquals(CHAVE_B, pedidosAoNexus.get(2)[1]);
+        for (String[] p : pedidosAoNexus.subList(2, pedidosAoNexus.size())) assertNotEquals(CHAVE_A, p[1]);
     }
 
     @Test
@@ -1239,53 +1455,79 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void aTelaQueAbreDesfazAConferenciaAteAPaginaDelaConferir() throws Exception {
-        // A abertura com tela (o load do plugin) é o caso da R8: outra conta pode estar entrando. Nada sai até a página desta
-        // tela conferir.
+    public void aTelaQueNasceNaoDesfazAConferenciaDoDisco() throws Exception {
+        // R14: a tela que nasce (o load do plugin) com a tela apagada não tem página que rode, e a coleta que liga com ela
+        // envia; a página dela confere quando carregar (a mesma conta mantém; outra faz a troca).
         comChaveETermo(CHAVE_A);
         encher(1);
         EquipeNaCasca c = casca();
         assertTrue(chave.conferida());
         c.aTelaAbriu();
-        assertFalse(chave.conferida());
-        assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
-        c.pedirAparelho(CONTA_A, json -> true);
+        assertTrue(chave.conferida());
+        assertTrue(temAMarca());
         assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
-        assertTrue(pedidosAoNexus.size() == 1);
+        c.pedirAparelho(CONTA_A, json -> true);
+        assertTrue("a mesma conta mantém", chave.conferida());
+        assertTrue(temAMarca());
+        encher(1);
+        assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
+        assertEquals(2, pedidosAoNexus.size());
     }
 
     @Test
     public void aChaveQueAPaginaEntregaConfere() throws Exception {
-        // A partida a frio de A depois do 401 de ontem: a chave nova da mesma conta entra, e o dia de A sobe com ela.
+        // A partida a frio de A depois do 401 de ontem (que apagou a chave e a conferência): a chave nova da mesma conta
+        // entra, e o dia de A sobe com ela.
         comChaveETermo(CHAVE_A);
         encher(2);
+        chave.apagarAChave();
         partidaNova();
         assertEquals(EnvioDePontos.Resultado.NADA, envio().enviar());
         casca().receberChave(true, CHAVE_B, CONTA_A);
         assertTrue(chave.conferida());
+        assertTrue(temAMarca());
         assertEquals(EnvioDePontos.Resultado.ENVIADO, envio().enviar());
         assertEquals(CHAVE_B, pedidosAoNexus.get(0)[1]);
         assertEquals(2, new JSONObject(pedidosAoNexus.get(0)[2]).getJSONArray("pontos").length());
     }
 
     @Test
-    public void oSairEATrocaDeContaVoltamANaoConferida() {
+    public void oSairATrocaDeContaOColetaFalseEO401VoltamANaoConferidaTambemNoDisco() {
         EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_A, CONTA_A);
         assertTrue(chave.conferida());
         c.sair();
         assertFalse("o Sair", chave.conferida());
+        assertFalse(temAMarca());
+        partidaNova();
+        assertFalse("nem na partida nova", chave.conferida());
 
+        c = casca();
         c.receberChave(true, CHAVE_A, CONTA_A);
         c.pedirAparelho(CONTA_B, json -> true);
         assertFalse("a troca de conta", chave.conferida());
+        assertFalse(temAMarca());
+
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        c.receberChave(false, null, CONTA_A);
+        assertFalse("o coleta:false do registro", chave.conferida());
+        assertFalse(temAMarca());
+
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        assertTrue(temAMarca());
+        resposta = new EnvioDePontos.Resposta(401, "");
+        encher(1);
+        assertEquals(EnvioDePontos.Resultado.PARAR, envio().enviar());
+        assertFalse("o 401 do envio", temAMarca());
+        partidaNova();
+        assertFalse(chave.conferida());
     }
 
     @Test
-    public void naPartidaAFrioOSemPermissaoTambemEsperaAContaConferida() throws Exception {
+    public void naPartidaAFrioSemAMarcaOSemPermissaoTambemEsperaAContaConferida() throws Exception {
         tirar(PRECISA, APROXIMADA);
         chave.guardar(CHAVE_A, CONTA_A);
-        partidaNova();
+        partidaNovaSemAMarca();
         EquipeNaCasca c = casca();
         c.reavaliar();
         tela.aceitarDoTermo.run();

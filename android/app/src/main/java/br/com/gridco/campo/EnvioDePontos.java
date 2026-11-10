@@ -21,9 +21,11 @@ import org.json.JSONObject;
  * chave do aparelho no Authorization.
  *
  * <ul>
- *   <li>Nada sai antes de a página conferir a conta da chave ({@link ChaveDaEquipe#conferida}): o lote e o aviso sem
- *       permissão devolvem {@link Resultado#NADA} sem pedido ao Nexus, e a fila e a chave ficam. A conferência que o cofre
- *       não deixou fazer (R9) é refeita antes de cada envio. A revogação do Sair não espera.</li>
+ *   <li>Nada sai antes de uma página conferir a conta da chave ({@link ChaveDaEquipe#conferida}): a desta partida, ou a
+ *       de uma partida de antes, pela marca no disco (R14: depois da atualização, do Forçar parada ou do reinício, com a
+ *       tela apagada, os pontos saem sem esperar a página). Sem ela, o lote e o aviso sem permissão devolvem
+ *       {@link Resultado#NADA} sem pedido ao Nexus, e a fila e a chave ficam. A conferência que o cofre não deixou fazer
+ *       (R9) é refeita antes de cada envio. A revogação do Sair não espera.</li>
  *   <li>Só o 401 e o {@code coleta:false} do Nexus param o serviço e apagam a chave. O 401 apaga só a chave: a conta
  *       fica, dona da fila que sobrou ({@link ChaveDaEquipe#apagarAChave}). O coleta:false apaga a chave, a conta e a
  *       fila. Todo 5xx (o 503, com a Microsoft fora ou o servidor sem configuração, em especial) e a rede que cai dão
@@ -93,9 +95,10 @@ final class EnvioDePontos {
     }
 
     /**
-     * Vale tentar o envio agora: a conta conferida, ou a conferência por refazer (R9), que o {@link #enviar} refaz. Não
-     * passa pela cifra nem pelo disco: o serviço pergunta na thread principal, antes de acordar o celular e de recomeçar a
-     * contar o envio (o primeiro lote depois da conferência não espera mais 2 min).
+     * Vale tentar o envio agora: a conta conferida (nesta partida ou numa de antes, R14), ou a conferência por refazer
+     * (R9), que o {@link #enviar} refaz. Não passa pela cifra nem grava no disco: o serviço pergunta na thread principal,
+     * antes de acordar o celular e de recomeçar a contar o envio (o primeiro lote depois da conferência não espera mais 2
+     * min).
      */
     boolean podeEnviar() {
         return chave.conferida() || chave.precisaReconferir();
@@ -147,9 +150,10 @@ final class EnvioDePontos {
         return postarPosicoes(k, corpo(new JSONArray(), "sem"));
     }
 
-    // A chave para o envio: só a da conta que a página conferiu (ChaveDaEquipe#conferida). Antes disso o lote espera na
-    // fila, sem pedido ao Nexus: nada sai em nome de uma conta que não foi conferida. A conferência que o cofre não deixou
-    // fazer (R9) é refeita aqui; com o cofre ainda fora, ou com a chave de outra conta, nada sai.
+    // A chave para o envio: só a da conta que uma página conferiu (ChaveDaEquipe#conferida, a desta partida ou a do disco).
+    // Antes disso o lote espera na fila, sem pedido ao Nexus: nada sai em nome de uma conta que não foi conferida. A
+    // conferência que o cofre não deixou fazer (R9) é refeita aqui; com o cofre ainda fora, ou com a chave de outra conta,
+    // nada sai.
     private String chaveConferida() {
         if (!chave.conferida() && chave.precisaReconferir()) {
             try {
@@ -157,6 +161,11 @@ final class EnvioDePontos {
             } catch (RuntimeException e) {
                 return null;
             }
+        }
+        // O piloto lê no log que o envio saiu sem a página (a partida nova com a tela apagada), uma vez por partida.
+        if (chave.retomarConferencia()) {
+            Log.i(CascaPlugin.TAG, "a conta da chave da equipe conferida numa partida de antes: o envio sai sem esperar a "
+                + "página");
         }
         return chave.conferida() ? chave.chave() : null;
     }
