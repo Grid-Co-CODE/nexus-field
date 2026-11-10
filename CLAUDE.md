@@ -1137,7 +1137,10 @@ O site (App de Campo) e o Fracttal não mudam.
     fundo (é uma das exceções da regra), o que o religamento do processo morto da R15 usa, e o HyperOS fecha menos o
     app. O Android
     sem a janela (há fabricante que a tira) só deixa um aviso no log. O Início automático do Xiaomi não tem janela do
-    Android: fica no guia de instalação.
+    Android: fica no guia de instalação. Sem ele, o HyperOS não deixa o app partir por aviso do sistema: no celular do
+    dono (10/11/2026), a atualização pelo cabo deu "Unable to launch app ... MY_PACKAGE_REPLACED: process is not
+    permitted to auto start" e a coleta só voltou na abertura; ligado, ela voltou 9 s depois da instalação, sem abrir o
+    app. O `adb shell appops get br.com.gridco.nexusfield 10008` mostra o estado (`ignore` desligado, `allow` ligado).
   - **O termo é o aviso de privacidade inteiro, e só se aceita depois de rolar até o fim (R11, o pedido do dono em
     09/11/2026: "Quero que o termo de notificação inclua tudo referente a LGPD e seja que nem as empresas grandes fazem,
     aparece a pessoa tem que rolar até o final para aceitar").** O texto (12 seções; o jurídico ainda confirma a base
