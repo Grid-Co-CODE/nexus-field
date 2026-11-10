@@ -113,7 +113,7 @@ final class AvisoDoQueFalta {
             if (faltas.isEmpty()) {
                 tirar(app);
             } else if (podeMostrar) {
-                mostrar(app, emLista(faltas), agora);
+                mostrar(app, emLista(faltas), Boolean.FALSE.equals(ajustes.opt("inicioAutomatico")), agora);
             }
         } catch (RuntimeException e) {
             Log.w(TAG, "o aviso do que falta não foi conferido agora (" + e.getClass().getSimpleName() + ")");
@@ -174,7 +174,7 @@ final class AvisoDoQueFalta {
 
     // Mostra, ou atualiza em silêncio (o mesmo id e o setOnlyAlertOnce), o aviso, com o som só uma vez por dia para cada
     // lista (a marca). Sem a permissão de notificação (Android 13+) nada aparece: é a falta que este aviso não diz.
-    private static void mostrar(Context app, String lista, long agora) {
+    private static void mostrar(Context app, String lista, boolean faltaOInicio, long agora) {
         // A permissão aqui mesmo, antes do notify (o lint MissingPermission só a enxerga no mesmo método).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS)
@@ -182,7 +182,7 @@ final class AvisoDoQueFalta {
             return;
         }
         CanaisDeNotificacao.criarDosAjustes(app);
-        Intent ajustes = InicioAutomatico.osDetalhesDoApp(app).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Intent ajustes = destinoDoToque(app, faltaOInicio).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         PendingIntent toque = PendingIntent.getActivity(app, CODIGO, ajustes,
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         long fim = JanelaDaEquipe.fimDaJanela(agora, TimeZone.getDefault());
@@ -214,6 +214,24 @@ final class AvisoDoQueFalta {
     }
 
     // O dia do celular (o fuso dele), para a marca do som.
+    // O toque leva aonde se resolve o que falta. Caso de 10/11/2026 (o celular do dono, HyperOS 2): os detalhes do app
+    // não têm a chave do Início automático, nem em Outras permissões, e o técnico que tocava no aviso não a achava; ela só
+    // está na tela do HyperOS. Com o Início automático na lista, o toque abre essa tela, se o aparelho a tiver (o
+    // <queries> do manifesto deixa enxergá-la); senão, ou depois de ligado, os detalhes do app, onde ficam as
+    // permissões e a bateria.
+    static Intent destinoDoToque(Context app, boolean faltaOInicio) {
+        if (faltaOInicio) {
+            Intent hyperos = InicioAutomatico.aTelaDoHyperOS();
+            try {
+                app.getPackageManager().getActivityInfo(hyperos.getComponent(), 0);
+                return hyperos;
+            } catch (PackageManager.NameNotFoundException | RuntimeException e) {
+                // O aparelho sem a tela (outro HyperOS, ou a Segurança escondida): os detalhes do app.
+            }
+        }
+        return InicioAutomatico.osDetalhesDoApp(app);
+    }
+
     private static String dia(long agora) {
         Calendar c = Calendar.getInstance(TimeZone.getDefault());
         c.setTimeInMillis(agora);

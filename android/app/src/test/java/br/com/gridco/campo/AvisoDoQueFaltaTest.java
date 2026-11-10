@@ -14,6 +14,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
@@ -237,6 +238,34 @@ public class AvisoDoQueFaltaTest {
         xiaomiNoModo(AppOpsManager.MODE_IGNORED);
         conferir();
         assertEquals("Falta: Início automático" + FIM_DO_TEXTO, textoDoAviso());
+    }
+
+    @Test
+    public void comOInicioAutomaticoFaltandoOToqueAbreATelaDoHyperOS() {
+        // A prova no celular do dono (10/11/2026, HyperOS 2): os detalhes do app não têm a chave do Início automático,
+        // nem em Outras permissões, e o técnico que tocava no aviso não a achava. Ela só está na tela do HyperOS.
+        comChaveETermo();
+        ShadowBuild.setManufacturer("Xiaomi");
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        ComponentName tela = new ComponentName("com.miui.securitycenter",
+            "com.miui.permcenter.autostart.AutoStartManagementActivity");
+        // O aparelho sem a tela do HyperOS: os detalhes do app, como para o resto.
+        conferir();
+        Intent toque = shadowOf(oAviso().contentIntent).getSavedIntent();
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, toque.getAction());
+
+        shadowOf(app.getPackageManager()).addActivityIfNotPresent(tela);
+        conferir();
+        toque = shadowOf(oAviso().contentIntent).getSavedIntent();
+        assertEquals("a tela do Início automático do HyperOS", tela, toque.getComponent());
+        assertTrue((toque.getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK) != 0);
+
+        // Só a bateria faltando: os detalhes do app, onde ela fica.
+        xiaomiNoModo(AppOpsManager.MODE_ALLOWED);
+        liberarABateria(false);
+        conferir();
+        toque = shadowOf(oAviso().contentIntent).getSavedIntent();
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, toque.getAction());
     }
 
     // --- o som: uma vez por dia para cada lista ---------------------------------------------------------------------

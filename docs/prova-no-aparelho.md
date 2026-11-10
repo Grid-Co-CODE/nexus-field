@@ -421,7 +421,8 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       No meio dos pedidos nada aparece; na volta ao app depois da última tela, chega o aviso **Falta liberar no
       celular**, **Falta: Permitir o tempo todo, bateria sem restrição e Início automático. Toque para abrir os ajustes do
       Nexus Field.** (o Início automático só num Xiaomi), no canal **Ajustes da localização**, com o som padrão e sem
-      aparecer por cima da tela. Tocar nele abre os ajustes do Nexus Field. Liberar um dos três e voltar ao app: o aviso
+      aparecer por cima da tela. Tocar nele abre a tela do Início automático do HyperOS (com ele na lista; no HyperOS 2 os
+      detalhes do app não têm essa chave) ou, sem ele, os ajustes do Nexus Field. Liberar um dos três e voltar ao app: o aviso
       muda a lista sem tocar de novo. Liberar tudo e voltar ao app: o aviso some. Limpá-lo da barra com algo ainda
       faltando: ele volta na próxima volta ao app ou no envio seguinte (uns 2 a 10 min com a coleta ligada), em silêncio
       no mesmo dia e com a mesma lista; com outra lista, ou no dia seguinte, ele toca de novo. Antes das 6h

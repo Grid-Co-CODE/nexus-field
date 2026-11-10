@@ -1162,8 +1162,10 @@ O site (App de Campo) e o Fracttal não mudam.
     "Permitir o tempo todo", "bateria sem restrição", "Início automático", com a vírgula e o "e" no último) e ". Toque
     para abrir os ajustes do Nexus Field.", no sexto canal, "Ajustes da localização" (`ajustes_da_localizacao`:
     importância e som padrão, nasce com o primeiro aviso), id fixo 3.000.002, `setOnlyAlertOnce`, sem ser fixo (o técnico
-    limpa, e ele volta na próxima conferência se ainda faltar), e o toque abre os detalhes do app (no HyperOS, a mesma
-    tela tem as permissões, a bateria e o Início automático) sem tirá-lo. O som vale uma vez por dia para cada lista: a
+    limpa, e ele volta na próxima conferência se ainda faltar). O toque (`destinoDoToque`), sem tirá-lo: com o Início
+    automático na lista, a tela dele no HyperOS (a Segurança, enxergada pelo `<queries>` do manifesto), e sem ela, ou
+    faltando só o resto, os detalhes do app (as permissões e a bateria). Caso de 10/11/2026, a prova no celular do dono
+    pelo cabo: no HyperOS 2 os detalhes do app não têm a chave do Início automático, nem em Outras permissões. O som vale uma vez por dia para cada lista: a
     marca `tocou` (nas preferências `equipe_falta`) guarda o dia na hora do celular e a lista do último aviso que tocou, e
     o mesmo dia com a mesma lista vai em silêncio (`setSilent`), também depois de limpo; outra lista ou outro dia toca, e
     o `apagar` tira a marca. Caso (a revisão de 10/11/2026): o `setOnlyAlertOnce` só cala o aviso que ainda está na barra,

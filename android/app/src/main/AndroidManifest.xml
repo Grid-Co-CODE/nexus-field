@@ -177,7 +177,9 @@
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <!-- Android 11+: sem isto o app não enxerga o app de câmera para a foto e o vídeo do <input capture>. -->
+    <!-- E a Segurança do HyperOS: o toque no aviso do que falta abre a tela do Início automático só se a enxergar. -->
     <queries>
+        <package android:name="com.miui.securitycenter" />
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
