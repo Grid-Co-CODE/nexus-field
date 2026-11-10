@@ -507,13 +507,22 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // legal (seção 5) e o canal dos direitos (seção 10, o RH).
   const doTermo = compactar(d.getElementById('ok-equipe-termo').closest('li').querySelector('label').textContent);
   for (const trecho of [/aviso de privacidade inteiro/, /rola até o fim/, /jurídico confirmar/, /base legal \(seção 5\)/,
-    /canal dos direitos \(seção 10, o RH\)/, /versão 2 \(10\/11\/2026\).*ponto exato.*em casa ou no hotel.*percurso/,
-    /jurídico precisa ver/]) {
+    /canal dos direitos \(seção 10, o RH\)/,
+    /versão 3 \(10\/11\/2026\).*Permitir o tempo todo.*bateria sem restrição.*volta sozinha no mesmo dia/,
+    /versão 2 .*ponto exato.*em casa ou no hotel.*percurso/, /jurídico precisa ver/]) {
     assert.match(doTermo, trecho, 'o item do termo diz o que se aprova nele');
   }
-  // A versão 2 (R13, 10/11/2026): o termo diz o ponto exato e o percurso, e não promete mais só a cidade.
+  // A versão 2 (R13, 10/11/2026): o termo diz o ponto exato e o percurso, e não promete mais só a cidade. A versão 3
+  // (R15, do mesmo dia): o fim manda escolher o Permitir o tempo todo e a bateria sem restrição, e a seção 3 diz que a
+  // coleta volta sozinha no mesmo dia (as trocas do brief, palavra por palavra).
   const textoDoTermo = compactar(daEquipe.find((s) => s.nome === 'casca_equipe_termo_texto').texto);
-  assert.match(textoDoTermo, /^Versão 2, de 10 de novembro de 2026\./);
+  assert.match(textoDoTermo, /^Versão 3, de 10 de novembro de 2026\./);
+  assert.ok(textoDoTermo.includes('Das 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o '
+    + 'aplicativo fechado depois disso, e a coleta volta sozinha se o celular reiniciar ou o aplicativo for atualizado no '
+    + 'mesmo dia.'), 'a seção 3 da versão 3');
+  assert.ok(textoDoTermo.endsWith('Quando o Android perguntar, escolha Permitir o tempo todo e deixe o Nexus Field sem '
+    + 'restrição de bateria.'), 'a última frase da versão 3');
+  assert.doesNotMatch(textoDoTermo, /Durante o uso do app/);
   assert.match(textoDoTermo, /última posição de cada técnico nos últimos 7 dias, onde ele estiver/);
   assert.match(textoDoTermo, /abrir o percurso de um técnico num período desses 7 dias/);
   assert.match(textoDoTermo, /o seu percurso ou a rota até você, fica registrado quem abriu, quando e, no percurso, de que período/);
@@ -532,14 +541,22 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // A versão 2 (R13): o item não promete mais o que o mapa deixou de fazer (só a cidade de quem está parado fora de usina).
   assert.doesNotMatch(dito, /só a cidade/, 'o item do que o termo promete está na versão 2');
   assert.match(dito, /ponto exato/, 'o item do que o termo promete diz do ponto exato e do percurso');
-  // A seção da equipe tem o termo e a notificação, e nada do aviso nem da o tempo todo.
+  // A versão 3 (R15): o item promete o que vem depois do aceite, na ordem, e a coleta que volta sozinha só no dia começado.
+  assert.match(dito, /localização \(a precisa, durante o uso\), o do Permitir o tempo todo e a janela da bateria sem restrição/);
+  assert.match(dito, /volta sozinha se o celular reiniciar, o aplicativo for atualizado ou o Android fechar o aplicativo, e nunca sem a abertura do dia/);
+  // A seção da equipe tem o termo, a notificação e o aviso das 6h (as telas do Android que vêm depois do termo são do
+  // Android, e só as legendas as dizem), com o tempo todo de volta (R15).
   const secao = d.getElementById('g-equipe')?.closest('section');
   assert.ok(secao, 'a seção Localização da equipe');
   assert.deepEqual([...secao.querySelectorAll('figure.item')].map((f) => f.id),
     ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao', 't-equipe-inicio']);
-  assert.ok(!/tempo todo/.test(secao.textContent), 'a seção da equipe não fala mais da localização o tempo todo');
-  for (const li of d.querySelectorAll('#o-que-aprovar li')) {
-    assert.ok(!/tempo todo/.test(li.textContent), `um item do "O que aprovar" ainda fala da o tempo todo: ${li.textContent}`);
+  assert.match(compactar(d.querySelector('#t-equipe-termo-fim figcaption').textContent),
+    /a coleta liga, e vem o pedido do Permitir o tempo todo.*Por último, a janela da bateria sem restrição/,
+    'a legenda do fim do termo diz a ordem das telas do Android');
+  // O "Durante o uso do app" saiu de tudo: a versão 3 manda escolher o tempo todo, e nenhuma legenda ou item diz o contrário.
+  for (const onde of [secao, d.getElementById('o-que-aprovar')]) {
+    assert.doesNotMatch(compactar(onde.textContent), /escolh[ae] Durante o uso do app/,
+      'a prévia ainda manda escolher a durante o uso');
   }
 });
 

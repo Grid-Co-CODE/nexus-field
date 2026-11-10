@@ -345,7 +345,12 @@ O Android muda o pedido da localização e a notificação de versão para vers�
 piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote o modelo e a versão, sem dono):
 
 - [ ] Android 10: o pedido do Android logo depois do **Li e aceito** oferece só a localização durante o uso (o nome da
-      opção muda com a versão: anote o que apareceu), sem o "o tempo todo".
+      opção muda com a versão: anote o que apareceu); o pedido do tempo todo, que vem depois, é outra tela do próprio
+      Android, com **Permitir o tempo todo**.
+- [ ] Android 11 ou mais novo: o pedido do tempo todo leva aos ajustes do Nexus Field (Permissões, Localização), onde se
+      escolhe **Permitir o tempo todo**; voltar ao app com o Voltar do Android.
+- [ ] Android 9 ou mais velho, se houver um no piloto: depois do **Li e aceito** e da localização, nenhum pedido do tempo
+      todo (a localização dada já vale com o app fechado), e a janela da bateria vem logo.
 - [ ] Android 11: o pedido oferece também **Apenas esta vez**. Escolhê-la: a coleta do dia liga e segue com o app fechado (o
       serviço já ligado); na abertura do dia seguinte o **Antes de começar** pede a localização de novo, e o termo não
       volta.
@@ -378,14 +383,24 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
 - [ ] A versão nova pede de novo: no aparelho de prova que aceitou o termo curto de antes (o APK de prova anterior a
       esta mudança), instalar o APK novo por cima e abrir com a mesma conta: o termo inteiro aparece de novo, e a coleta
       só liga depois do **Li e aceito**. Depois do aceite, fechar e abrir: ele não volta. Também quem aceitou a versão 1
-      (09/11/2026, que dizia só a cidade fora de usina) vê a versão 2 (10/11/2026, o ponto exato e o percurso) de novo.
+      (09/11/2026, que dizia só a cidade fora de usina) ou a 2 (10/11/2026, o ponto exato e o percurso, a da 1.2.0) vê a
+      versão 3 (10/11/2026, o Permitir o tempo todo e a coleta que volta sozinha no mesmo dia) de novo, na 1.2.1.
 - [ ] Logo depois do **Li e aceito**: o pedido do próprio Android, sem outra tela do Nexus Field antes; escolher
-      **Durante o uso do app** (com a localização precisa). Com a localização já liberada (o **Antes de começar** da
-      instalação), nenhum pedido de localização aparece: a coleta liga direto.
-- [ ] A janela da bateria, uma vez depois do termo: logo depois do **Li e aceito** e da localização dada, com a coleta
-      ligando, aparece a janela do próprio Android que pede deixar o Nexus Field sem restrição de bateria (o texto é do
-      Android e muda com a versão e a marca: anote o que apareceu), sem outra tela do Nexus Field antes, e a notificação
-      fixa **Localização da equipe ligada** já está na barra (a coleta liga antes da janela). Recusar: a coleta segue
+      **Durante o uso do app** (com a localização precisa): a coleta liga. Com a localização já liberada (o **Antes de
+      começar** da instalação), nenhum pedido da localização durante o uso aparece: a coleta liga direto.
+- [ ] O pedido do tempo todo, uma vez depois da localização (R15): com a coleta já ligando (a notificação fixa
+      **Localização da equipe ligada** na barra), vem o pedido do Android da localização o tempo todo, sem outra tela do
+      Nexus Field antes (a tela do Android 10 ou os ajustes do 11 em diante, ver "Os aparelhos do piloto"). Escolher
+      **Permitir o tempo todo** e voltar ao app: a janela da bateria vem em seguida, e o log da casca diz "o tempo todo
+      dado com a coleta ligada: a casca a inicia de novo". Noutra conta de teste (ou depois do **Sair**), ficar com a
+      durante o uso: a coleta segue igual, a janela da bateria vem igual, o mapa não muda (não é falta de permissão), e o
+      pedido não volta para a mesma conta (fechar e abrir o app, reiniciar o celular, voltar no dia seguinte). Num
+      aparelho com o tempo todo já dado, nada se pede.
+- [ ] A janela da bateria, uma vez depois do termo: logo depois do **Li e aceito**, da localização dada e da resposta ao
+      pedido do tempo todo (a ordem: a localização, o tempo todo, a bateria), com a coleta ligada, aparece a janela do
+      próprio Android que pede deixar o Nexus Field sem restrição de bateria (o texto é do Android e muda com a versão e a
+      marca: anote o que apareceu), sem outra tela do Nexus Field antes, e a notificação fixa **Localização da equipe
+      ligada** já está na barra (a coleta liga antes das duas). Recusar: a coleta segue
       igual, e a janela não volta para a mesma conta (fechar e abrir o app, reiniciar o celular, voltar no dia
       seguinte). Noutra conta de teste (ou depois do **Sair**), o termo e a janela aparecem de novo. Aceitar: em
       Configurações, Bateria, o Nexus Field fica **Sem restrições** (o nome muda com a marca), e a janela não volta. Num
@@ -403,20 +418,32 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       automático desligado): a notificação fixa sai sozinha, os pontos de até as 22h chegam ao mapa logo depois (o
       último envio), e o Nexus não recebe mais pontos até a primeira abertura do dia seguinte. Voltar o horário
       automático. Às 22h em ponto não vale, e às 6h em ponto vale.
-- [ ] O app fechado continua coletando (só com o **Durante o uso do app**): com a coleta ligada, ir à tela inicial,
+- [ ] O app fechado continua coletando (também só com o **Durante o uso do app**): com a coleta ligada, ir à tela inicial,
       tirar o Nexus Field dos recentes (num aparelho que não o mata) e apagar a tela; andar com o aparelho por alguns
       minutos (ou deixá-lo parado em outro ponto): o mapa mostra posições novas, a cada uns 2 minutos em deslocamento e
       uns 10 parado, e a notificação fixa segue na barra. Com a tela apagada por 30 min ou mais o ritmo se mantém.
-- [ ] O Android que mata o app para a coleta até a próxima abertura: no aparelho que mata o app ao tirar dos recentes
-      (Xiaomi e afins), ou com **Forçar parada** nos ajustes, a notificação fixa sai e o mapa deixa de receber pontos (o
-      aparelho vira "sem sinal" depois de 30 min), e a coleta não volta sozinha, nem no mesmo dia (se o sistema tentar,
-      o log diz "religamento da coleta da equipe pelo sistema, com o app no fundo: não volta"). Abrir o Nexus Field: a
-      coleta liga de novo, sem o termo. É o custo que o dono aceitou ao tirar o "o tempo todo" (R10).
+- [ ] Com o tempo todo, a coleta do dia começado volta sozinha (R15, o caso de 10/11/2026: o HyperOS e a atualização
+      fechavam o app e a coleta parava até a próxima abertura). Com a coleta ligada pela abertura de hoje, sem abrir o
+      Nexus Field depois: (1) matar o app (tirá-lo dos recentes no Xiaomi com o Início automático ligado, ou o Android que
+      o fecha por falta de memória): em alguns minutos a notificação fixa volta sozinha e o mapa recebe os pontos (o log
+      diz "religamento da coleta da equipe pelo sistema: a coleta volta"); (2) reiniciar o celular e desbloquear: a
+      notificação fixa volta e os pontos chegam (o log diz "o celular religou: a coleta da equipe volta sozinha"); (3)
+      atualizar o Nexus Field por cima (o APK pelo cabo, ou o **Atualizar agora**), sem abri-lo depois: o mesmo (o log
+      diz "o Nexus Field foi atualizado: a coleta da equipe volta sozinha"). Do Android 12 em diante, o processo morto
+      pode não voltar sem a bateria sem restrição (o log diz "o Android recusou a coleta da equipe em primeiro plano"):
+      anote o modelo. O **Forçar parada** é do Android: o app parado à força pode não receber nada até ser aberto; anote o
+      que se viu.
+- [ ] Sem o tempo todo (recusado no pedido), o Android que mata o app para a coleta até a próxima abertura: no aparelho
+      que mata o app ao tirar dos recentes (Xiaomi e afins), ou com **Forçar parada** nos ajustes, a notificação fixa sai
+      e o mapa deixa de receber pontos (o aparelho vira "sem sinal" depois de 30 min), e a coleta não volta sozinha, nem
+      no mesmo dia, nem com o reinício ou a atualização (o log diz que não volta, "sem a localização o tempo todo"). Abrir o
+      Nexus Field: a coleta liga de novo, sem o termo e sem o pedido do tempo todo.
 - [ ] Sem abrir o app no dia, nada é coletado (o anti-objetivo da folga e das férias), também com o aviso das 6h na
-      barra. Com a coleta ligada: (1) reiniciar o celular; (2) noutro dia, Forçar parada do Nexus Field nos ajustes; (3)
-      noutro dia, tirar o app dos recentes no aparelho que o mata. Em cada caso, depois das 6h do dia seguinte e sem
-      tocar no aviso nem abrir o Nexus Field até o meio da manhã: a notificação fixa não aparece, e o mapa não recebe
-      nenhum ponto novo do aparelho. Abrir o Nexus Field: a coleta liga.
+      barra e com o tempo todo. Com a coleta ligada num dia: (1) reiniciar o celular antes das 6h do dia seguinte; (2)
+      noutro dia, reiniciar depois das 22h; (3) noutro dia, atualizar o Nexus Field por cima à noite; (4) noutro dia,
+      tirar o app dos recentes no aparelho que o mata. Em cada caso, depois das 6h do dia seguinte e sem tocar no aviso
+      nem abrir o Nexus Field até o meio da manhã: a notificação fixa não aparece, e o mapa não recebe nenhum ponto novo
+      do aparelho (o log diz que não volta, "o dia não começou"). Abrir o Nexus Field: a coleta liga.
 - [ ] A notificação desligada: nos ajustes do Android, desligar o canal **Localização da equipe** (ou as notificações do
       Nexus Field): a coleta para, e o mapa mostra o aparelho sem permissão (o aviso sai no máximo a cada 30 minutos).
       Religar e ver a coleta voltar na próxima volta ao app.
@@ -458,8 +485,8 @@ alguns minutos depois. Cada item pede uma manhã; anote a hora em que o aviso ch
       localização pelo **Antes de começar**, e o termo não volta.
 - [ ] Negada de vez (Android 11 ou mais novo, duas recusas: o Android não mostra mais o pedido): o **Li e aceito** (de
       outra conta, ou depois do Sair) não mostra nada além do termo, e o mapa mostra o aparelho sem permissão. Liberar
-      pelo caminho do guia de instalação (**Permissões**, **Localização**, a opção durante o uso do app, com **Usar
-      localização precisa** ligado; o nome da opção muda com a versão) e voltar ao app: a coleta liga.
+      pelo caminho do guia de instalação (**Permissões**, **Localização**, **Permitir o tempo todo** ou a durante o uso do
+      app, com **Usar localização precisa** ligado; o nome da opção muda com a versão) e voltar ao app: a coleta liga.
 - [ ] Android 12 ou mais novo, a **Aproximada**: no pedido logo depois do **Li e aceito**, escolher **Aproximada**: a
       coleta não liga e o mapa mostra o aparelho sem permissão. Escolhida no pedido do **Antes de começar**, aparece
       também o aviso **Localização precisa desligada**. Ligar **Usar localização precisa** nos ajustes e voltar ao app: a
@@ -468,6 +495,9 @@ alguns minutos depois. Cada item pede uma manhã; anote a hora em que o aviso ch
       desligar **Usar localização precisa**; o Android costuma matar o processo nessa hora). Sem abrir o app: a
       notificação fixa sai (na hora ou na próxima posição) e não volta, e o mapa para de receber pontos. Abrir o app: o
       **Antes de começar** pede a localização de novo, e o termo não volta.
+- [ ] Só o tempo todo tirado com a coleta ligada (nos ajustes, trocar **Permitir o tempo todo** pela durante o uso; o
+      Android costuma matar o processo nessa hora): a coleta não volta sozinha (o log diz "sem a localização o tempo
+      todo"), e a próxima abertura a liga com a durante o uso, sem pedir o tempo todo de novo.
 - [ ] O Sair que revoga: com a coleta ligada, **Sair**: a notificação fixa some na hora, a coleta para e o mapa deixa de
       receber pontos; o aparelho não recebe mais nada em nome da conta de antes. Entrar de novo na mesma conta: o termo
       aparece de novo (o Sair esquece a conta, a chave e o aceite).

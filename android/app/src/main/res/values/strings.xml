@@ -120,14 +120,15 @@
       Textos novos, PENDENTES: vão à prévia (docs/previas/telas.html, a seção Localização da equipe) e só valem depois de
       aprovados pelo dono da casca, pelo RH e pelo jurídico (do jurídico confirmar: a base legal, seção 5, e o canal dos
       direitos, seção 10, o RH). Aparece uma vez para cada conta (outra conta no mesmo aparelho o vê de novo), só entre as
-      6h e as 22h, e não fecha tocando fora nem pelo Voltar: o Li e aceito é o único botão ("Durante o uso do app" é o
-      nome que o Android dá à opção, em português).
+      6h e as 22h, e não fecha tocando fora nem pelo Voltar: o Li e aceito é o único botão. Desde a versão 3 (R15,
+      10/11/2026), o fim do texto diz o que escolher nas telas do próprio Android que vêm depois, o pedido da localização
+      o tempo todo e a janela da bateria ("Permitir o tempo todo" é o nome que o Android dá à opção, em português).
       O aceite guarda a versão do texto (ChaveDaEquipe.TERMO_VERSAO, a da primeira linha): mudou o texto, mude a versão
       nos dois lugares e o resumo do texto no EquipeNaCascaTest (TEXTO_DE_CADA_VERSAO), e quem aceitou a de antes vê o
       termo de novo.
     -->
     <string name="casca_equipe_termo_titulo">Termo de uso e privacidade da localização</string>
-    <string name="casca_equipe_termo_texto">Versão 2, de 10 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.
+    <string name="casca_equipe_termo_texto">Versão 3, de 10 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.
         \n\n<b>1. Quem é o responsável</b>
         \nA Grid Co. é a controladora dos dados deste termo, nos termos da Lei Geral de Proteção de Dados
         Pessoais (Lei nº 13.709/2018, a LGPD).
@@ -138,7 +139,8 @@
         Nexus Field não coleta contatos, fotos, mensagens, arquivos, áudio nem o uso de outros aplicativos.
         \n\n<b>3. Quando</b>
         \nDas 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o aplicativo
-        fechado depois disso. Em férias ou folga, sem abrir o aplicativo, nada é coletado. Antes das 6h e depois
+        fechado depois disso, e a coleta volta sozinha se o celular reiniciar ou o aplicativo for atualizado no
+        mesmo dia. Em férias ou folga, sem abrir o aplicativo, nada é coletado. Antes das 6h e depois
         das 22h, nada é coletado. Enquanto a coleta estiver ligada, a notificação Localização da equipe ligada
         fica na barra do celular; sem ela, não há coleta.
         \n\n<b>4. Para quê</b>
@@ -178,8 +180,8 @@
         desligada.
         \n\n<b>12. Mudanças neste termo</b>
         \nSe este termo mudar, o Nexus Field mostra a nova versão e pede um novo aceite antes de coletar.
-        \n\nAo tocar em Li e aceito, você confirma que leu e entendeu este termo. Se o Android perguntar,
-        escolha Durante o uso do app.</string>
+        \n\nAo tocar em Li e aceito, você confirma que leu e entendeu este termo. Quando o Android perguntar,
+        escolha Permitir o tempo todo e deixe o Nexus Field sem restrição de bateria.</string>
     <string name="casca_equipe_termo_rolar">Role até o fim para liberar o Li e aceito</string>
     <string name="casca_equipe_termo_aceitar">Li e aceito</string>
 

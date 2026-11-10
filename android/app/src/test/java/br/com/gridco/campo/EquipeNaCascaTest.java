@@ -19,6 +19,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
+import android.os.Build;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -84,6 +85,7 @@ public class EquipeNaCascaTest {
     private static final String CONTA_B = "bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000bbbb0000";
     private static final String PRECISA = Manifest.permission.ACCESS_FINE_LOCATION;
     private static final String APROXIMADA = Manifest.permission.ACCESS_COARSE_LOCATION;
+    private static final String TEMPO_TODO = Manifest.permission.ACCESS_BACKGROUND_LOCATION;
     private static final long MINUTO = 60_000L;
 
     /** O ServicoDaEquipe de mentira: conta e guarda, na ordem, os pedidos, e está rodando quando o teste diz. */
@@ -101,6 +103,8 @@ public class EquipeNaCascaTest {
         boolean lancarNoParar;
         /** A notificação fixa ficaria à vista (as notificações do Nexus Field e o canal da equipe ligados). */
         boolean notificacao = true;
+        /** O último início do serviço pediu ao Android para religá-lo (o START_STICKY, só com o tempo todo, R15). */
+        boolean religa;
 
         @Override
         public void iniciar() {
@@ -128,6 +132,11 @@ public class EquipeNaCascaTest {
         @Override
         public boolean notificacaoAVista() {
             return notificacao;
+        }
+
+        @Override
+        public boolean religaSozinho() {
+            return religa;
         }
     }
 
@@ -243,10 +252,14 @@ public class EquipeNaCascaTest {
         return c;
     }
 
-    /** O aparelho que já tem a chave da conta A e cujo técnico já aceitou o termo. */
+    /**
+     * O aparelho que já tem a chave da conta A e cujo técnico já aceitou o termo e já respondeu ao pedido do tempo todo,
+     * sem dá-lo (só a durante o uso, como na 1.2.0): o pedido não volta.
+     */
     private void comChaveETermo(String k) {
         chave.guardar(k, CONTA_A);
         chave.aceitarTermo();
+        chave.tempoTodoPedido();
     }
 
     /**
@@ -265,6 +278,20 @@ public class EquipeNaCascaTest {
     /** Logo depois do aceite: o pedido do Android, a precisa e a aproximada juntas. */
     private static List<String> aLocalizacao() {
         return Arrays.asList(PRECISA, APROXIMADA);
+    }
+
+    /** Logo depois da localização dada e da coleta ligada: o pedido do tempo todo, sozinho (R15). */
+    private static List<String> oTempoTodo() {
+        return Collections.singletonList(TEMPO_TODO);
+    }
+
+    /**
+     * O que o técnico escolheu no pedido do tempo todo (Permitir o tempo todo, ou ficar com a durante o uso): a permissão
+     * do aparelho fica assim, e a resposta volta à casca, como o launcher do plugin a entrega.
+     */
+    private void responderOTempoTodo(EquipeNaCasca c, boolean dado) {
+        if (dado) dar(TEMPO_TODO); else tirar(TEMPO_TODO);
+        c.aposOPedido(Collections.singletonMap(TEMPO_TODO, dado));
     }
 
     private SharedPreferences daCasca() {
@@ -499,19 +526,21 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void comALocalizacaoJaDadaOLiEAceitoLigaSemPedidoNenhum() {
-        // O caso comum: a localização já dada no Antes de começar (o App de Campo precisa dela), e só o termo aparece.
+    public void comALocalizacaoJaDadaOLiEAceitoLigaSemPedidoDaLocalizacao() {
+        // O caso comum: a localização já dada no Antes de começar (o App de Campo precisa dela), e só o termo aparece, e
+        // depois dele só o pedido do tempo todo (R15).
         EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_A, CONTA_A);
         tela.aceitarDoTermo.run();
-        assertTrue(tela.pedidos.isEmpty());
+        assertEquals(Collections.singletonList(oTempoTodo()), tela.pedidos);
         assertEquals(1, servico.iniciados);
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
         // A localização tirada mais tarde, na mesma tela: o pedido era só o de logo depois do aceite, e agora só o Nexus
         // fica sabendo.
-        servico.rodando = true;
         tirar(PRECISA, APROXIMADA);
         c.reavaliar();
-        assertTrue("nenhum pedido fora do aceite", tela.pedidos.isEmpty());
+        assertEquals("nenhum pedido fora do aceite", 1, tela.pedidos.size());
         assertEquals(1, servico.parados);
         assertEquals(1, pedidosAoNexus.size());
     }
@@ -648,14 +677,27 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void quemAceitouAVersao1VeOTermoDaVersao2DeNovoEOAceiteDa2Vale() {
+    public void quemAceitouAVersao1VeOTermoDeAgoraDeNovo() {
         // R13 (10/11/2026): o texto passou a mostrar o ponto exato e o percurso, e quem aceitou o de antes não leu isso.
         chave.guardar(CHAVE_A, CONTA_A);
         daEquipe().edit().putString("termo_aceito", "1").commit();
         assertFalse("o aceite da versão 1 não vale mais", chave.termoAceito());
         oTermoVoltaEOAceiteGuardaAVersaoDeAgora();
-        assertEquals("2", daEquipe().getString("termo_aceito", null));
-        assertTrue("o aceite da versão 2 vale", chave.termoAceito());
+        assertEquals("3", daEquipe().getString("termo_aceito", null));
+        assertTrue(chave.termoAceito());
+    }
+
+    @Test
+    public void quemAceitouAVersao2VeOTermoDaVersao3DeNovoEOAceiteDa3Vale() {
+        // R15 (10/11/2026): o texto passou a pedir o Permitir o tempo todo e a bateria sem restrição, e a dizer que a coleta
+        // volta sozinha no mesmo dia depois de o celular reiniciar ou o aplicativo ser atualizado; quem aceitou a versão 2
+        // não leu isso.
+        chave.guardar(CHAVE_A, CONTA_A);
+        daEquipe().edit().putString("termo_aceito", "2").commit();
+        assertFalse("o aceite da versão 2 não vale mais", chave.termoAceito());
+        oTermoVoltaEOAceiteGuardaAVersaoDeAgora();
+        assertEquals("3", daEquipe().getString("termo_aceito", null));
+        assertTrue("o aceite da versão 3 vale", chave.termoAceito());
     }
 
     @Test
@@ -1122,7 +1164,7 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void aJanelaDaBateriaAbreUmaVezLogoDepoisDoTermoEDaLocalizacao() {
+    public void aJanelaDaBateriaAbreUmaVezLogoDepoisDoTermoDaLocalizacaoEDoTempoTodo() {
         // O pedido do dono em 10/11/2026 ("precisamos só ser mais independente"): sem a otimização de bateria, o HyperOS
         // fecha menos o app e o Android 12+ deixa religar a coleta com o app no fundo.
         tirar(PRECISA, APROXIMADA);
@@ -1133,7 +1175,10 @@ public class EquipeNaCascaTest {
         assertEquals("com o pedido da localização na frente, nada", 0, tela.baterias);
         responder(c, true, true);
         assertEquals(1, servico.iniciados);
-        assertEquals("logo depois da localização dada, a janela do próprio Android", 1, tela.baterias);
+        assertEquals("com o pedido do tempo todo na frente, nada", 0, tela.baterias);
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
+        assertEquals("logo depois da resposta do tempo todo, a janela do próprio Android", 1, tela.baterias);
         assertEquals("nenhuma tela nossa antes", 1, tela.termos);
 
         // A volta da janela, com a recusa: a coleta segue igual, e a janela não volta.
@@ -1148,22 +1193,14 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void comALocalizacaoJaDadaAJanelaDaBateriaVemLogoDepoisDoLiEAceito() {
-        EquipeNaCasca c = casca();
-        c.receberChave(true, CHAVE_A, CONTA_A);
-        tela.aceitarDoTermo.run();
-        assertTrue(tela.pedidos.isEmpty());
-        assertEquals(1, servico.iniciados);
-        assertEquals(1, tela.baterias);
-    }
-
-    @Test
     public void comOAppJaLiberadoAJanelaDaBateriaNaoAbre() {
         liberarDaBateria(true);
         EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_A, CONTA_A);
         tela.aceitarDoTermo.run();
         assertEquals(1, servico.iniciados);
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
         assertEquals(0, tela.baterias);
         // A liberação tirada depois, nos ajustes: a janela não aparece fora do fluxo do termo.
         liberarDaBateria(false);
@@ -1177,25 +1214,29 @@ public class EquipeNaCascaTest {
         EquipeNaCasca c = casca();
         c.receberChave(true, CHAVE_A, CONTA_A);
         tela.aceitarDoTermo.run();
-        assertEquals(1, tela.baterias);
         servico.rodando = true;
+        responderOTempoTodo(c, false);
+        assertEquals(1, tela.baterias);
         c.reavaliar();
         c.receberChave(true, CHAVE_B, CONTA_A); // a chave nova da mesma conta, a do 401
         assertEquals("a mesma conta e o mesmo termo", 1, tela.baterias);
 
-        // A próxima conta: B entra sem o Sair de A, e a janela vem depois do aceite do termo de B.
+        // A próxima conta: B entra sem o Sair de A, e a janela vem depois do aceite do termo de B (e do tempo todo).
         c.pedirAparelho(CONTA_B, json -> true);
         c.receberChave(true, CHAVE_B, CONTA_B);
         assertEquals(1, tela.baterias);
         tela.aceitarDoTermo.run();
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
         assertEquals(2, tela.baterias);
 
         // O próximo termo: o texto que muda pede o aceite de novo, e a janela vem depois dele.
-        servico.rodando = true;
         app.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "1").commit();
         c.reavaliar();
         assertEquals(2, tela.baterias);
         tela.aceitarDoTermo.run();
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
         assertEquals(3, tela.baterias);
     }
 
@@ -1219,6 +1260,9 @@ public class EquipeNaCascaTest {
         c.aTelaFicouAVista();
         c.reavaliar();
         assertEquals(1, servico.iniciados);
+        assertEquals("antes, o pedido do tempo todo", Collections.singletonList(oTempoTodo()), tela.pedidos.subList(1, 2));
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
         assertEquals(1, tela.baterias);
     }
 
@@ -1238,6 +1282,9 @@ public class EquipeNaCascaTest {
         assertEquals(0, tela.baterias);
         c.aTelaFicouAVista();
         c.reavaliar();
+        assertEquals("o pedido do tempo todo, que também não abriu, vem antes", Collections.singletonList(oTempoTodo()),
+            tela.pedidos);
+        responderOTempoTodo(c, false);
         assertEquals(1, tela.baterias);
         c.reavaliar();
         assertEquals(1, tela.baterias);
@@ -1266,6 +1313,190 @@ public class EquipeNaCascaTest {
         List<String> pedidas = Arrays.asList(app.getPackageManager()
             .getPackageInfo(app.getPackageName(), PackageManager.GET_PERMISSIONS).requestedPermissions);
         assertTrue(pedidas.contains(Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS));
+    }
+
+    // --- o tempo todo (R15) -------------------------------------------------------------------------------------------
+
+    @Test
+    public void oTempoTodoVemLogoDepoisDaLocalizacaoEAJanelaDaBateriaDepoisDele() {
+        // R15, o pedido do dono em 10/11/2026 ("precisamos só ser mais independente... sem esses erros de ficar parando
+        // coleta nem nada"): com o tempo todo, a coleta do dia começado volta sozinha. A ordem é a localização, o tempo
+        // todo e a bateria, e nenhuma tela nossa além do termo.
+        tirar(PRECISA, APROXIMADA);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals(Collections.singletonList(aLocalizacao()), tela.pedidos);
+        responder(c, true, true);
+        assertEquals("a coleta liga com a durante o uso, antes do tempo todo", 1, servico.iniciados);
+        assertEquals("logo depois, o pedido do tempo todo, sozinho", Arrays.asList(aLocalizacao(), oTempoTodo()),
+            tela.pedidos);
+        assertEquals("a janela da bateria espera a resposta do tempo todo", 0, tela.baterias);
+        servico.rodando = true;
+        c.reavaliar(); // a volta ao app com o pedido na frente (do Android 11 em diante, os ajustes): nada por cima
+        assertEquals(2, tela.pedidos.size());
+        assertEquals(0, tela.baterias);
+
+        responderOTempoTodo(c, true);
+        assertEquals("depois do tempo todo, a janela da bateria", 1, tela.baterias);
+        assertEquals("nenhuma tela nossa além do termo", 1, tela.termos);
+        assertEquals(2, tela.pedidos.size());
+        assertTrue("o mapa não sabe do tempo todo", pedidosAoNexus.isEmpty());
+    }
+
+    @Test
+    public void comALocalizacaoJaDadaOTempoTodoVemLogoDepoisDoLiEAceito() {
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals(1, servico.iniciados);
+        assertEquals(Collections.singletonList(oTempoTodo()), tela.pedidos);
+        assertEquals(0, tela.baterias);
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
+        assertEquals("recusado, a janela da bateria vem igual", 1, tela.baterias);
+        assertEquals("e a coleta segue só com a durante o uso, como na 1.2.0", 0, servico.parados);
+        assertEquals(1, servico.iniciados);
+        assertTrue("o mapa não sabe do tempo todo: nada de sem ao Nexus", pedidosAoNexus.isEmpty());
+    }
+
+    @Test
+    public void recusadoOTempoTodoSoVoltaComAProximaContaOuOProximoTermo() {
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
+        c.reavaliar();
+        c.receberChave(true, CHAVE_B, CONTA_A); // a chave nova da mesma conta, a do 401
+        partidaNova();
+        EquipeNaCasca depois = casca();
+        depois.aTelaAbriu();
+        depois.reavaliar();
+        assertEquals("nem a mesma conta, nem a partida nova pedem de novo", 1, tela.pedidos.size());
+        assertEquals(0, servico.parados);
+        assertTrue(pedidosAoNexus.isEmpty());
+
+        // A próxima conta: B entra sem o Sair de A, e o pedido vem depois do aceite do termo de B.
+        depois.pedirAparelho(CONTA_B, json -> true);
+        depois.receberChave(true, CHAVE_B, CONTA_B);
+        assertEquals(1, tela.pedidos.size());
+        tela.aceitarDoTermo.run();
+        assertEquals(Arrays.asList(oTempoTodo(), oTempoTodo()), tela.pedidos);
+        servico.rodando = true;
+        responderOTempoTodo(depois, false);
+
+        // O próximo termo: o texto que muda pede o aceite de novo, e o pedido vem depois dele.
+        daEquipe().edit().putString("termo_aceito", "1").commit();
+        depois.reavaliar();
+        assertEquals(2, tela.pedidos.size());
+        tela.aceitarDoTermo.run();
+        assertEquals(3, tela.pedidos.size());
+        assertEquals(oTempoTodo(), tela.pedidos.get(2));
+    }
+
+    @Test
+    public void comOTempoTodoJaDadoNadaEPedidoEAJanelaDaBateriaVemLogo() {
+        dar(TEMPO_TODO);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertTrue(tela.pedidos.isEmpty());
+        assertEquals(1, tela.baterias);
+        // Tirado depois nos ajustes: o pedido não volta fora do fluxo do termo, e a coleta segue com a durante o uso.
+        tirar(TEMPO_TODO);
+        servico.rodando = true;
+        c.reavaliar();
+        assertTrue(tela.pedidos.isEmpty());
+        assertEquals(0, servico.parados);
+    }
+
+    @Test
+    public void oPedidoDoTempoTodoQueNaoApareceuOuFoiInterrompidoPedeNaProximaVolta() {
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.saindo = true;
+        tela.aceitarDoTermo.run(); // a coleta liga, e o pedido do tempo todo não abre (a tela saindo)
+        assertEquals(1, servico.iniciados);
+        assertTrue(tela.pedidos.isEmpty());
+        assertEquals(0, tela.baterias);
+        tela.saindo = false;
+        servico.rodando = true;
+        c.aTelaSaiuDaVista();
+        c.reavaliar();
+        assertTrue("com o app no fundo, nada", tela.pedidos.isEmpty());
+        c.aTelaFicouAVista();
+        c.reavaliar();
+        assertEquals(Collections.singletonList(oTempoTodo()), tela.pedidos);
+
+        c.aposOPedido(Collections.emptyMap()); // a tela saiu no meio: o técnico não respondeu
+        assertEquals("sem resposta não é um não, e a janela da bateria não passa na frente", 0, tela.baterias);
+        c.reavaliar();
+        assertEquals(Arrays.asList(oTempoTodo(), oTempoTodo()), tela.pedidos);
+        responderOTempoTodo(c, false);
+        assertEquals(1, tela.baterias);
+        c.reavaliar();
+        assertEquals("respondido, não volta", 2, tela.pedidos.size());
+        assertTrue("nem o pedido da localização vem por engano", tela.pedidos.stream().noneMatch(aLocalizacao()::equals));
+    }
+
+    @Test
+    public void aRespostaDoTempoTodoQueChegaNumaTelaNovaVale() {
+        // Do Android 11 em diante o pedido leva aos ajustes do app, e o processo pode morrer lá: a resposta chega à tela
+        // nova (o launcher do plugin registrado de novo), que não sabe do pedido, e vale igual.
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals(1, tela.pedidos.size());
+        partidaNova();
+        EquipeNaCasca nova = casca();
+        responderOTempoTodo(nova, false);
+        servico.rodando = true;
+        nova.reavaliar();
+        assertEquals("a resposta conta: nada é pedido de novo", 1, tela.pedidos.size());
+        assertEquals("e a janela da bateria vem", 1, tela.baterias);
+    }
+
+    @Test
+    public void oTempoTodoDadoComAColetaLigadaIniciaOServicoDeNovoParaEleVoltarSozinho() {
+        // O serviço ligado antes do tempo todo pediu ao Android para não ser religado (o START_NOT_STICKY do início dele):
+        // dado o tempo todo, a casca o inicia de novo, com a tela à vista, e o início novo pede o religamento. Sem isso, a
+        // coleta do primeiro dia não voltaria sozinha.
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals(1, servico.iniciados);
+        servico.rodando = true;
+        c.aTelaSaiuDaVista(); // os ajustes do app por cima (Android 11+)
+        responderOTempoTodo(c, true);
+        assertEquals("com o app no fundo, não", 1, servico.iniciados);
+        c.aTelaFicouAVista();
+        c.reavaliar();
+        assertEquals("a volta ao app inicia o serviço de novo", 2, servico.iniciados);
+        servico.religa = true; // o início novo pediu o religamento
+        c.reavaliar();
+        assertEquals("e uma vez só", 2, servico.iniciados);
+        assertEquals(0, servico.parados);
+
+        // O tempo todo tirado nos ajustes com o processo vivo: a casca não insiste nem para a coleta.
+        servico.religa = false;
+        tirar(TEMPO_TODO);
+        c.reavaliar();
+        assertEquals(2, servico.iniciados);
+        assertEquals(0, servico.parados);
+        assertEquals(1, tela.pedidos.size());
+    }
+
+    @Test
+    @Config(sdk = Build.VERSION_CODES.N)
+    public void noAndroid7ALocalizacaoDadaJaValeComOAppNoFundoENadaEPedido() {
+        // Do Android 9 para trás não existe o tempo todo à parte: a localização dada vale também com o app no fundo.
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals(1, servico.iniciados);
+        assertTrue(tela.pedidos.isEmpty());
+        assertEquals(1, tela.baterias);
     }
 
     // --- nada sai em nome de uma conta que nenhuma página conferiu ----------------------------------------------------
@@ -1952,11 +2183,14 @@ public class EquipeNaCascaTest {
     // O texto de cada versão do termo, pelo resumo (o SHA-256 do texto que o técnico lê). O aceite guarda a versão
     // (ChaveDaEquipe.TERMO_VERSAO): o texto que muda sem a versão nova valeria para quem aceitou o de antes. Mudou o
     // texto? Mude o TERMO_VERSAO e a primeira linha do texto, e acrescente aqui a versão nova com o resumo dela.
-    // A 1 (09/11/2026) prometia só a cidade fora de usina; a 2 (10/11/2026, R13) mostra o ponto exato e o percurso.
+    // A 1 (09/11/2026) prometia só a cidade fora de usina; a 2 (10/11/2026, R13) mostra o ponto exato e o percurso; a 3
+    // (10/11/2026, R15) pede o Permitir o tempo todo e a bateria sem restrição, e diz que a coleta volta sozinha no mesmo
+    // dia depois de reiniciar ou atualizar.
     private static final Map<String, String> TEXTO_DE_CADA_VERSAO = new HashMap<>();
     static {
         TEXTO_DE_CADA_VERSAO.put("1", "7bf3bf6f12d6aeb38ecb3229e780fbcce48cd8af8c3c29301070ccf2a9c5f7b1");
         TEXTO_DE_CADA_VERSAO.put("2", "3e9742434fb1d7f4b48b4fc72308463cb370125f7eb198b039e1ba3d0e945840");
+        TEXTO_DE_CADA_VERSAO.put("3", "292030c089bc624bf37dd9a22eb177a5916f7b66a3177933c79ac1c727726a5b");
     }
 
     private static String sha256(String texto) throws Exception {
@@ -1986,10 +2220,11 @@ public class EquipeNaCascaTest {
                 "também com o aplicativo fechado", app.getString(R.string.notificacao_equipe_titulo), "art. 7º",
                 "PCM, COS, Performance, Supervisão Campo e os Responsáveis UFV", "administradores do Nexus", "7 dias",
                 "1 ano", "24 horas", "Google Maps", "art. 18", "ANPD", "RH da Grid Co.", "Sair do aplicativo",
-                "Durante o uso do app"}) {
+                "a coleta volta sozinha se o celular reiniciar ou o aplicativo for atualizado no mesmo dia",
+                "escolha Permitir o tempo todo e deixe o Nexus Field sem restrição de bateria"}) {
             assertTrue("o termo não diz \"" + trecho + "\"", termo.contains(trecho));
         }
-        assertFalse("nada de o tempo todo", termo.contains("tempo todo"));
+        assertFalse("a versão 3 não manda mais escolher a durante o uso", termo.contains("Durante o uso do app"));
         assertEquals("o texto da versão " + ChaveDaEquipe.TERMO_VERSAO + " mudou: mude o ChaveDaEquipe.TERMO_VERSAO e a"
             + " primeira linha do texto, e ponha a versão nova no TEXTO_DE_CADA_VERSAO",
             TEXTO_DE_CADA_VERSAO.get(ChaveDaEquipe.TERMO_VERSAO), sha256(termo));

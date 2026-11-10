@@ -29,7 +29,8 @@ import java.util.function.LongSupplier;
  * A casca liga e desliga a coleta da posição da equipe (spec 2026-11-08, seção 4.1): pelo que o Nexus disse da chave do
  * aparelho (o equipeChave que a página repassa), pelo termo de uso aceito, pela permissão de localização durante o uso e
  * pela janela das 6h às 22h na hora do celular, na volta ao app ({@link #reavaliar}) e no Sair ({@link #sair}). A regra é a
- * {@link #decidir}, pura; o resto só a executa.
+ * {@link #decidir}, pura; o resto só a executa. O religamento sozinho do dia começado (R15) não passa por aqui: é do
+ * serviço e do {@link ReceptorDoInicio}.
  *
  * <ul>
  *   <li><b>Fora da janela nada aparece ao técnico</b>: nem o termo nem o pedido da localização (às 23h não há coleta a
@@ -40,25 +41,35 @@ import java.util.function.LongSupplier;
  *       não o pede de novo, outra conta no aparelho pede). Um botão só, o Li e aceito: não fecha tocando fora nem pelo
  *       Voltar, e sem o aceite nada coleta (a próxima abertura mostra o termo de novo).</li>
  *   <li><b>A localização durante o uso</b>, a precisa: logo depois do aceite, o pedido do próprio Android, com a precisa e
- *       a aproximada juntas (do Android 12 em diante, a precisa pedida sozinha é ignorada), sem tela nossa antes. A o tempo
- *       todo não é pedida: o serviço do tipo localização, iniciado com o app à vista, mantém a durante o uso enquanto roda,
+ *       a aproximada juntas (do Android 12 em diante, a precisa pedida sozinha é ignorada), sem tela nossa antes. É ela que
+ *       liga a coleta: o serviço do tipo localização, iniciado com o app à vista, mantém a durante o uso enquanto roda,
  *       também com o app fechado. Fora do aceite quem pede a localização é o "Antes de começar" da MainActivity, a cada
  *       abertura (dois pedidos de uma vez empilhariam as telas); negada, ou negada de vez (o Android não mostra mais o
  *       pedido), nenhuma tela nossa a mais: o Nexus sabe, e o guia diz como liberar nos ajustes. Vale a precisa: a
  *       aproximada erra por quilômetros, e o ponto no mapa e o Abrir rota precisam dele.</li>
- *   <li><b>A bateria sem restrição</b> (R15, o pedido do dono em 10/11/2026: "precisamos só ser mais independente... sem
- *       esses erros de ficar parando coleta nem nada"): logo depois do termo aceito e da localização dada, com a coleta
- *       ligando (ou já ligada) e a tela à vista, se o Android ainda aplica a otimização de bateria ao Nexus Field, a janela
+ *   <li><b>O "Permitir o tempo todo"</b> (R15, o pedido do dono em 10/11/2026: "precisamos só ser mais independente...
+ *       sem esses erros de ficar parando coleta nem nada"; no lugar da R10, que o tinha tirado para ter menos telas): logo
+ *       depois da localização dada, com a coleta ligando (ou já ligada) e a tela à vista, o pedido do Android da
+ *       localização o tempo todo, sozinho ({@link #pedirOTempoTodo}), sem tela nossa antes: no Android 10, a tela do
+ *       próprio Android; do 11 em diante, o Android leva aos ajustes do app. Uma vez por conta e por termo
+ *       ({@link ChaveDaEquipe#tempoTodoPorPedir}): recusado, a coleta segue só com a durante o uso, como na 1.2.0, e o pedido
+ *       não volta até a próxima conta ou o próximo termo. Com ele, o serviço volta sozinho no dia começado; o serviço que
+ *       ligou antes dele é iniciado de novo, com a tela à vista, para passar a pedir o religamento ao Android
+ *       ({@link Servico#religaSozinho}). O mapa não sabe dele: o "sem" ao Nexus continua só para a falta da localização
+ *       precisa ou da notificação.</li>
+ *   <li><b>A bateria sem restrição</b> (R15, o mesmo pedido): logo depois do termo aceito, da localização dada e da
+ *       resposta ao pedido do tempo todo (a ordem: a localização, o tempo todo, a bateria), com a coleta ligando (ou já
+ *       ligada) e a tela à vista, se o Android ainda aplica a otimização de bateria ao Nexus Field, a janela
  *       do próprio Android que pede a liberação ({@link Tela#pedirSemRestricaoDeBateria}), sem tela nossa antes. Uma vez por
  *       conta e por termo ({@link ChaveDaEquipe#bateriaPorPedir}): recusada, não volta até a próxima conta ou o próximo
  *       termo, e a coleta segue igual. Por que importa: liberado da otimização, o Android 12+ deixa o app ligar o serviço
  *       em primeiro plano com o app no fundo (é uma das exceções da regra), e o HyperOS fecha menos o app. O Início
  *       automático do Xiaomi não tem janela do Android: é o guia de instalação que o pede.</li>
- *   <li><b>O serviço só liga com a tela à vista</b> ({@link #aTelaFicouAVista}, do onResume ao onStop): a decisão que roda
- *       na thread do envio depois de o técnico sair do app (a chave que o Nexus deu com o app já no fundo, a volta ao app
- *       atrás de um envio pendurado) não o liga. Iniciado com o app no fundo, ele não teria a localização durante o uso do
- *       Android 11 em diante, e do 12 em diante o Android recusa o primeiro plano: a notificação prometeria uma coleta que
- *       não acontece. A próxima volta ao app liga. A coleta ligada segue com a tela fora da vista.</li>
+ *   <li><b>A casca só liga o serviço com a tela à vista</b> ({@link #aTelaFicouAVista}, do onResume ao onStop): a decisão
+ *       que roda na thread do envio depois de o técnico sair do app (a chave que o Nexus deu com o app já no fundo, a volta
+ *       ao app atrás de um envio pendurado) não o liga. Iniciado com o app no fundo, sem o tempo todo ele não teria a
+ *       localização do Android 11 em diante, e do 12 em diante o Android recusa o primeiro plano: a notificação prometeria
+ *       uma coleta que não acontece. A próxima volta ao app liga. A coleta ligada segue com a tela fora da vista.</li>
  *   <li><b>Sem a notificação fixa à vista não há coleta</b> ({@link ServicoDaEquipe#notificacaoAVista}): a regra também a
  *       confere, e falta o mesmo que falta a permissão (a coleta ligada para, e o Nexus sabe). Antes, a casca mandava
  *       ligar, o serviço não ligava, e o mapa mostrava o aparelho só como "sem sinal".</li>
@@ -149,12 +160,18 @@ final class EquipeNaCasca {
 
         /** A notificação fixa ficaria à vista ({@link ServicoDaEquipe#notificacaoAVista}). */
         boolean notificacaoAVista();
+
+        /**
+         * A coleta ligada volta sozinha se o Android matar o processo: o último início pediu o religamento, o que só se faz
+         * com o tempo todo ({@link ServicoDaEquipe#religaSozinho}).
+         */
+        boolean religaSozinho();
     }
 
     /**
-     * O que o técnico vê e responde: o termo, o pedido da localização ao Android e a janela da bateria do Android
-     * ({@link TelaDaActivity}). Tudo na thread de UI. O que devolve false não apareceu (a tela saindo): a casca não fica
-     * esperando uma resposta que não vem.
+     * O que o técnico vê e responde: o termo, os pedidos da localização e do tempo todo ao Android e a janela da bateria do
+     * Android ({@link TelaDaActivity}). Tudo na thread de UI. O que devolve false não apareceu (a tela saindo): a casca não
+     * fica esperando uma resposta que não vem.
      */
     interface Tela {
         /** O termo de uso da localização, que não fecha tocando fora nem pelo Voltar; o Li e aceito roda {@code aceitar}. */
@@ -190,6 +207,9 @@ final class EquipeNaCasca {
     // O termo acabou de ser aceito nesta tela e a localização falta: o pedido do Android vem agora, uma vez. Fora disso a
     // casca não pede (o Antes de começar da MainActivity pede a cada abertura).
     private boolean pedirDepoisDoTermo = false;
+    // Só na thread do trabalho. O pedido na frente do técnico é o do tempo todo, e não o da localização: a resposta dele
+    // (também a vazia, do pedido interrompido) é desse pedido.
+    private boolean pedindoOTempoTodo = false;
     // Só na thread do trabalho. A janela da bateria a caminho da tela: a decisão seguinte (a volta ao app, a chave que
     // chega) não abre outra por cima antes de a marca sair.
     private boolean bateriaACaminho = false;
@@ -332,16 +352,31 @@ final class EquipeNaCasca {
         }
     }
 
-    /** A resposta do Android ao pedido da localização (o launcher do plugin, na thread de UI). */
+    /**
+     * A resposta do Android ao pedido da localização ou ao do tempo todo (o launcher do plugin, na thread de UI). A do tempo
+     * todo traz o nome dele: assim vale também a que chega a uma tela nova (do Android 11 em diante o pedido leva aos
+     * ajustes do app, e o processo pode morrer lá), que não sabe do pedido.
+     */
     void aposOPedido(Map<String, Boolean> resultado) {
         trabalhar(() -> {
+            boolean doTempoTodo = pedindoOTempoTodo
+                || (resultado != null && resultado.containsKey(ServicoDaEquipe.O_TEMPO_TODO));
             esperandoOTecnico = false;
+            pedindoOTempoTodo = false;
             if (resultado == null || resultado.isEmpty()) {
-                // O pedido interrompido (a tela saiu no meio): o técnico não respondeu, e a próxima volta ao app pergunta.
-                pedirDepoisDoTermo = true;
+                // O pedido interrompido (a tela saiu no meio): o técnico não respondeu, e a próxima volta ao app pergunta
+                // (o do tempo todo segue por fazer, e a janela da bateria espera por ele).
+                if (!doTempoTodo) pedirDepoisDoTermo = true;
                 return;
             }
-            Log.i(TAG, "a localização precisa " + (tem(PRECISA) ? "dada" : "não dada"));
+            if (doTempoTodo) {
+                // Respondido, dado ou não: não se pede de novo até a próxima conta ou o próximo termo.
+                chave.tempoTodoPedido();
+                Log.i(TAG, "a localização o tempo todo " + (temOTempoTodo() ? "dada" : "não dada: a coleta segue só "
+                    + "com a durante o uso"));
+            } else {
+                Log.i(TAG, "a localização precisa " + (tem(PRECISA) ? "dada" : "não dada"));
+            }
             reavaliarAgora();
         });
     }
@@ -405,6 +440,8 @@ final class EquipeNaCasca {
                 }
                 Log.i(TAG, "a casca liga a coleta da equipe");
                 servico.iniciar();
+                // A ordem depois da localização (R15): o tempo todo e, depois da resposta dele, a bateria.
+                pedirOTempoTodo();
                 pedirABateria();
                 break;
             case PARAR:
@@ -425,17 +462,60 @@ final class EquipeNaCasca {
                 avisarSemPermissao("sem a notificação fixa à vista");
                 break;
             default:
-                // O NADA dentro da janela é a coleta já ligada com tudo em dia: a janela da bateria que não abriu (a tela
-                // saindo) abre agora.
-                if (rodando) pedirABateria();
+                // O NADA dentro da janela é a coleta já ligada com tudo em dia: o serviço ligado antes do tempo todo passa
+                // a pedir o religamento, e o pedido do tempo todo e a janela da bateria que não abriram (a tela saindo)
+                // abrem agora.
+                if (rodando) {
+                    religarSozinhoDaquiEmDiante();
+                    pedirOTempoTodo();
+                    pedirABateria();
+                }
                 break;
         }
     }
 
-    // R15: logo depois do termo aceito e da localização dada (a coleta que liga, ou que já está ligada), a janela do
-    // próprio Android que pede a bateria sem restrição, uma vez por conta e por termo. A marca sai quando a janela abriu:
-    // recusada (ou só fechada), ela não volta; a que não abriu (a tela saindo) fica por pedir. Com o app já liberado, nada
-    // a pedir, e a marca sai também (a liberação tirada depois nos ajustes não traz a janela fora do fluxo do termo).
+    // R15: logo depois da localização dada e da coleta ligada, o pedido do Android da localização o tempo todo, sozinho
+    // (o Android 10 mostra a tela dele; do 11 em diante ele leva aos ajustes do app), uma vez por conta e por termo. A
+    // marca sai com a resposta do técnico (aposOPedido); a que não apareceu ou foi interrompida pede na próxima volta. Com
+    // o tempo todo já dado (do Android 9 para trás, a localização dada), nada a pedir, e a marca sai também.
+    private void pedirOTempoTodo() {
+        if (!aVista || esperandoOTecnico || !chave.tempoTodoPorPedir()) return;
+        if (temOTempoTodo()) {
+            chave.tempoTodoPedido();
+            return;
+        }
+        esperandoOTecnico = true;
+        pedindoOTempoTodo = true;
+        Log.i(TAG, "a casca pede ao Android a localização o tempo todo, logo depois da localização durante o uso");
+        naTela(() -> {
+            if (!tela.pedir(new String[] {ServicoDaEquipe.O_TEMPO_TODO})) trabalhar(this::tempoTodoNaoApareceu);
+        });
+    }
+
+    // O pedido do tempo todo que não abriu (a tela saindo): a marca fica, e a próxima volta ao app pede.
+    private void tempoTodoNaoApareceu() {
+        esperandoOTecnico = false;
+        pedindoOTempoTodo = false;
+    }
+
+    // O serviço que ligou sem o tempo todo pediu ao Android para não ser religado, e é o último início que vale: com o tempo
+    // todo dado depois (o pedido logo acima, ou os ajustes), um início novo, com a tela à vista, passa a pedir o
+    // religamento. Sem isso, a coleta do dia em que o técnico deu o tempo todo não voltaria sozinha.
+    private void religarSozinhoDaquiEmDiante() {
+        if (!aVista || servico.religaSozinho() || !temOTempoTodo()) return;
+        Log.i(TAG, "o tempo todo dado com a coleta ligada: a casca a inicia de novo, para ela voltar sozinha no dia");
+        servico.iniciar();
+    }
+
+    private boolean temOTempoTodo() {
+        return ServicoDaEquipe.temOTempoTodo(app);
+    }
+
+    // R15: logo depois do termo aceito, da localização dada e da resposta ao pedido do tempo todo (a coleta que liga, ou
+    // que já está ligada), a janela do próprio Android que pede a bateria sem restrição, uma vez por conta e por termo. A
+    // marca sai quando a janela abriu: recusada (ou só fechada), ela não volta; a que não abriu (a tela saindo) fica por
+    // pedir. Com o app já liberado, nada a pedir, e a marca sai também (a liberação tirada depois nos ajustes não traz a
+    // janela fora do fluxo do termo).
     private void pedirABateria() {
         if (!aVista || esperandoOTecnico || bateriaACaminho || !chave.bateriaPorPedir()) return;
         if (liberadoDaBateria()) {
@@ -485,8 +565,8 @@ final class EquipeNaCasca {
     }
 
     // O Li e aceito: aceito pela conta da chave de agora, e o pedido do Android logo em seguida, se faltar a localização
-    // (também para quem a negou antes nesta tela: a chave nova é de outra conta). O aceite deixa a janela da bateria por
-    // pedir (ChaveDaEquipe.aceitarTermo), e ela vem quando a coleta liga, com a localização dada.
+    // (também para quem a negou antes nesta tela: a chave nova é de outra conta). O aceite deixa por pedir o tempo todo e
+    // a janela da bateria (ChaveDaEquipe.aceitarTermo), que vêm quando a coleta liga, com a localização dada.
     private void termoAceito() {
         esperandoOTecnico = false;
         chave.aceitarTermo();
@@ -719,11 +799,16 @@ final class EquipeNaCasca {
         public boolean notificacaoAVista() {
             return ServicoDaEquipe.notificacaoAVista(app);
         }
+
+        @Override
+        public boolean religaSozinho() {
+            return ServicoDaEquipe.religaSozinho();
+        }
     }
 
     /**
-     * O termo nesta activity e o pedido ao Android pelo launcher do plugin. Só na thread de UI. Um diálogo por vez: o novo
-     * tira o anterior.
+     * O termo nesta activity e os pedidos ao Android (a localização e o tempo todo) pelo launcher do plugin. Só na thread
+     * de UI. Um diálogo por vez: o novo tira o anterior.
      */
     static final class TelaDaActivity implements Tela {
         private final Activity activity;
@@ -764,7 +849,7 @@ final class EquipeNaCasca {
                 pedido.accept(permissoes);
                 return true;
             } catch (RuntimeException e) {
-                Log.w(TAG, "o pedido da localização não abriu (" + e.getClass().getSimpleName() + ")");
+                Log.w(TAG, "o pedido ao Android não abriu (" + e.getClass().getSimpleName() + ")");
                 return false;
             }
         }

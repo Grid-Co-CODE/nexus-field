@@ -1028,7 +1028,9 @@ O site (App de Campo) e o Fracttal não mudam.
 
 - **A regra.** Liga na primeira abertura (ou na volta ao app) entre 6h e 22h na hora do celular, e para às 22h; 6:00:00
   vale e 22:00:00 não (`JanelaDaEquipe`). Às 6h, o aviso **Bom dia** chama essa abertura (R12, abaixo); sozinho, ele
-  não coleta nada. Sem botão de pausa (decisão do dono). Só vale para quem o Nexus diz
+  não coleta nada. Depois de começada, com o "Permitir o tempo todo", a coleta volta sozinha até as 22h se o Android
+  fechar o app, o celular reiniciar ou o app for atualizado (R15, abaixo). Sem botão de pausa (decisão do dono). Só vale
+  para quem o Nexus diz
   `coleta: true` ao dar a chave: supervisor, administrador, aparelho de prova e quem está fora do piloto não veem o termo
   nem coleta, e por isso a 1.2.0 pode ir a todos os aparelhos. `coleta: false` ou 401 param o serviço e apagam a chave.
   Ritmo (`RitmoDaColeta`, instância com estado: 3 leituras paradas seguidas): 2 min em deslocamento, 10 min parado.
@@ -1046,18 +1048,29 @@ O site (App de Campo) e o Fracttal não mudam.
     mostraria a posição exata de quem está fora de usina; com a distância crua no ritmo, parado longe do Wi-Fi a leitura
     da antena (erro de centenas de metros) religava o GPS a cada ciclo (uns 18 min, metade com o GPS ligado). A leitura
     com NaN ou infinito é descartada.
-  - **Só a localização durante o uso, e nenhum caminho inicia o serviço com o app no fundo (R10).** A permissão da coleta
-    é a localização precisa (`temAPermissao`; a aproximada erra por quilômetros); a "o tempo todo"
-    (`ACCESS_BACKGROUND_LOCATION`) saiu do manifesto e do código, e o `ServicoDaEquipeTest` confere o manifesto mesclado.
-    Por que serve: o serviço do tipo localização iniciado com o app à vista mantém a durante o uso enquanto roda, também
-    com o app fechado. Iniciado com o app no fundo ele não teria a localização (Android 11+; o 14+ lança no primeiro plano
-    de localização) e o 12+ recusa o primeiro plano: a notificação prometeria uma coleta que não acontece. Por isso o
-    `onStartCommand` devolve `START_NOT_STICKY`, o religamento que chegar (o Intent nulo) sai sem o primeiro plano, o
-    `REPOR` com a coleta parada não liga nada, e a `EquipeNaCasca` só manda iniciar com a tela à vista (do
-    `handleOnResume` ao `handleOnStop` do plugin: a decisão que roda na thread do envio depois de o técnico sair do app não
-    liga). O custo, aceito pelo dono: o Android que mata o app (a falta de memória, o "tirar dos recentes" do Xiaomi, o
-    Forçar parada) para a coleta até a próxima abertura. A permissão é conferida pelo serviço ao ligar, a cada posição e
-    a cada envio; faltando (tirada nos ajustes com o processo vivo), ele esquece o prazo e para.
+  - **A abertura liga com a localização durante o uso; a coleta do dia começado volta sozinha só com o "Permitir o tempo
+    todo" (R15, no lugar da R10).** A permissão que liga a coleta é a localização precisa (`temAPermissao`; a aproximada
+    erra por quilômetros): o serviço do tipo localização iniciado com o app à vista mantém a durante o uso enquanto roda,
+    também com o app fechado, e a `EquipeNaCasca` só manda iniciar com a tela à vista (do `handleOnResume` ao
+    `handleOnStop` do plugin). A "o tempo todo" (`ACCESS_BACKGROUND_LOCATION`, `ServicoDaEquipe.O_TEMPO_TODO`) voltou ao
+    manifesto, pedida logo depois da localização dada e da coleta ligada (abaixo). O porquê: a R10 a tinha tirado para ter
+    menos telas, com o custo de o Android que mata o app parar a coleta até a próxima abertura; em 10/11/2026 o HyperOS e
+    a atualização fecharam o app no meio do dia, e o dono pediu "precisamos só ser mais independente... sem esses erros de
+    ficar parando coleta nem nada" ("Faça os três"). O que religa, sem abrir o app: o processo que o Android matou (o
+    `onStartCommand` devolve `START_STICKY` só com o tempo todo, e o Intent nulo volta ao primeiro plano e à coleta), o
+    celular reiniciado (`BOOT_COMPLETED`) e o app atualizado (`MY_PACKAGE_REPLACED`), os dois pelo `ReceptorDoInicio`
+    (`religarNoDiaComecado`). Só no dia já começado: o prazo do dia que a abertura de hoje gravou e a hora na janela, com
+    a chave guardada, o termo de agora aceito, a localização precisa, o tempo todo e a notificação à vista
+    (`oQueFaltaParaReligar`, que diz no log o que faltou); antes das 6h, depois das 22h ou sem a abertura do dia, nada
+    volta, e a folga segue de fora. É o último início que o Android lê: o serviço ligado antes de o técnico dar o tempo
+    todo pediu para não ser religado, e a volta ao app com a coleta ligada o inicia de novo (`religaSozinho`). Do Android
+    12 em diante o primeiro plano pedido com o app no fundo só vale nas exceções (o boot e a atualização; o processo morto,
+    com o app sem a otimização de bateria), e do 14 em diante o de localização no fundo exige o tempo todo, conferido
+    antes: a recusa vai ao log só com o nome da classe, e a coleta fica para a próxima abertura. Do Android 9 para trás o
+    tempo todo não existe à parte (`temOTempoTodo` responde pela precisa). Sem o tempo todo, como na 1.2.0:
+    `START_NOT_STICKY`, nada volta com o app no fundo, e o `REPOR` com a coleta parada não liga nada. A permissão é
+    conferida pelo serviço ao ligar, a cada posição e a cada envio; faltando (tirada nos ajustes com o processo vivo),
+    ele esquece o prazo e para.
   - Sem a notificação fixa à vista não há coleta (Android 13+ com a notificação negada, ou o canal ou as notificações do
     Nexus Field desligados): `notificacaoAVista` confere ao ligar, a cada posição e a cada envio, e o `decidir` também
     (`SEM_A_NOTIFICACAO`: a coleta ligada para, e o Nexus recebe o `permissao: "sem"`, como sem a permissão; antes, o
@@ -1068,8 +1081,9 @@ O site (App de Campo) e o Fracttal não mudam.
     celular, a notificação **Bom dia** / "Toque para abrir o Nexus Field e começar o dia." no quinto canal, "Início do
     dia" (`inicio_do_dia`: som e importância padrão, sem categoria; nasce quando o aviso passa a valer). O toque abre a
     MainActivity pela porta interna, e a volta ao app liga a coleta pelo caminho de sempre. Ligar sozinho às 6h foi
-    recusado: exigiria o "o tempo todo" (R10) e coletaria em folga. Aparece só com a chave guardada e o termo da versão
-    de agora aceito (`vale`, sem a cifra), a coleta parada e a hora na janela, decidido na hora do alarme (o alarme que
+    recusado: coletaria em folga (o tempo todo da R15 só religa o dia já começado). Aparece só com a chave guardada e o
+    termo da versão de agora aceito (`vale`, sem a cifra), a coleta parada e a hora na janela, decidido na hora do
+    alarme (o alarme que
     sobrou não mostra nada a quem saiu; sem a chave ou o termo, o próximo nem é agendado). Sai da barra no toque, quando a
     coleta liga (`ServicoDaEquipe.ligarColeta`) ou às 22h (`setTimeoutAfter`). O alarme é o `setAndAllowWhileIdle` do
     `RTC_WAKEUP`: sem alarme exato, e o `setWindow` não toca no Doze (espera a janela de manutenção, que de madrugada
@@ -1094,8 +1108,18 @@ O site (App de Campo) e o Fracttal não mudam.
     mostra mais o pedido), nenhuma tela a mais: o `permissao: "sem"` ao Nexus no máximo a cada 30 min (o mapa separa quem
     negou de quem não abriu o app; o 4xx do Nexus conta como respondido), e o guia de instalação diz o caminho nos
     ajustes. Fora da janela nada aparece ao técnico. Uma thread só para disco, cifra e rede (a do serviço).
+  - **O pedido do "Permitir o tempo todo" (R15).** Logo depois da localização dada e da coleta ligada, com a tela à
+    vista, o pedido do Android da `O_TEMPO_TODO` sozinha (`pedirOTempoTodo`), sem tela nossa antes: no Android 10, a tela
+    do próprio Android; do 11 em diante, o Android leva aos ajustes do app. Uma vez por conta e por termo: o Li e aceito
+    deixa a marca `tempo_todo_por_pedir`, que sai com a resposta do técnico, dada ou não (recusado, a coleta segue só com a
+    durante o uso, e o pedido não volta até a próxima conta ou o próximo termo), ou com o tempo todo já dado; o pedido que
+    não abriu ou foi interrompido pede na próxima volta. A resposta é reconhecida pelo nome da permissão, e não só pela
+    memória: do Android 11 em diante o processo pode morrer nos ajustes, e a resposta chega a uma tela nova. A janela da
+    bateria espera a resposta (a ordem: a localização, o tempo todo, a bateria). O mapa não sabe do tempo todo: o
+    `permissao: "sem"` continua só para a falta da localização precisa ou da notificação.
   - **A janela da bateria sem restrição (R15, o mesmo pedido do dono de 10/11/2026 que trouxe a R14).** Logo depois do
-    termo aceito e da localização dada (a coleta que liga, ou a que já estava ligada, com a tela à vista), se o
+    termo aceito, da localização dada e da resposta ao pedido do tempo todo (a coleta que liga, ou a que já estava
+    ligada, com a tela à vista), se o
     `PowerManager.isIgnoringBatteryOptimizations` diz que não, a casca abre a janela do próprio Android,
     `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (a permissão `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` no manifesto; o
     `BatteryLife` do lint, calado no manifesto e no código, fala da regra da loja do Google, e o Nexus Field não é da
@@ -1103,7 +1127,8 @@ O site (App de Campo) e o Fracttal não mudam.
     quando a janela abre (recusada, não volta até a próxima conta ou o próximo termo; o 401 da mesma conta não a traz) ou
     com o app já liberado; a que não abriu (a tela saindo) abre na próxima volta. A coleta funciona igual com a recusa.
     Por que importa: sem a otimização de bateria, o Android 12+ deixa o app ligar o serviço em primeiro plano com o app no
-    fundo (é uma das exceções da regra), o que o religamento sozinho da R15 usa, e o HyperOS fecha menos o app. O Android
+    fundo (é uma das exceções da regra), o que o religamento do processo morto da R15 usa, e o HyperOS fecha menos o
+    app. O Android
     sem a janela (há fabricante que a tira) só deixa um aviso no log. O Início automático do Xiaomi não tem janela do
     Android: fica no guia de instalação.
   - **O termo é o aviso de privacidade inteiro, e só se aceita depois de rolar até o fim (R11, o pedido do dono em
@@ -1121,14 +1146,15 @@ O site (App de Campo) e o Fracttal não mudam.
     desligado, e um serviço de acessibilidade pode clicar sem olhar o estado. A girada da tela (a MainActivity não é
     recriada) e a volta ao app não ligam. No Robolectric a rolagem animada (TalkBack, teclado) só anda com o
     `computeScroll` que o teste chama, porque ele não desenha.
-  - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "2", o texto de 10/11/2026, R11 e R13).** A marca
+  - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "3", o texto de 10/11/2026, R11, R13 e R15).** A marca
     `termo_aceito` guarda a versão; outra versão, ou a marca booleana da R10 (só nos aparelhos de prova), mostra o termo de
     novo. Mudar o texto é mudar a constante e a primeira linha ("Versão N"): o `EquipeNaCascaTest` guarda o SHA-256 do
-    texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. A versão 2 (R13, decisão do dono de
-    10/11/2026) diz que o mapa mostra a última posição de cada técnico no ponto exato, também parado fora de usina, e
-    que quem vê pode abrir o percurso de um período dos 7 dias; a 1 prometia só a cidade, e quem a aceitou vê o termo de
-    novo. Fica para depois (muda o
-    contrato com o Nexus): mandar a prova do aceite (a versão e a hora).
+    texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. A versão 3 (R15, 10/11/2026)
+    manda escolher o Permitir o tempo todo e a bateria sem restrição e diz que a coleta volta sozinha no mesmo dia depois
+    de reiniciar ou atualizar; a 2 (R13, do mesmo dia) diz que o mapa mostra a última posição de cada técnico no ponto
+    exato, também parado fora de usina, e que quem vê pode abrir o percurso de um período dos 7 dias; a 1 prometia só a
+    cidade. Quem aceitou uma de antes vê o termo de novo. Fica para depois (muda o contrato com o Nexus): mandar a prova
+    do aceite (a versão e a hora).
   - O Sair para a coleta na hora, apaga a fila, revoga e apaga a chave (mesmo sem rede) e deixa uma marca
     (`saidasPendentes`) até a chave sair: a decisão que já esperava na thread (a volta ao app atrás de um envio pendurado)
     não religa a coleta de quem saiu, e a tarefa do Sair para de novo antes da rede. O parar do serviço e o fechar do
@@ -1137,8 +1163,8 @@ O site (App de Campo) e o Fracttal não mudam.
   - `ChaveDaEquipe` (cifrada pela `Cifra`/Keystore; o `commit()` do `apagarAChave` e dos outros é de propósito, no
     lugar do `apply()`, porque a gravação tem de chegar ao disco antes de o envio seguir, na thread dele; o termo aceito
     fica na marca `termo_aceito`, com a versão, e não na `aviso_aceito` de antes dele: quem aceitou o aviso num aparelho
-    de prova não leu o termo; a conta conferida, na `conta_conferida`, e a janela da bateria por pedir, na
-    `bateria_por_pedir`),
+    de prova não leu o termo; a conta conferida, na `conta_conferida`, a janela da bateria por pedir, na
+    `bateria_por_pedir`, e o pedido do tempo todo por fazer, na `tempo_todo_por_pedir`),
     `FilaDePontos` (SQLite: no máximo 1000 pontos e nada com mais de 24 h; passou, sai o mais velho; o ponto que não se
     lê sai antes do lote, que segue com os outros) e `EnvioDePontos` (todo 5xx, o 403, o 404, o 405, o 408, o 429, o 3xx e a falta de
     rede deixam fila e chave intactas; o outro 4xx é o lote recusado, que sai da fila; só o 401 apaga a chave; o 200 só
@@ -1200,16 +1226,18 @@ O site (App de Campo) e o Fracttal não mudam.
   um `rede` (o TypeError do fetch do CORS), e não um `http404`.
 - **O que não se faz.** Coordenada, chave, e-mail ou id de aparelho no log (`Log`) ou nos `erro` da página; o token
   Microsoft no nativo; botão de pausa; coletar fora da janela, sem a notificação fixa à vista ou com `coleta: false`;
-  pedir a localização "o tempo todo" ou iniciar o serviço com o app no fundo (o aviso das 6h só abre o app; quem liga é
-  a abertura); alarme exato (`SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM`); tela nossa além do termo; mudar o texto do
+  ligar a coleta com o app no fundo fora do dia começado pela abertura ou sem o tempo todo (o aviso das 6h só abre o
+  app; quem começa o dia é a abertura); alarme exato (`SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM`); tela nossa além do
+  termo; mudar o texto do
   termo sem mudar a `TERMO_VERSAO`; o Li e aceito que liga antes do fim do texto; texto novo de interface sem o
   `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do "O que aprovar", com o texto
   inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega). Xiaomi e afins: a coleta com o app
-  fechado depende do Início automático e da bateria sem restrições: a bateria, a casca pede pela janela do Android depois
-  do termo (R15), e o guia de instalação (`docs/instalacao/`) manda ligar as duas; o app morto pelo sistema para a coleta
-  até a próxima abertura. O roteiro do piloto é a seção "A localização da equipe" do `docs/prova-no-aparelho.md`; falta o
-  piloto no aparelho (bateria, a parada às 22h, a tela apagada, as marcas, o aviso das 6h, a conta conferida guardada e
-  a janela da bateria).
+  fechado, e a que volta sozinha, dependem do Início automático (também no HyperOS) e da bateria sem restrições, com o
+  Permitir o tempo todo: a bateria e o tempo todo, a casca pede pelo Android depois do termo (R15), e o guia de
+  instalação (`docs/instalacao/`) manda ligar os três; sem o tempo todo, o app morto pelo sistema para a coleta até a
+  próxima abertura. O roteiro do piloto é a seção "A localização da equipe" do `docs/prova-no-aparelho.md`; falta o
+  piloto no aparelho (bateria, a parada às 22h, a tela apagada, as marcas, o aviso das 6h, a conta conferida guardada, o
+  pedido do tempo todo, a janela da bateria e a coleta que volta sozinha depois de matar o app, reiniciar e atualizar).
 
 ## Distribuição
 
@@ -1218,7 +1246,8 @@ O site (App de Campo) e o Fracttal não mudam.
   navegador. Depois, o próprio app se atualiza pelo `versao.json` (seção "A atualização da casca").
 - **O guia de instalação** (`docs/instalacao/`, 06/11/2026): a página `guia.html` e os dois cartões do WhatsApp
   (`nexus-field-instalar-1.png` e `-2.png`, 1080 x 1920), com o QR do link fixo e o que muda por marca (o início
-  automático da Xiaomi, o Bloqueador automático da Samsung, a bateria sem restrições). Texto mudou: edite os
+  automático da Xiaomi, também no HyperOS, o Bloqueador automático da Samsung, a bateria sem restrições e o Permitir o
+  tempo todo). Texto mudou: edite os
   `*.fonte.html` e rode `python docs/instalacao/montar.py` (embute o QR e o ícone e fotografa os cartões pelo Chrome sem
   janela). O primeiro aviso do guia é o que mais pesa: o que está pendente no App pelo navegador NÃO passa para o
   Nexus Field (o armazenamento da WebView é outro), e o técnico sincroniza antes de trocar.

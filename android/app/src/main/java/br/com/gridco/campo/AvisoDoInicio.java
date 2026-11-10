@@ -22,8 +22,8 @@ import java.util.TimeZone;
  * coleta pelo caminho que já existe (a volta ao app da {@link EquipeNaCasca}). Caso que criou a regra: no piloto, no
  * celular do dono, a coleta só ligou às 07:46, quando ele abriu o app ("Não pode ficar esperando o usuário entrar no
  * aplicativo, deu 6 horas começou a coletar"). Entre ligar sozinho e avisar, ele escolheu avisar: "Só avisa, mas tem que
- * coletar cara!". Ligar sozinho às 6h exigiria de volta a localização "o tempo todo" (o serviço iniciado com o app no
- * fundo não tem a localização durante o uso, R10) e coletaria em folga, sem o técnico abrir o app (o anti-objetivo).
+ * coletar cara!". Ligar sozinho às 6h coletaria em folga, sem o técnico abrir o app (o anti-objetivo): a localização "o
+ * tempo todo", que voltou com a R15, só religa a coleta do dia já começado pela abertura.
  *
  * <ul>
  *   <li><b>Só para quem a coleta vale</b> ({@link #vale}): a chave da equipe guardada e o termo da versão de agora aceito.

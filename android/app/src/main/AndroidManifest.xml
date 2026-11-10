@@ -93,7 +93,8 @@
         <!--
           A coleta da posição da equipe (spec 2026-11-08): um serviço em primeiro plano do tipo localização, com a
           notificação fixa, das 6h às 22h, também com o app fechado (ServicoDaEquipe). Não exportado e sem filtro: só a
-          casca o liga, e nenhum outro app o alcança.
+          casca o liga (e, no dia já começado, com o tempo todo, o religamento do sistema e o ReceptorDoInicio, R15), e
+          nenhum outro app o alcança.
         -->
         <service
             android:name=".ServicoDaEquipe"
@@ -101,8 +102,9 @@
             android:foregroundServiceType="location" />
 
         <!--
-          O aviso das 6h (R12, AvisoDoInicio): o alarme das 6h chega aqui e mostra o aviso; o boot, a atualização do app
-          e o fuso novo só reagendam o alarme (o Android não o guarda de um boot para o outro). Não exportado: o alarme é
+          O aviso das 6h (R12, AvisoDoInicio): o alarme das 6h chega aqui e mostra o aviso; o boot, a atualização do app,
+          o fuso novo e o relógio mudado reagendam o alarme (o Android não o guarda de um boot para o outro), e o boot e a
+          atualização também religam a coleta do dia já começado (R15). Não exportado: o alarme é
           um PendingIntent explícito do próprio app, e os quatro eventos vêm do sistema, que alcança o receptor não
           exportado (o exported só barra os outros apps). Assim nenhum app de fora manda um "Bom dia" a qualquer hora. A
           ação do alarme fica fora do filtro.
@@ -144,20 +146,26 @@
     <!-- Android 13+: sem ela, nem o resumo nem a emergência aparecem. É pedida em tempo de execução. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- A coleta da equipe (spec 2026-11-08): o serviço em primeiro plano (Android 9+) do tipo localização (Android 14+),
-         com a localização durante o uso (as duas de cima), que a casca pede logo depois do termo de uso. A "o tempo todo"
-         (ACCESS_BACKGROUND_LOCATION) não entra (R10): o serviço iniciado com o app à vista mantém a durante o uso enquanto
-         roda, também com o app fechado. Sem a localização precisa o mapa mostra o técnico como "sem permissão". -->
+         com a localização durante o uso (as duas de cima), que a casca pede logo depois do termo de uso: o serviço iniciado
+         com o app à vista a mantém enquanto roda, também com o app fechado. Sem a localização precisa o mapa mostra o
+         técnico como "sem permissão". -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- A "o tempo todo" (R15, no lugar da R10, que a tinha tirado): a casca a pede logo depois da localização dada, uma vez
+         por conta. Com ela a coleta do dia já começado pela abertura volta sozinha (o processo que o Android matou, o
+         celular reiniciado, o app atualizado); do Android 14 em diante, o primeiro plano de localização ligado com o app no
+         fundo a exige. Recusada, a coleta segue só com a durante o uso, como na 1.2.0. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- O celular acordado durante o envio dos pontos (ServicoDaEquipe): com a tela apagada ele dorme entre uma posição e
          outra. O Firebase também a traz, mas a coleta não fica dependendo de outra biblioteca para tê-la. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- O aviso das 6h (AvisoDoInicio): o alarme volta depois de o celular religar. O alarme é inexato (o
-         setAndAllowWhileIdle), e por isso nem SCHEDULE_EXACT_ALARM nem USE_EXACT_ALARM entram. -->
+    <!-- O aviso das 6h (AvisoDoInicio): o alarme volta depois de o celular religar, e a coleta do dia começado também
+         (R15). O alarme é inexato (o setAndAllowWhileIdle), e por isso nem SCHEDULE_EXACT_ALARM nem USE_EXACT_ALARM
+         entram. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- A janela do próprio Android que pede a bateria sem restrição (R15, EquipeNaCasca), logo depois do termo de uso e
-         da localização, uma vez por conta: liberado da otimização de bateria, o Android 12+ deixa ligar a coleta com o
-         app no fundo, e o HyperOS fecha menos o app. O BatteryLife do lint fala da regra da loja do Google, e o Nexus
+    <!-- A janela do próprio Android que pede a bateria sem restrição (R15, EquipeNaCasca), logo depois do termo de uso, da
+         localização e do tempo todo, uma vez por conta: liberado da otimização de bateria, o Android 12+ deixa religar a
+         coleta com o app no fundo, e o HyperOS fecha menos o app. O BatteryLife do lint fala da regra da loja do Google, e o Nexus
          Field não é da loja (sai pela Release do GitHub). -->
     <uses-permission
         android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"

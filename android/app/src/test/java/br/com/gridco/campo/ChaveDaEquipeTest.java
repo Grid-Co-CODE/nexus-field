@@ -135,20 +135,22 @@ public class ChaveDaEquipeTest {
     }
 
     @Test
-    public void oAceiteDaVersao1NaoValeMaisEODaVersao2Vale() {
+    public void osAceitesDasVersoes1E2NaoValemMaisEODaVersao3Vale() {
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
-        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "1").commit();
-        assertFalse(c.termoAceito());
-        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "2").commit();
+        for (String velha : new String[] {"1", "2"}) {
+            ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", velha).commit();
+            assertFalse("o aceite da versão " + velha, c.termoAceito());
+        }
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "3").commit();
         assertTrue(c.termoAceito());
     }
 
     @Test
     public void oAceiteGuardaAVersaoDoTermo() {
-        // R11: o aceite é da versão do texto (a de 10/11/2026, R13): mudar o texto é mudar a constante, e quem aceitou a versão
-        // de antes vê o termo de novo.
-        assertEquals("2", ChaveDaEquipe.TERMO_VERSAO);
+        // R11: o aceite é da versão do texto (a 3, de 10/11/2026, R15): mudar o texto é mudar a constante, e quem aceitou a
+        // versão de antes vê o termo de novo.
+        assertEquals("3", ChaveDaEquipe.TERMO_VERSAO);
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
         c.aceitarTermo();
@@ -466,6 +468,38 @@ public class ChaveDaEquipeTest {
         assertTrue(c.bateriaPorPedir());
         c.apagar(); // o Sair
         assertFalse(c.bateriaPorPedir());
+    }
+
+    // --- o pedido do tempo todo, uma vez por conta e por termo (R15) --------------------------------------------------
+
+    @Test
+    public void oLiEAceitoDeixaOPedidoDoTempoTodoPorFazerUmaVez() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        assertFalse("sem o termo, nada a pedir", c.tempoTodoPorPedir());
+        c.aceitarTermo();
+        assertTrue(c.tempoTodoPorPedir());
+        assertTrue("a janela da bateria é outra marca", c.bateriaPorPedir());
+        c.tempoTodoPedido();
+        assertFalse(c.tempoTodoPorPedir());
+        assertTrue("e não sai com a do tempo todo", c.bateriaPorPedir());
+        assertFalse("também na partida nova", new ChaveDaEquipe(ctx, cifra).tempoTodoPorPedir());
+        c.apagarAChave(); // o 401: a mesma conta, o mesmo termo
+        assertTrue(c.guardar("k2", CONTA_A));
+        assertFalse("a chave nova da mesma conta não pede de novo", c.tempoTodoPorPedir());
+
+        c.aceitarTermo(); // o próximo termo (a versão nova do texto)
+        assertTrue(c.tempoTodoPorPedir());
+        assertTrue(c.guardar("k3", CONTA_B)); // a próxima conta: o termo sai, e o pedido vem depois do aceite dela
+        assertFalse(c.tempoTodoPorPedir());
+        c.aceitarTermo();
+        assertTrue(c.tempoTodoPorPedir());
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "2").commit();
+        assertFalse("o termo de antes não vale, e nada se pede sem ele", c.tempoTodoPorPedir());
+        c.aceitarTermo();
+        c.apagar(); // o Sair
+        assertFalse(c.tempoTodoPorPedir());
+        assertFalse(ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("tempo_todo_por_pedir"));
     }
 
     // --- R9: a conferência que o cofre não deixou fazer ---------------------------------------------------------------

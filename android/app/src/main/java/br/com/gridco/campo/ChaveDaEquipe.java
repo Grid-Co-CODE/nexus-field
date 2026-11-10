@@ -55,6 +55,10 @@ import java.util.UUID;
  *       ({@link #bateriaPorPedir}) e sai quando a janela abriu ({@link #bateriaPedida}): uma vez por conta e por termo.
  *       Recusada, não volta até a próxima conta ou o próximo termo, que pedem o aceite de novo; o 401 (a mesma conta) não
  *       a traz de volta.</li>
+ *   <li>O pedido do "Permitir o tempo todo" (R15, {@link EquipeNaCasca}), igual: por fazer a cada Li e aceito
+ *       ({@link #tempoTodoPorPedir}), feito quando o técnico respondeu ao Android ou com o tempo todo já dado
+ *       ({@link #tempoTodoPedido}). Recusado, a coleta segue só com a durante o uso, e o pedido não volta até a próxima
+ *       conta ou o próximo termo.</li>
  * </ul>
  */
 final class ChaveDaEquipe {
@@ -64,12 +68,13 @@ final class ChaveDaEquipe {
     private static final String K_CHAVE = "chave";
     private static final String K_CONTA = "conta";
     /**
-     * A versão do texto do termo de uso e privacidade (o casca_equipe_termo_texto, que diz "Versão 2" na primeira linha: o
-     * de 10/11/2026, que mostra o ponto exato e o percurso, R13; a 1, de 09/11, prometia o contrário).
+     * A versão do texto do termo de uso e privacidade (o casca_equipe_termo_texto, que diz "Versão 3" na primeira linha: o
+     * de 10/11/2026 que pede o Permitir o tempo todo e a bateria sem restrição e diz que a coleta volta sozinha no mesmo
+     * dia, R15; a 2, do mesmo dia, mostra o ponto exato e o percurso, R13; a 1, de 09/11, prometia o contrário).
      * Mudar o texto é mudar esta constante (e a primeira linha), e o aceite da versão de antes deixa de valer: o técnico
      * vê o termo novo antes de a coleta ligar de novo.
      */
-    static final String TERMO_VERSAO = "2";
+    static final String TERMO_VERSAO = "3";
 
     // O aceite do termo (R10), e não o "aviso_aceito" de antes dele: quem aceitou o aviso num aparelho de prova não leu o
     // termo. Guarda a versão aceita (R11); a marca booleana que a primeira versão desta chave guardava, só nos aparelhos
@@ -82,6 +87,8 @@ final class ChaveDaEquipe {
     private static final String K_CONFERIDA = "conta_conferida";
     // A janela da bateria sem restrição por pedir (R15): posta pelo Li e aceito, tirada quando a casca a abre.
     private static final String K_BATERIA = "bateria_por_pedir";
+    // O pedido do Permitir o tempo todo por fazer (R15): posto pelo Li e aceito, tirado com a resposta do técnico.
+    private static final String K_TEMPO_TODO = "tempo_todo_por_pedir";
 
     private final Context app;
     private final SharedPreferences prefs;
@@ -111,10 +118,10 @@ final class ChaveDaEquipe {
 
     /**
      * Guarda a chave e a conta dela, as duas cifradas, de uma vez. True se é outra chave ou outra conta que as de antes.
-     * Outra conta que a guardada (ou sem conta guardada, ou com a que a cifra não lê) esquece o termo aceito e a janela da
-     * bateria por pedir; a chave nova da mesma conta os mantém. Guardada (ou a mesma de antes), a conta fica conferida,
-     * também no disco: é a chave que a página desta tela entregou, da conta que ela mandou. A cifra que falha lança antes,
-     * e a conferência fica como estava.
+     * Outra conta que a guardada (ou sem conta guardada, ou com a que a cifra não lê) esquece o termo aceito, a janela da
+     * bateria e o pedido do tempo todo por fazer; a chave nova da mesma conta os mantém. Guardada (ou a mesma de antes),
+     * a conta fica conferida, também no disco: é a chave que a página desta tela entregou, da conta que ela mandou. A cifra
+     * que falha lança antes, e a conferência fica como estava.
      */
     synchronized boolean guardar(String chave, String conta) {
         String contaGuardada = conta();
@@ -127,7 +134,7 @@ final class ChaveDaEquipe {
         // A conta conferida vai no mesmo commit: a chave nova e a marca dela chegam juntas ao disco.
         SharedPreferences.Editor gravacao = prefs.edit().putString(K_CHAVE, cifrada).putString(K_CONTA, contaCifrada)
             .putString(K_CONFERIDA, contaCifrada);
-        if (!conta.equals(contaGuardada)) gravacao.remove(K_TERMO).remove(K_BATERIA);
+        if (!conta.equals(contaGuardada)) gravacao.remove(K_TERMO).remove(K_BATERIA).remove(K_TEMPO_TODO);
         gravacao.commit();
         conferidaPelaPagina(conta);
         return true;
@@ -224,11 +231,13 @@ final class ChaveDaEquipe {
     }
 
     /**
-     * O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito, a janela da bateria por pedir e a
-     * conferência (a da memória e a do disco) saem juntos, e o aviso das 6h com eles ({@link #semOAvisoDas6h}).
+     * O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito, a janela da bateria e o pedido do tempo
+     * todo por fazer e a conferência (a da memória e a do disco) saem juntos, e o aviso das 6h com eles
+     * ({@link #semOAvisoDas6h}).
      */
     synchronized void apagar() {
-        prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_TERMO).remove(K_CONFERIDA).remove(K_BATERIA).commit();
+        prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_TERMO).remove(K_CONFERIDA).remove(K_BATERIA)
+            .remove(K_TEMPO_TODO).commit();
         conferida = false;
         contaDaPagina = null;
         porRefazer = false;
@@ -316,11 +325,29 @@ final class ChaveDaEquipe {
     }
 
     /**
-     * O Li e aceito: guarda a versão do texto que o técnico leu até o fim, e deixa a janela da bateria sem restrição por
-     * pedir (R15): é o aceite da conta e do termo que a traz, uma vez.
+     * O Li e aceito: guarda a versão do texto que o técnico leu até o fim, e deixa por pedir o Permitir o tempo todo e a
+     * janela da bateria sem restrição (R15): é o aceite da conta e do termo que os traz, uma vez.
      */
     synchronized void aceitarTermo() {
-        prefs.edit().putString(K_TERMO, TERMO_VERSAO).putBoolean(K_BATERIA, true).commit();
+        prefs.edit().putString(K_TERMO, TERMO_VERSAO).putBoolean(K_TEMPO_TODO, true).putBoolean(K_BATERIA, true)
+            .commit();
+    }
+
+    /** O pedido do Permitir o tempo todo ainda por fazer, desde o último Li e aceito desta conta (R15). */
+    synchronized boolean tempoTodoPorPedir() {
+        try {
+            return prefs.getBoolean(K_TEMPO_TODO, false) && termoAceito();
+        } catch (ClassCastException e) {
+            return false;
+        }
+    }
+
+    /**
+     * O técnico respondeu ao pedido do tempo todo (dando ou não), ou ele já estava dado: até o próximo Li e aceito, a casca
+     * não pede de novo.
+     */
+    synchronized void tempoTodoPedido() {
+        if (prefs.contains(K_TEMPO_TODO)) gravar(prefs.edit().remove(K_TEMPO_TODO));
     }
 
     /** A janela da bateria sem restrição ainda por pedir, desde o último Li e aceito desta conta. */

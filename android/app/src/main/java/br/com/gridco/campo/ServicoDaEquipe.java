@@ -1,6 +1,7 @@
 package br.com.gridco.campo;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
@@ -47,16 +48,24 @@ import java.util.function.LongSupplier;
  *
  * <ul>
  *   <li>Liga pelo {@link #iniciar}, só dentro da janela, com a localização precisa ({@link #temAPermissao}) e com a
- *       notificação fixa à vista ({@link #notificacaoAVista}), e só com a tela do Nexus Field à vista (quem chama é a
- *       {@link EquipeNaCasca}, que confere). Não há a permissão o tempo todo (R10): o serviço do tipo localização iniciado
- *       com o app à vista mantém a localização durante o uso enquanto roda, também com o app fechado.</li>
- *   <li><b>Nenhum caminho inicia o serviço com o app no fundo</b>: iniciado assim, ele não teria a localização durante o
- *       uso do Android 11 em diante (do 14 em diante o primeiro plano de localização lança), e do 12 em diante o Android
- *       recusa o primeiro plano; a notificação prometeria uma coleta que não acontece, e no Android 10 coletaria sem o
- *       técnico ter aberto o app. Por isso o {@link #onStartCommand} devolve {@code START_NOT_STICKY} (o processo que o
- *       Android mata não religa o serviço), o religamento que chegar mesmo assim (o Intent nulo) sai sem o primeiro plano,
- *       e o {@link #REPOR} que chega com a coleta parada não a liga. O custo, aceito pelo dono (R10): o Android que mata o
- *       app (a falta de memória, o "tirar dos recentes" de quem mata o app) para a coleta até a próxima abertura.</li>
+ *       notificação fixa à vista ({@link #notificacaoAVista}), com a tela do Nexus Field à vista (quem chama é a
+ *       {@link EquipeNaCasca}, que confere): o serviço do tipo localização iniciado com o app à vista mantém a localização
+ *       durante o uso enquanto roda, também com o app fechado. É a abertura que começa o dia: ela grava o prazo (as
+ *       22h).</li>
+ *   <li><b>Com o app no fundo, só volta o dia já começado, e só com o "Permitir o tempo todo"</b> (R15, o pedido do dono
+ *       em 10/11/2026, no lugar da R10: "precisamos só ser mais independente... sem esses erros de ficar parando coleta nem
+ *       nada"; o caso: o HyperOS e a atualização fecharam o app no meio do dia, e a coleta parava até a próxima abertura).
+ *       Com o tempo todo ({@link #temOTempoTodo}), o {@link #onStartCommand} devolve {@code START_STICKY}, e o processo que
+ *       o Android mata religa o serviço (o Intent nulo); o celular reiniciado e o app atualizado chegam pelo
+ *       {@link ReceptorDoInicio} ({@link #religarNoDiaComecado}). Nos três, a coleta só volta com o dia começado (o prazo
+ *       da abertura de hoje no disco e a hora na janela), a chave guardada, o termo de agora aceito, a localização precisa,
+ *       o tempo todo e a notificação à vista ({@link #oQueFaltaParaReligar}): sem abrir o app no dia, a folga e as férias
+ *       seguem de fora. Sem o tempo todo, como na 1.2.0: {@code START_NOT_STICKY}, e nada volta com o app no fundo (o
+ *       serviço iniciado assim não teria a localização do Android 11 em diante, e do 14 em diante o primeiro plano de
+ *       localização lança). Do Android 12 em diante o primeiro plano pedido com o app no fundo só vale nas exceções do
+ *       Android (o boot e a atualização são duas; o religamento do processo morto, com o app sem a otimização de bateria):
+ *       a recusa vai ao log só com o nome da classe, e a coleta fica para a próxima abertura. O {@link #REPOR} que chega
+ *       com a coleta parada não a liga.</li>
  *   <li>A permissão é conferida ao ligar, a cada posição e a cada envio, e não só pela casca na volta ao app. Caso que
  *       criou a regra: a localização tirada nos ajustes com a coleta ligada, no aparelho em que o processo não morre: a
  *       coleta seguia até a próxima volta ao app. Faltando, o prazo é esquecido e o serviço para ({@link #semPermissao}).
@@ -115,6 +124,12 @@ public class ServicoDaEquipe extends Service {
     static final long ACORDADO_NO_ENVIO_MS = 2L * EnvioDePontos.PRAZO_MS + 10_000L;
     /** O início que o deleteIntent da notificação manda: o técnico a arrastou para o lado (Android 14+), e ela volta. */
     static final String REPOR = "br.com.gridco.campo.equipe.REPOR";
+    /**
+     * A localização o tempo todo (R15), do Android 10 em diante. É só o nome da permissão: no Android 9 e antes ela não
+     * existe à parte, nada a pede, e quem responde por ela é a localização precisa ({@link #temOTempoTodo}).
+     */
+    @SuppressLint("InlinedApi")
+    static final String O_TEMPO_TODO = Manifest.permission.ACCESS_BACKGROUND_LOCATION;
 
     private static final String TAG = CascaPlugin.TAG;
     // O nome do celular acordado nos dados de bateria do Android, no formato "app:motivo" que o Android recomenda.
@@ -138,6 +153,8 @@ public class ServicoDaEquipe extends Service {
     private PowerManager.WakeLock acordado;
     private int ultimoInicio;
     private volatile boolean coletando = false;
+    // O último início pediu ao Android para religar o serviço no processo morto (o START_STICKY, só com o tempo todo).
+    private volatile boolean religa = false;
     private RitmoDaColeta ritmo;
     private Location ultima;
     private long intervaloPedido;
@@ -232,11 +249,61 @@ public class ServicoDaEquipe extends Service {
             return;
         }
         preferencias(app).edit().putLong(CHAVE_PRAZO, JanelaDaEquipe.fimDaJanela(agora, fuso)).apply();
+        pedirOServico(app);
+    }
+
+    /**
+     * O celular reiniciado e o app atualizado ({@link ReceptorDoInicio}, R15): a coleta do dia começado volta sozinha, sem
+     * abrir o app, se nada falta ({@link #oQueFaltaParaReligar}). O BOOT_COMPLETED e o MY_PACKAGE_REPLACED estão entre as
+     * exceções em que o Android 12+ deixa pedir o primeiro plano com o app no fundo, e o 14+ exige para o de localização o
+     * tempo todo, conferido antes. O prazo do dia não muda: é o da abertura. {@code evento} vai ao log. True se o serviço
+     * foi pedido.
+     */
+    static boolean religarNoDiaComecado(Context contexto, String evento) {
+        Context app = contexto.getApplicationContext();
+        if (rodando()) return false;
+        String falta = oQueFaltaParaReligar(app, pecas(app).relogio.getAsLong());
+        if (falta != null) {
+            Log.i(TAG, evento + ": a coleta da equipe não volta sozinha (" + falta + ")");
+            return false;
+        }
+        Log.i(TAG, evento + ": a coleta da equipe volta sozinha (o dia já começou)");
+        return pedirOServico(app);
+    }
+
+    /**
+     * O que falta para a coleta voltar sozinha com o app no fundo (R15), ou null se nada falta: o dia começado, a chave
+     * guardada e o termo de agora aceito (lidos sem a cifra), a localização precisa, o tempo todo e a notificação fixa à
+     * vista. O texto vai ao log, e não diz nada do aparelho nem da conta.
+     */
+    static String oQueFaltaParaReligar(Context contexto, long agora) {
+        Context app = contexto.getApplicationContext();
+        if (!diaComecado(app, agora)) return "o dia não começou: sem a abertura de hoje, ou fora das 6h às 22h";
+        ChaveDaEquipe chave = pecas(app).chave;
+        if (!chave.temChaveGuardada() || !chave.termoAceito()) return "sem a chave da equipe ou sem o termo de agora";
+        if (!temAPermissao(app)) return "sem a localização precisa";
+        if (!temOTempoTodo(app)) return "sem a localização o tempo todo";
+        if (!notificacaoAVista(app)) return "sem a notificação fixa à vista";
+        return null;
+    }
+
+    /**
+     * O dia já começou (R15): a abertura de hoje gravou o prazo do dia (as 22h), e a hora do celular está na janela. É o
+     * que separa o religamento sozinho da coleta em folga: sem abrir o app no dia, o prazo é o de outro dia (ou nenhum).
+     */
+    private static boolean diaComecado(Context contexto, long agora) {
+        return JanelaDaEquipe.dentro(agora, TimeZone.getDefault()) && agora < prazo(contexto);
+    }
+
+    // O pedido do serviço em primeiro plano. Do Android 12 em diante, com o app no fundo fora das exceções, o Android o
+    // recusa (ForegroundServiceStartNotAllowedException): só o nome da classe vai ao log, e a próxima abertura religa.
+    private static boolean pedirOServico(Context app) {
         try {
             ContextCompat.startForegroundService(app, new Intent(app, ServicoDaEquipe.class));
+            return true;
         } catch (RuntimeException e) {
-            // O Android 12+ recusa o primeiro plano pedido com o app no fundo: a próxima abertura religa.
             Log.w(TAG, "o Android não deixou ligar a coleta da equipe agora: " + e.getClass().getSimpleName());
+            return false;
         }
     }
 
@@ -256,6 +323,24 @@ public class ServicoDaEquipe extends Service {
     static boolean rodando() {
         ServicoDaEquipe s = emPrimeiroPlano;
         return s != null && s.coletando;
+    }
+
+    /**
+     * A coleta ligada volta sozinha se o Android matar o processo: o último início dela pediu o religamento (o
+     * START_STICKY, com o tempo todo). O serviço iniciado antes do tempo todo dado não pediu, e a casca o inicia de novo.
+     */
+    static boolean religaSozinho() {
+        ServicoDaEquipe s = emPrimeiroPlano;
+        return s != null && s.coletando && s.religa;
+    }
+
+    /**
+     * A localização o tempo todo (R15): do Android 10 em diante, a {@link #O_TEMPO_TODO}; do 9 para trás ela não existe à
+     * parte, e a localização precisa dada já vale com o app no fundo.
+     */
+    static boolean temOTempoTodo(Context contexto) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return temAPermissao(contexto);
+        return ContextCompat.checkSelfPermission(contexto, O_TEMPO_TODO) == PackageManager.PERMISSION_GRANTED;
     }
 
     /**
@@ -293,13 +378,25 @@ public class ServicoDaEquipe extends Service {
         ultimoInicio = startId;
         long agora = pecas.relogio.getAsLong();
         if (intent == null) {
-            // O religamento do sistema (o processo que o Android matou): não volta, nem no mesmo dia. O serviço só liga com
-            // o app à vista, e este é o app no fundo (ver o cabeçalho). Sai antes do primeiro plano: o Android só exige o
-            // startForeground de quem foi pedido pelo startForegroundService, o do iniciar.
-            Log.i(TAG, "religamento da coleta da equipe pelo sistema, com o app no fundo: não volta (a coleta liga na "
-                + "próxima abertura do app)");
-            stopSelf(startId);
-            return START_NOT_STICKY;
+            // O religamento do sistema: o processo que o Android matou, com o START_STICKY do início de antes (só com o
+            // tempo todo). Volta só no dia começado e com o que a coleta pede (R15, ver o cabeçalho); senão sai antes do
+            // primeiro plano: o Android só exige o startForeground de quem foi pedido pelo startForegroundService.
+            String falta = oQueFaltaParaReligar(this, agora);
+            if (falta != null) {
+                Log.i(TAG, "religamento da coleta da equipe pelo sistema: não volta (" + falta + "); a coleta liga na "
+                    + "próxima abertura do app");
+                stopSelf(startId);
+                return START_NOT_STICKY;
+            }
+            // O primeiro plano com o app no fundo: do Android 12 em diante só nas exceções (o app sem a otimização de
+            // bateria), e a recusa só vai ao log (entrarEmPrimeiroPlano).
+            if (!entrarEmPrimeiroPlano()) {
+                stopSelf(startId);
+                return START_NOT_STICKY;
+            }
+            Log.i(TAG, "religamento da coleta da equipe pelo sistema: a coleta volta (o dia já começou)");
+            if (!coletando) ligarColeta(agora);
+            return religamento();
         }
         boolean repor = REPOR.equals(intent.getAction());
         if (repor && !coletando) {
@@ -331,8 +428,14 @@ public class ServicoDaEquipe extends Service {
         } else if (repor) {
             Log.i(TAG, "a notificação fixa da coleta da equipe foi arrastada para o lado e voltou");
         }
-        // Nunca o START_STICKY: o processo que o Android mata não religa o serviço com o app no fundo (ver o cabeçalho).
-        return START_NOT_STICKY;
+        return religamento();
+    }
+
+    // O que o início pede ao Android para o processo morto (R15): religar o serviço só com a coleta ligada e o tempo todo;
+    // sem ele, como na 1.2.0, nada volta com o app no fundo. É o último início que vale para o Android.
+    private int religamento() {
+        religa = coletando && temOTempoTodo(this);
+        return religa ? START_STICKY : START_NOT_STICKY;
     }
 
     @Override
@@ -645,7 +748,7 @@ public class ServicoDaEquipe extends Service {
 
     /** Dentro da janela das 6h às 22h e antes do prazo do dia em que o app abriu. */
     private boolean valeColetar(long agora) {
-        return JanelaDaEquipe.dentro(agora, TimeZone.getDefault()) && agora < prazo(this);
+        return diaComecado(this, agora);
     }
 
     /** Na thread do disco e da rede; o erro vai ao log só com o nome da classe (nada de coordenada nem de chave). */
@@ -690,8 +793,9 @@ public class ServicoDaEquipe extends Service {
     }
 
     /**
-     * A permissão da coleta: a localização precisa, durante o uso (R10). Sem ela o pedido de alta precisão é recusado, e a
-     * aproximada erra por quilômetros (o ponto no mapa e o Abrir rota precisam dele).
+     * A permissão da coleta: a localização precisa, durante o uso (a que liga a coleta; o tempo todo, à parte, só a faz
+     * voltar sozinha, R15). Sem ela o pedido de alta precisão é recusado, e a aproximada erra por quilômetros (o ponto no
+     * mapa e o Abrir rota precisam dele).
      */
     static boolean temAPermissao(Context contexto) {
         return ContextCompat.checkSelfPermission(contexto, Manifest.permission.ACCESS_FINE_LOCATION)

@@ -47,8 +47,10 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 - **Quando liga:** na primeira abertura do Nexus Field no dia, entre 6h e 22h, e vai até as 22h (08/11). Em férias ou
   folga, sem abrir o app, nada é coletado. Antes disso ele tinha dito "das 06:00 às 22:00", por causa da hora extra. Às
   6h, um aviso no celular chama essa abertura (10/11, R12, depois do piloto em que a coleta só ligou às 07:46: "Só avisa,
-  mas tem que coletar cara!"); ligar sozinho às 6h foi recusado, porque pediria a localização "o tempo todo" e coletaria
-  em folga.
+  mas tem que coletar cara!"); ligar sozinho às 6h foi recusado, porque coletaria em folga. Depois de começada pela
+  abertura, a coleta volta sozinha até as 22h, com o "Permitir o tempo todo", se o celular reiniciar, o app for
+  atualizado ou o Android o fechar (10/11, R15: "precisamos só ser mais independente... sem esses erros de ficar parando
+  coleta nem nada").
 - **Sem pausa:** "não pode" (08/11). Ligada, a coleta não tem botão de parar até as 22h.
 - **Quem vê:** os setores PCM, COS, Performance, Supervisão Campo e Responsáveis UFV, todos o mapa inteiro (08/11).
 - **Rota:** "Abrir a rota no Google Maps ou Waze", do ponto do técnico até a usina escolhida (08/11; ver a seção 9 sobre
@@ -83,11 +85,14 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   fora; o Google Play services calcula a posição e o Google Maps traça a rota aberta), por quanto tempo (7 dias os
   pontos, 1 ano os deslocamentos, o registro de quem abriu o mapa para responder pela LGPD), a segurança (cifrado no
   caminho e no Nexus, 24 h no máximo no celular, a chave que o Sair apaga), os direitos (art. 18, a ANPD, os pedidos pelo
-  RH), como parar (às 22h, o Sair, a permissão tirada) e que o texto novo pede um aceite novo; no fim, o que escolher no
-  pedido do Android que vem em seguida (Durante o uso do app). O texto rola dentro do diálogo e o "Li e aceito", sempre à
+  RH), como parar (às 22h, o Sair, a permissão tirada) e que o texto novo pede um aceite novo; no fim, o que escolher
+  quando o Android perguntar (Permitir o tempo todo, e o Nexus Field sem restrição de bateria). O texto rola dentro do
+  diálogo e o "Li e aceito", sempre à
   vista embaixo, só liga depois de o fim do texto aparecer na tela (com uma dica logo acima enquanto isso; o texto que
   cabe inteiro libera na hora; o TalkBack e o teclado rolam igual). O aceite guarda a versão do texto (`TERMO_VERSAO`,
-  "2", o de 10/11/2026, R13; a "1" foi a de 09/11/2026): o texto que mudar muda a versão, e quem aceitou a de antes vê o termo de novo. Os textos vão à
+  "3", o de 10/11/2026 que pede o tempo todo e diz que a coleta volta sozinha no mesmo dia, R15; a "2", do mesmo dia, R13,
+  com o ponto exato e o percurso; a "1", de 09/11/2026): o texto que mudar muda a versão, e quem aceitou a de antes vê o
+  termo de novo. Os textos vão à
   prévia (`docs/previas/telas.html`), ao RH e ao jurídico (do jurídico confirmar: a base legal e o RH como canal dos
   direitos), e só valem depois de aprovados. Casos que criaram a regra: o dono viu a prévia com o aviso e as duas
   explicações da localização "o tempo todo" e pediu "só cria um termo de uso para eles darem ok, essa quantidade de
@@ -96,18 +101,39 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   aceitar" (R11). Fica para depois (muda o contrato da seção 8): mandar ao Nexus a prova do aceite (a versão e a hora).
 - **A permissão.** A localização durante o uso, a precisa (a aproximada erra por quilômetros, e o ponto no mapa e o
   Abrir rota precisam dele): logo depois do aceite, o pedido do próprio Android (a precisa e a aproximada juntas), sem
-  tela nossa antes; fora do aceite, quem a pede é o "Antes de começar" da casca, a cada abertura. A "o tempo todo" não é
-  pedida: o serviço do tipo localização iniciado com o app à vista mantém a localização durante o uso enquanto roda,
-  também com o app fechado. Por isso nenhum caminho inicia o serviço com o app no fundo (iniciado assim, ele não teria a
-  localização do Android 11 em diante, e do 12 em diante o Android recusa o primeiro plano): só a tela à vista o liga, e
-  o processo que o Android mata não o religa. Negada, ou negada de vez (o Android não mostra mais o pedido): nenhuma
-  tela nossa a mais; o app funciona como hoje, o mapa mostra esse técnico como "sem permissão de localização", e o guia
-  de instalação diz como liberar nos ajustes. O serviço confere a permissão ao ligar, a cada posição e a cada envio:
-  tirada nos ajustes com a coleta ligada, a coleta para e não volta sem o técnico abrir o app.
+  tela nossa antes; fora do aceite, quem a pede é o "Antes de começar" da casca, a cada abertura. É ela que liga a
+  coleta: o serviço do tipo localização iniciado com o app à vista mantém a localização durante o uso enquanto roda,
+  também com o app fechado. Negada, ou negada de vez (o Android não mostra mais o pedido): nenhuma tela nossa a mais; o
+  app funciona como hoje, o mapa mostra esse técnico como "sem permissão de localização", e o guia de instalação diz
+  como liberar nos ajustes. O serviço confere a permissão ao ligar, a cada posição e a cada envio: tirada nos ajustes com
+  a coleta ligada, a coleta para e não volta sem o técnico abrir o app.
+- **O "Permitir o tempo todo" (R15, 10/11, no lugar da R10).** Logo depois da localização dada e da coleta ligada, a casca
+  pede a localização o tempo todo (`ACCESS_BACKGROUND_LOCATION`), sozinha, sem tela nossa antes: no Android 10, o pedido
+  do próprio Android; do 11 em diante, o Android leva aos ajustes do app. Uma vez por conta e por termo; recusada, a
+  coleta segue só com a durante o uso, como na 1.2.0, sem pedir de novo até a próxima conta ou o próximo termo. Do
+  Android 9 para trás ela não existe à parte (a localização dada já vale com o app no fundo) e nada se pede. O mapa não
+  sabe dela: o `permissao: "sem"` continua só para a falta da localização precisa ou da notificação. Caso que a trouxe de
+  volta: em 10/11 o HyperOS e a atualização fecharam o app no meio do dia, e a coleta parava até a próxima abertura; o
+  dono pediu "precisamos só ser mais independente... sem esses erros de ficar parando coleta nem nada" (e, entre as
+  saídas propostas, "Faça os três"). A R10 a tinha tirado para ter menos telas; o custo de agora é uma tela do Android a
+  mais no primeiro uso.
+- **A coleta que volta sozinha, só no dia já começado (R15).** "O dia já começou" é o prazo do dia gravado no celular
+  pela abertura de hoje e a hora dentro das 6h às 22h. Com ele, a chave guardada, o termo da versão atual aceito, a
+  localização precisa, o tempo todo e a notificação à vista, a coleta volta sozinha, sem abrir o app: no processo que o
+  Android matou (o serviço pede ao Android para ser religado, o `START_STICKY`, só com o tempo todo; o serviço iniciado
+  antes do tempo todo é iniciado de novo pela casca, com a tela à vista, para passar a pedir), no celular reiniciado
+  (`BOOT_COMPLETED`) e no app atualizado (`MY_PACKAGE_REPLACED`). Fora do dia (antes das 6h, depois das 22h, ou sem a
+  abertura do dia) nada volta: a folga e as férias seguem de fora, e o aviso das 6h continua chamando a primeira
+  abertura. Do Android 12 em diante o Android só deixa ligar o primeiro plano com o app no fundo nas exceções (o boot e
+  a atualização são duas; o religamento do processo morto vale com o app sem a otimização de bateria, a janela abaixo), e
+  do 14 em diante o primeiro plano de localização ligado no fundo exige o tempo todo, que o serviço confere antes de
+  tentar; a recusa do Android fica no log, sem dado, e a coleta fica para a próxima abertura. Sem o tempo todo, tudo
+  como na 1.2.0: nada volta com o app no fundo.
 - **A coleta.** Liga na primeira abertura do app no dia (entre 6h e 22h, na hora do celular), com um serviço em primeiro
   plano do tipo localização e uma notificação fixa (por exemplo, "Nexus Field: localização da equipe ligada até as
   22h"). Segue com o app fechado enquanto o serviço roda; o Android que mata o app (a falta de memória, o "tirar dos
-  recentes" de quem mata o app) para a coleta até a próxima abertura. Às 22h para sozinha, a notificação sai e o que
+  recentes" de quem mata o app) para a coleta, que volta sozinha no dia começado com o tempo todo (acima) e, sem ele,
+  só na próxima abertura. Às 22h para sozinha, a notificação sai e o que
   ficou na fila sai num último envio. Envio a cada 2 minutos em deslocamento e mais espaçado parado (o salto da posição
   de rede com o celular parado, dentro da precisão das leituras, não conta como deslocamento). Sem sinal, os pontos
   esperam no celular e saem quando o sinal voltar. Sem a notificação fixa à vista, a coleta não liga, e o mapa mostra o
@@ -151,12 +177,13 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   espera a página, como antes; e o app aberto sem token nem conferência (sem sinal, sessão vencida) coleta e só envia
   depois dela (a fila guarda 24 h e no máximo 1000 pontos). A revogação do Sair não espera. O cofre do aparelho que falha
   na conferência não deixa o dia parado: o envio e a volta ao app conferem de novo quando ele voltar.
-- **A bateria sem restrição (R15, 10/11).** Logo depois do termo aceito e da localização dada, se o Android ainda aplica
-  a otimização de bateria ao Nexus Field, a casca abre a janela do próprio Android que pede a liberação, sem tela nossa
-  antes; uma vez por conta e por termo (recusada, não volta até a próxima conta ou o próximo termo), e a coleta funciona
-  igual com a recusa. Sem a otimização, o Android 12 ou mais novo deixa o app ligar o serviço em primeiro plano com o app
-  no fundo (uma das exceções da regra), e o HyperOS fecha menos o app. O Início automático do Xiaomi não tem janela do
-  Android: fica no guia de instalação.
+- **A bateria sem restrição (R15, 10/11).** Logo depois do termo aceito, da localização dada e da resposta ao pedido do
+  tempo todo (a ordem: a localização, o tempo todo, a bateria), se o Android ainda aplica a otimização de bateria ao
+  Nexus Field, a casca abre a janela do próprio Android que pede a liberação, sem tela nossa antes; uma vez por conta e
+  por termo (recusada, não volta até a próxima conta ou o próximo termo), e a coleta funciona igual com a recusa. Sem a
+  otimização, o Android 12 ou mais novo deixa o app ligar o serviço em primeiro plano com o app no fundo (uma das
+  exceções da regra, a que o religamento do processo morto usa), e o HyperOS fecha menos o app. O Início automático do
+  Xiaomi (também no HyperOS) não tem janela do Android: fica no guia de instalação.
 - **A nova tentativa da página.** O que não terminou (o token ainda sem login, a falha do nativo ou do Nexus) tenta de novo
   no online e na volta ao app, no máximo a cada 10 min contados do pedido ao nativo; com o pedido no ar nada começa outro
   (o token ou o POST que não respondem em 10 min contam como falha), e depois do Sair nada. Terminou: há chave
@@ -165,9 +192,9 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   Nexus. As falhas que só aparecem no aparelho (o token sem id, a página sem `crypto.subtle`) e as do nativo e do Nexus
   saem como aviso `equipe` no log, com um motivo de lista fechada (o token sem id, o 401, a rede ou o CORS...) e sem
   coordenada nem chave.
-- **Xiaomi e afins.** A coleta com o app fechado depende do "Início automático" e da bateria sem restrições, que o guia
-  de instalação já manda ligar para os avisos (`docs/instalacao/`); a bateria, a casca também pede pela janela do Android
-  depois do termo (acima). O guia ganha a linha da localização.
+- **Xiaomi e afins.** A coleta com o app fechado, e a que volta sozinha, dependem do "Início automático" (também no
+  HyperOS) e da bateria sem restrições, que o guia de instalação manda ligar (`docs/instalacao/`), com o "Permitir o
+  tempo todo"; a bateria e o tempo todo, a casca também pede pelo Android depois do termo (acima).
 
 ### 4.2 No Nexus (chat "Nexus (Usinas 360)")
 
@@ -228,9 +255,12 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   O mapa mostra esse aparelho como sem permissão.
 - O técnico pode negar a localização (ou escolher a aproximada) no pedido do Android ou nos ajustes: o mapa mostra quem
   está sem permissão, e resolver isso é com o supervisor (o guia de instalação diz o caminho nos ajustes).
-- O Android que mata o app (a falta de memória, o "tirar dos recentes" de quem mata o app) para a coleta até a próxima
-  abertura: sem a localização "o tempo todo", o serviço não volta sozinho com o app no fundo (R10, aceito pelo dono; com
-  ela seria igual do Android 12 em diante, que proíbe iniciar o serviço em primeiro plano em segundo plano).
+- Só sem o "Permitir o tempo todo" (recusado pelo técnico, R15): o Android que mata o app (a falta de memória, o "tirar
+  dos recentes" de quem mata o app) para a coleta até a próxima abertura, porque o serviço não volta sozinho com o app no
+  fundo. Com ele, volta no dia começado; mesmo assim, o Android 12 ou mais novo pode recusar o religamento do processo
+  morto do app que não está sem a otimização de bateria, e aí a coleta também espera a próxima abertura.
+- O pedido do tempo todo é uma tela do Android a mais no primeiro uso, e quem aceitou o termo da versão 2 vê a versão 3
+  de novo (R15, o custo aceito pelo dono).
 
 ## 7. O que fica para o construtor
 
