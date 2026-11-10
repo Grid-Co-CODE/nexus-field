@@ -1201,7 +1201,12 @@ O site (App de Campo) e o Fracttal não mudam.
   (o JavaScript da WebView não roda) e só enviou ao desbloquear. A página continua conferindo a cada carga: a mesma conta
   mantém; outra conta faz a troca da R5 antes de qualquer envio dela. Apagam a marca, como a conferência da memória: o
   Sair, a troca de conta, o `coleta:false`, o 401, a página de outra conta, a página com o cofre fora (ela falou, e não se
-  sabe se é a mesma conta) e o cofre que volta lendo outra conta. **O custo aceito pelo dono**: num celular dividido em
+  sabe se é a mesma conta) e o cofre que volta lendo outra conta. O Sair a tira já no toque (o `saindo`, com a marca
+  `sair_por_terminar` no disco), antes do trabalho dele na thread do envio, que espera um envio pendurado e revoga pela
+  rede: o processo que morre nesse minuto não deixa quem saiu conferido, a coleta não religa sozinha, o aviso das 6h não
+  vale, e a partida seguinte termina o Sair (o `reavaliar` e o pedido do aparelho, antes de decidir ou responder). Caso: a
+  revisão final do ramo de 10/11/2026 achou que, sem isso, a partida seguinte enviava em nome de quem saiu e, com o tempo
+  todo, religava a coleta dele. **O custo aceito pelo dono**: num celular dividido em
   que outra pessoa abre o app sem o Sair da anterior, os pontos entre a partida e a carga da página vão em nome da conta
   anterior (antes, esperavam); a carga da página corrige dali em diante. A chave que a 1.2.0 guardou não tem a marca: a
   primeira partida da versão nova espera a página, como antes. O cofre que não lê a conta na conferência responde

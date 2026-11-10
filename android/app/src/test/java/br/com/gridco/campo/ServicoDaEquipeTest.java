@@ -602,6 +602,9 @@ public class ServicoDaEquipeTest {
         oReligamentoNaoVolta("sem a notificação fixa à vista");
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS);
 
+        chave.saindo(); // o Sair que o processo não deixou terminar (a revisão final do ramo, 10/11)
+        oReligamentoNaoVolta("com o Sair por terminar");
+
         chave.apagarAChave(); // o 401 (que também esquece o prazo, pelo serviço; aqui, só a chave)
         oReligamentoNaoVolta("sem a chave");
 

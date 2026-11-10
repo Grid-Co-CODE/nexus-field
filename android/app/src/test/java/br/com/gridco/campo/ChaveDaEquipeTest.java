@@ -420,6 +420,36 @@ public class ChaveDaEquipeTest {
     }
 
     @Test
+    public void oSairQueComecouTiraAConferenciaNaHoraESobreviveAPartidaNova() {
+        // O Sair que o processo não deixou terminar (a revisão final do ramo, 10/11): a marca vai ao disco no toque, com a
+        // conferência tirada (da memória e do disco), e só sai com a chave (o apagar) ou com a chave nova (o guardar).
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        c.aceitarTermo();
+        c.saindo();
+        assertFalse(c.conferida());
+        assertFalse(temAMarca());
+        ChaveDaEquipe partida = new ChaveDaEquipe(ctx, cifra);
+        assertTrue(partida.saidaPendente());
+        assertFalse(partida.conferida());
+        assertFalse("nem a página da mesma conta confere enquanto o Sair não termina", partida.conferir(CONTA_A));
+        assertFalse(partida.conferida());
+        partida.guardar("k1", CONTA_A); // a mesma chave entregue de novo: o Sair vence, e a partida o termina
+        assertFalse(partida.conferida());
+        assertTrue(partida.saidaPendente());
+        assertFalse("o aviso das 6h não vale para quem saiu", AvisoDoInicio.vale(partida));
+        partida.apagar();
+        assertFalse(new ChaveDaEquipe(ctx, cifra).saidaPendente());
+
+        c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k2", CONTA_A);
+        c.saindo();
+        assertTrue(c.guardar("k3", CONTA_B));
+        assertFalse("a chave nova é da conta da página", c.saidaPendente());
+        assertTrue(c.conferida());
+    }
+
+    @Test
     public void aPaginaDeOutraContaEOCofreQueLeOutraContaApagamAMarca() {
         new ChaveDaEquipe(ctx, cifra).guardar("k1", CONTA_A);
         ChaveDaEquipe partida = new ChaveDaEquipe(ctx, cifra);

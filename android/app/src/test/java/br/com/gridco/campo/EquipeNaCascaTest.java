@@ -1784,6 +1784,49 @@ public class EquipeNaCascaTest {
     }
 
     @Test
+    public void oSairQueOProcessoNaoDeixouTerminarNaoEnviaETerminaNaPartidaSeguinte() throws Exception {
+        // A revisão final do ramo (10/11/2026): o Sair com o sinal fraco espera, na thread do envio, o envio pendurado, e
+        // o processo morre nesse minuto (tirado dos recentes, ou o HyperOS). Com a conferência no disco (R14), a partida
+        // seguinte enviava em nome de quem saiu até alguém entrar.
+        comChaveETermo(CHAVE_A);
+        chave.conferir(CONTA_A);
+        assertTrue(temAMarca());
+        cascaComAThreadEmFila(new ArrayDeque<>()).sair(); // a tarefa do Sair nunca roda: o processo morreu antes
+        partidaNova();
+        assertFalse("quem saiu não fica conferido na partida seguinte", chave.conferida());
+        encher(2);
+        envio().enviar();
+        assertTrue("nada sai em nome de quem saiu", pedidosAoNexus.isEmpty());
+
+        // A abertura seguinte termina o Sair: a chave é revogada e apagada, com a fila, e nada liga nem aparece.
+        casca().reavaliar();
+        assertEquals(1, pedidosAoNexus.size());
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
+        assertEquals(CHAVE_A, pedidosAoNexus.get(0)[1]);
+        assertNull(chave.chave());
+        assertFalse(chave.saidaPendente());
+        assertEquals(0, fila.tamanho());
+        assertEquals(0, servico.iniciados);
+        assertEquals(0, tela.termos + tela.pedidos.size());
+    }
+
+    @Test
+    public void naPartidaSeguinteOPedidoDoAparelhoTerminaOSairAntesDeResponder() throws Exception {
+        comChaveETermo(CHAVE_A);
+        chave.conferir(CONTA_A);
+        cascaComAThreadEmFila(new ArrayDeque<>()).sair();
+        partidaNova();
+        EquipeNaCasca c = new EquipeNaCasca(app, chave, fila, envio(), servico, tela, Runnable::run, Runnable::run,
+            () -> agora, "1.2.0");
+        List<String> respostas = new ArrayList<>();
+        c.pedirAparelho(CONTA_A, respostas::add);
+        assertFalse("a página registra a conta de novo", new JSONObject(respostas.get(0)).getBoolean("temChave"));
+        assertNull(chave.chave());
+        assertFalse(chave.conferida());
+        assertEquals(EnvioDePontos.NEXUS + EnvioDePontos.ROTA_REVOGAR, pedidosAoNexus.get(0)[0]);
+    }
+
+    @Test
     public void semChaveNemFilaOPedidoDoAparelhoNaoMexeEmNada() throws Exception {
         // A instalação nova: nada a tirar, e nada parado.
         List<String> respostas = new ArrayList<>();

@@ -83,9 +83,12 @@ final class AvisoDoInicio {
         return c.getTimeInMillis();
     }
 
-    /** O aviso vale para este aparelho: a chave da equipe guardada e o termo da versão de agora aceito. Sem a cifra. */
+    /**
+     * O aviso vale para este aparelho: a chave da equipe guardada, o termo da versão de agora aceito e nenhum Sair por
+     * terminar. Sem a cifra.
+     */
     static boolean vale(ChaveDaEquipe chave) {
-        return chave.temChaveGuardada() && chave.termoAceito();
+        return chave.temChaveGuardada() && chave.termoAceito() && !chave.saidaPendente();
     }
 
     /**

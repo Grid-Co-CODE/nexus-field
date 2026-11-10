@@ -281,6 +281,7 @@ public class ServicoDaEquipe extends Service {
         if (!diaComecado(app, agora)) return "o dia não começou: sem a abertura de hoje, ou fora das 6h às 22h";
         ChaveDaEquipe chave = pecas(app).chave;
         if (!chave.temChaveGuardada() || !chave.termoAceito()) return "sem a chave da equipe ou sem o termo de agora";
+        if (chave.saidaPendente()) return "o Sair por terminar: a próxima abertura o termina";
         if (!temAPermissao(app)) return "sem a localização precisa";
         if (!temOTempoTodo(app)) return "sem a localização o tempo todo";
         if (!notificacaoAVista(app)) return "sem a notificação fixa à vista";

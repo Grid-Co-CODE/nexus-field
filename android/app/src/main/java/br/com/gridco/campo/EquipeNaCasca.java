@@ -311,6 +311,9 @@ final class EquipeNaCasca {
      */
     void sair() {
         saidasPendentes.incrementAndGet(); // antes do parar: a decisão que vier depois dele já vê a marca
+        // No disco, antes do trabalho do Sair na thread: se o processo morrer antes dele, a conta de quem saiu não fica
+        // conferida e a partida seguinte termina o Sair ({@link #terminarOSairDeAntes}).
+        chave.saindo();
         // O parar que lança não segura o resto: a chave e a fila de quem saiu têm de sair, e a marca do Sair com elas
         // (senão a conta seguinte nunca liga a coleta). A tarefa abaixo para de novo.
         pararAColeta();
@@ -332,6 +335,7 @@ final class EquipeNaCasca {
      */
     void pedirAparelho(String conta, Mensageiro.Saida ponte) {
         trabalhar(() -> {
+            terminarOSairDeAntes();
             if (deOutraConta(conta)) esquecerAContaAnterior();
             conferir(conta);
             if (!ponte.enviar(Mensageiro.respostaDaEquipe(chave, versao, conta))) {
@@ -412,6 +416,7 @@ final class EquipeNaCasca {
             Log.i(TAG, "o Sair a caminho: a casca não decide nada com a chave de quem saiu");
             return;
         }
+        if (terminarOSairDeAntes()) return;
         if (chave.precisaReconferir()) reconferirNaVolta();
         // O aviso das 6h (R12) acompanha a chave e o termo: a chave que entra com o termo aceito, o Li e aceito e cada
         // volta ao app agendam o do dia seguinte (o Forçar parada apaga os alarmes do app, e a abertura os refaz); sem um
@@ -750,6 +755,20 @@ final class EquipeNaCasca {
         }
         chave.apagar();
         esquecerAMarcaSemPermissao();
+    }
+
+    // O Sair de uma partida de antes que o processo não deixou terminar (a marca do ChaveDaEquipe#saindo): termina agora,
+    // antes de qualquer decisão ou resposta com a chave de quem saiu, como o trabalho dele teria feito. O Sair desta
+    // partida, ainda na thread, não conta: o trabalho dele vem atrás. True se terminou um.
+    private boolean terminarOSairDeAntes() {
+        if (saidasPendentes.get() > 0 || !chave.saidaPendente()) return false;
+        Log.i(TAG, "o Sair da partida de antes não terminou: a chave de quem saiu é revogada e apagada agora");
+        try {
+            esquecerAConta();
+        } catch (RuntimeException e) {
+            Log.w(TAG, "a chave de quem saiu não saiu agora (" + e.getClass().getSimpleName() + ")");
+        }
+        return true;
     }
 
     // A marca dos 30 minutos é do aviso da conta que saiu: a seguinte avisa o Nexus que falta a permissão sem esperar por

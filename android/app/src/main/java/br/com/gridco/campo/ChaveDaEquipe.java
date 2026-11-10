@@ -89,6 +89,9 @@ final class ChaveDaEquipe {
     private static final String K_BATERIA = "bateria_por_pedir";
     // O pedido do Permitir o tempo todo por fazer (R15): posto pelo Li e aceito, tirado com a resposta do técnico.
     private static final String K_TEMPO_TODO = "tempo_todo_por_pedir";
+    // O Sair que começou e ainda não terminou ({@link #saindo}): posto no toque, tirado com a chave (o apagar) ou com a
+    // chave nova (o guardar).
+    private static final String K_SAINDO = "sair_por_terminar";
 
     private final Context app;
     private final SharedPreferences prefs;
@@ -135,7 +138,7 @@ final class ChaveDaEquipe {
         SharedPreferences.Editor gravacao = prefs.edit().putString(K_CHAVE, cifrada).putString(K_CONTA, contaCifrada)
             .putString(K_CONFERIDA, contaCifrada);
         if (!conta.equals(contaGuardada)) gravacao.remove(K_TERMO).remove(K_BATERIA).remove(K_TEMPO_TODO);
-        gravacao.commit();
+        gravacao.remove(K_SAINDO).commit(); // a chave nova é da conta da página: o Sair de antes não vale para ela
         conferidaPelaPagina(conta);
         return true;
     }
@@ -169,7 +172,7 @@ final class ChaveDaEquipe {
         desfazer();
         contaDaPagina = conta;
         porRefazer = true; // até o cofre responder: a conferência que lança fica por refazer (R9)
-        boolean mesma = chave() != null && conta.equals(conta());
+        boolean mesma = !saidaPendente() && chave() != null && conta.equals(conta());
         porRefazer = false;
         if (mesma) conferidaPelaPagina(conta);
         return mesma;
@@ -206,7 +209,7 @@ final class ChaveDaEquipe {
      * o envio sai. Não passa pela cifra: o serviço pergunta na thread principal ({@link EnvioDePontos#podeEnviar}).
      */
     synchronized boolean conferida() {
-        return conferida || conferidaNoDisco();
+        return !saidaPendente() && (conferida || conferidaNoDisco());
     }
 
     /**
@@ -237,11 +240,33 @@ final class ChaveDaEquipe {
      */
     synchronized void apagar() {
         prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_TERMO).remove(K_CONFERIDA).remove(K_BATERIA)
-            .remove(K_TEMPO_TODO).commit();
+            .remove(K_TEMPO_TODO).remove(K_SAINDO).commit();
         conferida = false;
         contaDaPagina = null;
         porRefazer = false;
         semOAvisoDas6h();
+    }
+
+    /**
+     * O toque no Sair, antes do trabalho dele (que espera na thread do envio, atrás de um envio pendurado, e revoga pela
+     * rede, até 30 s com o sinal fraco): a conferência sai na hora, da memória e do disco, a marca do Sair por terminar vai
+     * ao disco e o aviso das 6h sai. Enquanto a marca existe, nada fica conferido (nem a página da mesma conta confere),
+     * a coleta não religa sozinha ({@link ServicoDaEquipe#oQueFaltaParaReligar}) e o aviso das 6h não vale; a partida
+     * seguinte termina o Sair (EquipeNaCasca). Caso que criou a regra (a revisão final do ramo, 10/11/2026): o processo
+     * morto nesse minuto (tirado dos recentes, ou o HyperOS) deixava a chave e a conferência no disco (R14), e a partida
+     * seguinte enviava em nome de quem saiu e, com o tempo todo (R15), religava a coleta dele.
+     */
+    synchronized void saindo() {
+        conferida = false;
+        porRefazer = false;
+        contaDaPagina = null;
+        prefs.edit().remove(K_CONFERIDA).putBoolean(K_SAINDO, true).commit();
+        semOAvisoDas6h();
+    }
+
+    /** O Sair começou e ainda não terminou, nesta partida ou numa de antes ({@link #saindo}). Não passa pela cifra. */
+    synchronized boolean saidaPendente() {
+        return prefs.getBoolean(K_SAINDO, false);
     }
 
     /**

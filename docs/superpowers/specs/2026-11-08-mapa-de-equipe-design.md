@@ -173,7 +173,8 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   a cada 2 min, e só enviou às 10:50, quando o dono abriu o app. A página continua conferindo a cada carga: a mesma conta
   mantém; outra conta faz a troca de conta (para, apaga a fila, a chave, o termo e a conferência, e revoga) antes de
   qualquer envio dela. O Sair, a troca de conta, o `coleta:false`, o 401 e o cofre que lê outra conta apagam a
-  conferência guardada. A chave guardada pela 1.2.0 não tem a conferência no disco: a primeira abertura da versão nova
+  conferência guardada; o Sair a apaga já no toque e deixa no disco a marca do Sair por terminar, que a partida seguinte
+  termina (o processo que morre no meio do Sair não deixa quem saiu conferido nem religa a coleta dele). A chave guardada pela 1.2.0 não tem a conferência no disco: a primeira abertura da versão nova
   espera a página, como antes; e o app aberto sem token nem conferência (sem sinal, sessão vencida) coleta e só envia
   depois dela (a fila guarda 24 h e no máximo 1000 pontos). A revogação do Sair não espera. O cofre do aparelho que falha
   na conferência não deixa o dia parado: o envio e a volta ao app conferem de novo quando ele voltar.
