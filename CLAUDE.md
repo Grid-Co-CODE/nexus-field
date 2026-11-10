@@ -1075,9 +1075,9 @@ O site (App de Campo) e o Fracttal não mudam.
     `RTC_WAKEUP`: sem alarme exato, e o `setWindow` não toca no Doze (espera a janela de manutenção, que de madrugada
     leva horas); o Android pode atrasá-lo uns minutos. Quem agenda: o próprio alarme (o do dia seguinte), cada volta ao
     app com a chave e o termo de pé (a chave que entra e o Li e aceito passam por ela; o Forçar parada apaga os alarmes
-    do app, e a abertura os refaz) e o `ReceptorDoInicio` no `BOOT_COMPLETED`, no `MY_PACKAGE_REPLACED` e no
+    do app, e a abertura os refaz) e o `ReceptorDoInicio` no `BOOT_COMPLETED`, no `MY_PACKAGE_REPLACED`, no
     `TIMEZONE_CHANGED` (o alarme das 6h de Brasília tocaria às 5h em Mato Grosso: fora da janela nada aparece, e o
-    próximo vai às 6h do fuso novo). O receptor não é exportado: o sistema alcança o receptor não exportado, e nenhum app
+    próximo vai às 6h do fuso novo) e no `TIME_SET` (`Intent.ACTION_TIME_CHANGED`: o relógio mudado à mão ou pela rede). O receptor não é exportado: o sistema alcança o receptor não exportado, e nenhum app
     de fora manda um "Bom dia". Quem cancela: a chave que sai (`ChaveDaEquipe.apagar` e `apagarAChave`: o Sair, a troca
     de conta, o `coleta:false` e o 401, também o do último envio das 22h, cuja resposta ninguém lê) leva o alarme e o
     aviso da barra. Falta no aparelho: a hora de chegada com o celular em repouso, o boot no Xiaomi sem o Início
@@ -1109,10 +1109,13 @@ O site (App de Campo) e o Fracttal não mudam.
     desligado, e um serviço de acessibilidade pode clicar sem olhar o estado. A girada da tela (a MainActivity não é
     recriada) e a volta ao app não ligam. No Robolectric a rolagem animada (TalkBack, teclado) só anda com o
     `computeScroll` que o teste chama, porque ele não desenha.
-  - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "1", o texto de 09/11/2026, R11).** A marca
+  - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "2", o texto de 10/11/2026, R11 e R13).** A marca
     `termo_aceito` guarda a versão; outra versão, ou a marca booleana da R10 (só nos aparelhos de prova), mostra o termo de
     novo. Mudar o texto é mudar a constante e a primeira linha ("Versão N"): o `EquipeNaCascaTest` guarda o SHA-256 do
-    texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. Fica para depois (muda o
+    texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. A versão 2 (R13, decisão do dono de
+    10/11/2026) diz que o mapa mostra a última posição de cada técnico no ponto exato, também parado fora de usina, e
+    que quem vê pode abrir o percurso de um período dos 7 dias; a 1 prometia só a cidade, e quem a aceitou vê o termo de
+    novo. Fica para depois (muda o
     contrato com o Nexus): mandar a prova do aceite (a versão e a hora).
   - O Sair para a coleta na hora, apaga a fila, revoga e apaga a chave (mesmo sem rede) e deixa uma marca
     (`saidasPendentes`) até a chave sair: a decisão que já esperava na thread (a volta ao app atrás de um envio pendurado)

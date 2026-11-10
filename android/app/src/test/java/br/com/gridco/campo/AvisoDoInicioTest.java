@@ -58,9 +58,10 @@ public class AvisoDoInicioTest {
     private static final String CHAVE = "chaveFicticiaDaEquipe_AAAAAAAAAAAAAAAAAAAAA";
     private static final String CONTA = "aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000aaaa0000";
     private static final long MINUTO = 60_000L;
-    // Os eventos do sistema que reagendam o alarme: o celular que religou, o app atualizado e o fuso novo.
+    // Os eventos do sistema que reagendam o alarme: o celular que religou, o app atualizado, o fuso novo e o relógio mudado.
     private static final String[] DO_SISTEMA = {
         Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED, Intent.ACTION_TIMEZONE_CHANGED,
+        Intent.ACTION_TIME_CHANGED,
     };
 
     private Application app;
@@ -416,6 +417,17 @@ public class AvisoDoInicioTest {
         agora = em(BRASILIA, 9, 15, 0);
         receber(Intent.ACTION_TIMEZONE_CHANGED);
         assertEquals("as 6h de Mato Grosso, no lugar das de Brasília", em(CUIABA, 10, 6, 0), oAlarme().getTriggerAtMs());
+    }
+
+    @Test
+    public void oRelogioMudadoRefazOAlarmeDasSeisHorasDoRelogioNovo() {
+        comChaveETermo();
+        AvisoDoInicio.agendarSeVale(app, chave, em(9, 9, 0));
+        assertEquals(em(10, 6, 0), oAlarme().getTriggerAtMs());
+        // O relógio foi para a frente (a mão ou pela rede): às 6h de amanhã já passaram, e o alarme é o do dia seguinte.
+        agora = em(10, 7, 0);
+        receber(Intent.ACTION_TIME_CHANGED);
+        assertEquals("o alarme das 6h do dia seguinte ao relógio novo", em(11, 6, 0), oAlarme().getTriggerAtMs());
     }
 
     @Test

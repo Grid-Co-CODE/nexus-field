@@ -102,7 +102,7 @@
         <!--
           O aviso das 6h (R12, AvisoDoInicio): o alarme das 6h chega aqui e mostra o aviso; o boot, a atualização do app
           e o fuso novo só reagendam o alarme (o Android não o guarda de um boot para o outro). Não exportado: o alarme é
-          um PendingIntent explícito do próprio app, e os três eventos vêm do sistema, que alcança o receptor não
+          um PendingIntent explícito do próprio app, e os quatro eventos vêm do sistema, que alcança o receptor não
           exportado (o exported só barra os outros apps). Assim nenhum app de fora manda um "Bom dia" a qualquer hora. A
           ação do alarme fica fora do filtro.
         -->
@@ -113,6 +113,7 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
 

@@ -53,11 +53,12 @@ final class ChaveDaEquipe {
     private static final String K_CHAVE = "chave";
     private static final String K_CONTA = "conta";
     /**
-     * A versão do texto do termo de uso e privacidade (o casca_equipe_termo_texto, que diz "Versão 1" na primeira linha: o
-     * de 09/11/2026). Mudar o texto é mudar esta constante (e a primeira linha), e o aceite da versão de antes deixa de
-     * valer: o técnico vê o termo novo antes de a coleta ligar de novo.
+     * A versão do texto do termo de uso e privacidade (o casca_equipe_termo_texto, que diz "Versão 2" na primeira linha: o
+     * de 10/11/2026, que mostra o ponto exato e o percurso, R13; a 1, de 09/11, prometia o contrário).
+     * Mudar o texto é mudar esta constante (e a primeira linha), e o aceite da versão de antes deixa de valer: o técnico
+     * vê o termo novo antes de a coleta ligar de novo.
      */
-    static final String TERMO_VERSAO = "1";
+    static final String TERMO_VERSAO = "2";
 
     // O aceite do termo (R10), e não o "aviso_aceito" de antes dele: quem aceitou o aviso num aparelho de prova não leu o
     // termo. Guarda a versão aceita (R11); a marca booleana que a primeira versão desta chave guardava, só nos aparelhos

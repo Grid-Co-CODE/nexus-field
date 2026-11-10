@@ -8,11 +8,12 @@ import android.util.Log;
 /**
  * Por onde o Android entrega o aviso das 6h ({@link AvisoDoInicio}, R12): o alarme das 6h, que mostra o aviso e agenda o do
  * dia seguinte, e os eventos que apagam ou deslocam o alarme, que só o reagendam: o celular que religou (o
- * BOOT_COMPLETED: o Android não guarda os alarmes de um boot para o outro), o app atualizado (o MY_PACKAGE_REPLACED) e o
- * fuso novo (o TIMEZONE_CHANGED: o alarme marcado às 6h de Brasília tocaria às 5h em Mato Grosso). Nenhum deles mostra o
- * aviso: só o alarme mostra.
+ * BOOT_COMPLETED: o Android não guarda os alarmes de um boot para o outro), o app atualizado (o MY_PACKAGE_REPLACED), o
+ * fuso novo (o TIMEZONE_CHANGED: o alarme marcado às 6h de Brasília tocaria às 5h em Mato Grosso) e o relógio mudado, à
+ * mão ou pela correção automática da rede (o TIME_SET, que o Android chama de ACTION_TIME_CHANGED: o alarme marcado pelo relógio de antes tocaria na hora errada).
+ * Nenhum deles mostra o aviso: só o alarme mostra.
  *
- * Não exportado (o manifesto): o alarme é um PendingIntent do próprio app, e os três eventos vêm do sistema, que alcança o
+ * Não exportado (o manifesto): o alarme é um PendingIntent do próprio app, e os quatro eventos vêm do sistema, que alcança o
  * receptor não exportado (o "exported" só barra os outros apps). Assim, nenhum app de fora manda um "Bom dia" a qualquer
  * hora. A chave e o termo são lidos na hora, das peças do processo ({@link ServicoDaEquipe#pecas}), sem a cifra; a coleta
  * ligada é a do serviço deste processo. Nunca lança: o receptor que lança no boot derruba o app com o aviso de "parou" do
@@ -31,7 +32,7 @@ public class ReceptorDoInicio extends BroadcastReceiver {
                 ServicoDaEquipe.Pecas pecas = ServicoDaEquipe.pecas(app);
                 AvisoDoInicio.naHora(app, pecas.chave, ServicoDaEquipe.rodando(), pecas.relogio.getAsLong());
             } else if (Intent.ACTION_BOOT_COMPLETED.equals(acao) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(acao)
-                    || Intent.ACTION_TIMEZONE_CHANGED.equals(acao)) {
+                    || Intent.ACTION_TIMEZONE_CHANGED.equals(acao) || Intent.ACTION_TIME_CHANGED.equals(acao)) {
                 ServicoDaEquipe.Pecas pecas = ServicoDaEquipe.pecas(app);
                 AvisoDoInicio.agendarSeVale(app, pecas.chave, pecas.relogio.getAsLong());
             }

@@ -21,7 +21,8 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 - A posição de cada técnico de campo com o Nexus Field, da primeira abertura do app no dia até as 22h, também com o app
   fechado depois disso.
 - No Nexus, o Mapa de equipe com a última posição de cada técnico, a idade dela e a situação, e o **Abrir rota** no
-  Google Maps do técnico até a usina escolhida.
+  Google Maps do técnico até a usina escolhida, e o percurso de um técnico num período dos últimos 7 dias, sob demanda
+  (R13, 10/11/2026).
 - O histórico curto dos pontos e o resumo dos deslocamentos entre usinas, para melhorar as rotas depois.
 
 **Não-objetivos**
@@ -35,7 +36,8 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
 **Anti-objetivos (é fracasso mesmo funcionando)**
 - Coletar sem o técnico saber: sem o termo de uso aceito antes de ligar, ou sem a notificação fixa enquanto coleta.
 - Coletar em férias ou folga (sem o técnico ter aberto o app no dia), antes das 6h ou depois das 22h.
-- Mostrar onde o técnico mora.
+- (Decisão do dono em 10/11/2026, R13: o mapa passou a mostrar o ponto exato também parado fora de usina, e o percurso
+  de um período; "mostrar onde o técnico mora" deixou de ser anti-objetivo, e o termo da versão 2 diz isso ao técnico.)
 - A coordenada (da usina ou do técnico) em texto na página ou no JSON do Nexus, ou em claro no banco.
 - Ponto bruto usado ou mostrado depois de 7 dias.
 - Bateria que acaba no meio do dia e leva o técnico a desinstalar o app.
@@ -76,7 +78,8 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   também com o app fechado, sempre com a notificação fixa), para quê (ver onde a equipe de campo está, abrir a rota até
   as usinas e planejar as rotas), a base legal (o legítimo interesse e a execução do contrato de trabalho, art. 7º, V e
   IX), quem vê (PCM, COS, Performance, Supervisão Campo, Responsáveis UFV e os administradores do Nexus; parado fora de
-  usina, só a cidade e a distância; cada abertura do mapa ou da rota registrada), com quem é compartilhado (ninguém de
+  usina, a última posição de cada técnico nos últimos 7 dias, no ponto exato, e o percurso de um período; cada abertura do
+  mapa, do percurso ou da rota registrada, e a do percurso com o período; texto da versão 2, 10/11/2026, R13), com quem é compartilhado (ninguém de
   fora; o Google Play services calcula a posição e o Google Maps traça a rota aberta), por quanto tempo (7 dias os
   pontos, 1 ano os deslocamentos, o registro de quem abriu o mapa para responder pela LGPD), a segurança (cifrado no
   caminho e no Nexus, 24 h no máximo no celular, a chave que o Sair apaga), os direitos (art. 18, a ANPD, os pedidos pelo
@@ -171,8 +174,11 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   Cada técnico é um ponto com a cor da situação: em deslocamento, parado numa usina, parado fora de usina, sem sinal há
   mais de 30 minutos, sem permissão. O clique abre ao lado: o técnico, a equipe, a hora da última posição, a usina mais
   perto e a distância ("a 2,3 km da UFV X"), e o **Abrir rota** para a usina escolhida.
-- **Parado fora de usina** (a casa, o hotel): o mapa diz só "parado fora de usina", com a cidade e sem o ponto exato, e
-  o Abrir rota não aparece. Em deslocamento ou parado numa usina, aparece.
+- **Parado fora de usina** (a casa, o hotel): decisão do dono em 10/11/2026 (R13), no lugar da regra de 08/11 (só a
+  cidade, sem o ponto exato): o mapa mostra a última posição de cada técnico dos últimos 7 dias no lugar exato, também
+  parado fora de usina, e a de outro dia só com o contorno. Quem vê o mapa abre o **percurso** de um técnico num período
+  desses 7 dias (o registro guarda quem abriu, quando e o período). O Abrir rota segue só para quem está em deslocamento
+  ou parado numa usina.
 - **Abrir rota sem a coordenada na página.** O botão leva a uma rota do Nexus que monta no servidor o link do Google
   Maps (origem no técnico, destino na usina) e redireciona. A página e o JSON nunca têm a coordenada; ela só sai no
   clique de quem pediu a rota, para o Google.
@@ -198,6 +204,8 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   parada" (ou o "tirar dos recentes" de quem mata o app, conforme a marca) apaga o alarme até a próxima abertura.
 - Abrir rota manda ao Google a posição do técnico e a da usina, no clique de quem pediu.
 - Entre os 7 dias e a limpeza da T.I., o ponto velho continua no banco, cifrado, sem uso.
+- O ponto exato e o percurso mostram a casa ou o hotel de quem está parado fora de usina: risco aceito pelo dono em
+  10/11/2026 (R13), com o aviso no termo da versão 2 e o registro de quem abriu o mapa e o percurso; o jurídico revê.
 - Sem a notificação fixa à vista não há coleta: no Android 13 ou mais novo com a notificação do Nexus Field negada, ou com
   as notificações ou o canal da localização da equipe desligados nos ajustes, a coleta não liga (e para, se estava ligada).
   O mapa mostra esse aparelho como sem permissão.
@@ -259,7 +267,8 @@ caminho e os nomes; o que mudar, ele avisa à sessão do Nexus Field antes de p�
 
 - **Só o Google Maps no Abrir rota.** O link do Waze só recebe o destino e traça a rota a partir de quem clica: no
   escritório, ele sairia do escritório, e não do técnico.
-- **Parado fora de usina sem o ponto exato e sem a rota**, para o mapa não mostrar onde o técnico mora.
+- **Parado fora de usina sem o ponto exato e sem a rota**, para o mapa não mostrar onde o técnico mora. Superada pela
+  decisão do dono de 10/11/2026 (R13): o ponto exato e o percurso aparecem, e o termo da versão 2 avisa.
 - **Quem é coletado** decidido pelo Nexus na chave do aparelho (técnico de campo ativo; no piloto, só os escolhidos).
 - **A hora do celular** para as 6h e as 22h (vale para técnico em outro fuso).
 - O envio adaptativo: 2 minutos em deslocamento, mais espaçado parado.

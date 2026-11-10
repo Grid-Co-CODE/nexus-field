@@ -127,7 +127,7 @@
       termo de novo.
     -->
     <string name="casca_equipe_termo_titulo">Termo de uso e privacidade da localização</string>
-    <string name="casca_equipe_termo_texto">Versão 1, de 9 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.
+    <string name="casca_equipe_termo_texto">Versão 2, de 10 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.
         \n\n<b>1. Quem é o responsável</b>
         \nA Grid Co. é a controladora dos dados deste termo, nos termos da Lei Geral de Proteção de Dados
         Pessoais (Lei nº 13.709/2018, a LGPD).
@@ -150,9 +150,9 @@
         \n\n<b>6. Quem vê</b>
         \nAs equipes de PCM, COS, Performance, Supervisão Campo e os Responsáveis UFV da Grid Co., e os
         administradores do Nexus, pela tela do Mapa de equipe, com login. Os outros técnicos não veem a sua
-        posição. Parado fora de uma usina (em casa ou no hotel, por exemplo), o mapa mostra só a cidade e a
-        distância até a usina mais perto, nunca o ponto exato. Cada vez que alguém abre o mapa ou a rota até
-        você, fica registrado quem abriu e quando.
+        posição. O mapa mostra a última posição de cada técnico nos últimos 7 dias, onde ele estiver, e quem vê
+        o mapa pode abrir o percurso de um técnico num período desses 7 dias. Cada vez que alguém abre o mapa,
+        o seu percurso ou a rota até você, fica registrado quem abriu, quando e, no percurso, de que período.
         \n\n<b>7. Com quem é compartilhado</b>
         \nOs dados não são vendidos nem cedidos a outras empresas e ficam no sistema Nexus, da Grid Co. A
         posição é calculada pelo serviço de localização do Android (Google Play services). Quando alguém da

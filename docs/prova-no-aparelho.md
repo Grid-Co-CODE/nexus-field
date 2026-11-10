@@ -377,7 +377,8 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       liga. Desligar o TalkBack.
 - [ ] A versão nova pede de novo: no aparelho de prova que aceitou o termo curto de antes (o APK de prova anterior a
       esta mudança), instalar o APK novo por cima e abrir com a mesma conta: o termo inteiro aparece de novo, e a coleta
-      só liga depois do **Li e aceito**. Depois do aceite, fechar e abrir: ele não volta.
+      só liga depois do **Li e aceito**. Depois do aceite, fechar e abrir: ele não volta. Também quem aceitou a versão 1
+      (09/11/2026, que dizia só a cidade fora de usina) vê a versão 2 (10/11/2026, o ponto exato e o percurso) de novo.
 - [ ] Logo depois do **Li e aceito**: o pedido do próprio Android, sem outra tela do Nexus Field antes; escolher
       **Durante o uso do app** (com a localização precisa). Com a localização já liberada (o **Antes de começar** da
       instalação), nenhum pedido aparece: a coleta liga direto.
@@ -432,6 +433,8 @@ alguns minutos depois. Cada item pede uma manhã; anote a hora em que o aviso ch
 - [ ] Reiniciar o celular não perde o aviso: à noite, reiniciar o celular e não abrir o Nexus Field: o aviso chega às 6h.
       Também depois de atualizar o Nexus Field por cima (o APK novo instalado à noite, sem abrir). No Xiaomi e afins, só
       com o Início automático do guia de instalação ligado: anote se, sem ele, o aviso chegou.
+- [ ] O balde de espera restrito: com o app num balde de espera restrito (a economia de bateria agressiva), o Android
+      pode atrasar o aviso das 6h: é limite do sistema sem alarme exato, e não defeito. Anote a hora em que chegou.
 - [ ] O canal desligado não mostra: nos ajustes do Android, desligar o canal **Início do dia**: na manhã seguinte nada
       aparece, e a coleta liga quando o Nexus Field for aberto. Religar o canal: o aviso volta na manhã seguinte.
 - [ ] O que apaga o alarme: com **Forçar parada** do Nexus Field à noite, o Android apaga os alarmes dele, e o aviso da

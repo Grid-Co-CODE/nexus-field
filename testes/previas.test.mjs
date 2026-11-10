@@ -507,9 +507,17 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // legal (seção 5) e o canal dos direitos (seção 10, o RH).
   const doTermo = compactar(d.getElementById('ok-equipe-termo').closest('li').querySelector('label').textContent);
   for (const trecho of [/aviso de privacidade inteiro/, /rola até o fim/, /jurídico confirmar/, /base legal \(seção 5\)/,
-    /canal dos direitos \(seção 10, o RH\)/]) {
+    /canal dos direitos \(seção 10, o RH\)/, /versão 2 \(10\/11\/2026\).*ponto exato.*em casa ou no hotel.*percurso/,
+    /jurídico precisa ver/]) {
     assert.match(doTermo, trecho, 'o item do termo diz o que se aprova nele');
   }
+  // A versão 2 (R13, 10/11/2026): o termo diz o ponto exato e o percurso, e não promete mais só a cidade.
+  const textoDoTermo = compactar(daEquipe.find((s) => s.nome === 'casca_equipe_termo_texto').texto);
+  assert.match(textoDoTermo, /^Versão 2, de 10 de novembro de 2026\./);
+  assert.match(textoDoTermo, /última posição de cada técnico nos últimos 7 dias, onde ele estiver/);
+  assert.match(textoDoTermo, /abrir o percurso de um técnico num período desses 7 dias/);
+  assert.match(textoDoTermo, /o seu percurso ou a rota até você, fica registrado quem abriu, quando e, no percurso, de que período/);
+  assert.doesNotMatch(textoDoTermo, /nunca o ponto exato/);
   // O que o termo promete: quando, por quê, quem vê e por quanto tempo (seção 4.1), no item e no texto do termo.
   const promessa = d.getElementById('ok-equipe-promessa')?.closest('li');
   assert.ok(promessa, 'o item ok-equipe-promessa: o que o termo promete');

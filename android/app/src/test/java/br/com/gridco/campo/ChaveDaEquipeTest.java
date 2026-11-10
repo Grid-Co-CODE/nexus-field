@@ -135,10 +135,20 @@ public class ChaveDaEquipeTest {
     }
 
     @Test
+    public void oAceiteDaVersao1NaoValeMaisEODaVersao2Vale() {
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "1").commit();
+        assertFalse(c.termoAceito());
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "2").commit();
+        assertTrue(c.termoAceito());
+    }
+
+    @Test
     public void oAceiteGuardaAVersaoDoTermo() {
-        // R11: o aceite é da versão do texto (a de 09/11/2026): mudar o texto é mudar a constante, e quem aceitou a versão
+        // R11: o aceite é da versão do texto (a de 10/11/2026, R13): mudar o texto é mudar a constante, e quem aceitou a versão
         // de antes vê o termo de novo.
-        assertEquals("1", ChaveDaEquipe.TERMO_VERSAO);
+        assertEquals("2", ChaveDaEquipe.TERMO_VERSAO);
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
         c.aceitarTermo();

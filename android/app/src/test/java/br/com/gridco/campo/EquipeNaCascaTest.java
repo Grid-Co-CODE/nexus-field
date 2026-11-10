@@ -636,6 +636,17 @@ public class EquipeNaCascaTest {
     }
 
     @Test
+    public void quemAceitouAVersao1VeOTermoDaVersao2DeNovoEOAceiteDa2Vale() {
+        // R13 (10/11/2026): o texto passou a mostrar o ponto exato e o percurso, e quem aceitou o de antes não leu isso.
+        chave.guardar(CHAVE_A, CONTA_A);
+        daEquipe().edit().putString("termo_aceito", "1").commit();
+        assertFalse("o aceite da versão 1 não vale mais", chave.termoAceito());
+        oTermoVoltaEOAceiteGuardaAVersaoDeAgora();
+        assertEquals("2", daEquipe().getString("termo_aceito", null));
+        assertTrue("o aceite da versão 2 vale", chave.termoAceito());
+    }
+
+    @Test
     public void aMarcaDoTermoDeAntesDaVersaoMostraOTermoDeNovo() {
         // A marca booleana da Task 8, só dos aparelhos de prova: quem a tem leu o termo curto, não o aviso inteiro.
         chave.guardar(CHAVE_A, CONTA_A);
@@ -1699,8 +1710,12 @@ public class EquipeNaCascaTest {
     // O texto de cada versão do termo, pelo resumo (o SHA-256 do texto que o técnico lê). O aceite guarda a versão
     // (ChaveDaEquipe.TERMO_VERSAO): o texto que muda sem a versão nova valeria para quem aceitou o de antes. Mudou o
     // texto? Mude o TERMO_VERSAO e a primeira linha do texto, e acrescente aqui a versão nova com o resumo dela.
-    private static final Map<String, String> TEXTO_DE_CADA_VERSAO =
-        Collections.singletonMap("1", "7bf3bf6f12d6aeb38ecb3229e780fbcce48cd8af8c3c29301070ccf2a9c5f7b1");
+    // A 1 (09/11/2026) prometia só a cidade fora de usina; a 2 (10/11/2026, R13) mostra o ponto exato e o percurso.
+    private static final Map<String, String> TEXTO_DE_CADA_VERSAO = new HashMap<>();
+    static {
+        TEXTO_DE_CADA_VERSAO.put("1", "7bf3bf6f12d6aeb38ecb3229e780fbcce48cd8af8c3c29301070ccf2a9c5f7b1");
+        TEXTO_DE_CADA_VERSAO.put("2", "3e9742434fb1d7f4b48b4fc72308463cb370125f7eb198b039e1ba3d0e945840");
+    }
 
     private static String sha256(String texto) throws Exception {
         StringBuilder hex = new StringBuilder();
@@ -1719,7 +1734,7 @@ public class EquipeNaCascaTest {
         assertEquals("Role até o fim para liberar o Li e aceito", app.getString(R.string.casca_equipe_termo_rolar));
         String termo = app.getString(R.string.casca_equipe_termo_texto);
         assertTrue("a primeira linha diz a versão que o aceite guarda",
-            termo.startsWith("Versão " + ChaveDaEquipe.TERMO_VERSAO + ", de 9 de novembro de 2026."));
+            termo.startsWith("Versão " + ChaveDaEquipe.TERMO_VERSAO + ", de 10 de novembro de 2026."));
         List<String> titulos = new ArrayList<>();
         for (String linha : termo.split("\n")) if (linha.trim().matches("\\d+\\. .*")) titulos.add(linha.trim());
         assertEquals(Arrays.asList("1. Quem é o responsável", "2. Quais dados", "3. Quando", "4. Para quê", "5. Base legal",
