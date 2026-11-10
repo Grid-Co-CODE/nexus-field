@@ -11,13 +11,18 @@ import static org.robolectric.Shadows.shadowOf;
 
 import android.Manifest;
 import android.app.AlarmManager;
+import android.app.AppOpsManager;
 import android.app.Application;
 import android.app.Dialog;
+import android.app.Notification;
 import android.app.NotificationManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Looper;
@@ -64,6 +69,7 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowAlarmManager;
+import org.robolectric.shadows.ShadowBuild;
 import org.robolectric.shadows.ShadowDialog;
 import org.robolectric.shadows.ShadowLog;
 
@@ -141,14 +147,17 @@ public class EquipeNaCascaTest {
     }
 
     /**
-     * A tela de mentira: guarda o Li e aceito do termo, os pedidos ao Android e as janelas da bateria; com {@code saindo},
-     * nada abre. Ela só tem o termo e as janelas do Android: nenhuma outra tela nossa existe para a casca abrir.
+     * A tela de mentira: guarda o Li e aceito do termo, os pedidos ao Android, as janelas da bateria e as telas do Início
+     * automático; com {@code saindo}, nada abre. Ela só tem o termo e as telas do Android e do HyperOS: nenhuma outra tela
+     * nossa existe para a casca abrir.
      */
     private static final class TelaFalsa implements EquipeNaCasca.Tela {
         int termos;
         int fechadas;
         /** A janela do próprio Android que pede a bateria sem restrição (R15). */
         int baterias;
+        /** A tela do Início automático do HyperOS (Task 14). */
+        int iniciosAutomaticos;
         boolean saindo;
         /** O fechar que lança (o diálogo que a tela não tirou agora). */
         boolean lancarNoFechar;
@@ -159,6 +168,13 @@ public class EquipeNaCascaTest {
         public boolean pedirSemRestricaoDeBateria() {
             if (saindo) return false;
             baterias++;
+            return true;
+        }
+
+        @Override
+        public boolean pedirInicioAutomatico() {
+            if (saindo) return false;
+            iniciosAutomaticos++;
             return true;
         }
 
@@ -217,6 +233,7 @@ public class EquipeNaCascaTest {
     @After
     public void fechar() {
         TimeZone.setDefault(fusoDeAntes);
+        InicioAutomatico.leitorDeTeste = null;
         app.deleteDatabase(FilaDePontos.NOME_DO_BANCO);
     }
 
@@ -688,15 +705,15 @@ public class EquipeNaCascaTest {
     }
 
     @Test
-    public void quemAceitouAVersao3VeOTermoDaVersao4DeNovoEOAceiteDa4Vale() {
-        // O Celular pronto (10/11/2026): o texto passou a dizer que os ajustes do Nexus Field neste celular também vão ao
-        // Nexus; quem aceitou a versão 3 (a que pede o Permitir o tempo todo e a bateria sem restrição) não leu isso.
+    public void quemAceitouAVersao4VeOTermoDaVersao5DeNovoEOAceiteDa5Vale() {
+        // A Task 14 (10/11/2026): o texto passou a dizer que o Início automático dos celulares Xiaomi também vai ao Nexus e
+        // a pedir que fique ligado; quem aceitou a versão 4 (a do Celular pronto) não leu isso.
         chave.guardar(CHAVE_A, CONTA_A);
-        daEquipe().edit().putString("termo_aceito", "3").commit();
-        assertFalse("o aceite da versão 3 não vale mais", chave.termoAceito());
+        daEquipe().edit().putString("termo_aceito", "4").commit();
+        assertFalse("o aceite da versão 4 não vale mais", chave.termoAceito());
         oTermoVoltaEOAceiteGuardaAVersaoDeAgora();
-        assertEquals("4", daEquipe().getString("termo_aceito", null));
-        assertTrue("o aceite da versão 4 vale", chave.termoAceito());
+        assertEquals("5", daEquipe().getString("termo_aceito", null));
+        assertTrue("o aceite da versão 5 vale", chave.termoAceito());
     }
 
     @Test
@@ -1312,6 +1329,230 @@ public class EquipeNaCascaTest {
         List<String> pedidas = Arrays.asList(app.getPackageManager()
             .getPackageInfo(app.getPackageName(), PackageManager.GET_PERMISSIONS).requestedPermissions);
         assertTrue(pedidas.contains(Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS));
+    }
+
+    // --- a tela do Início automático do Xiaomi (Task 14) ---------------------------------------------------------------
+
+    /** Um Xiaomi com o Início automático no modo dado (o MODE_ALLOWED é o ligado), lido pelo leitor de mentira. */
+    private static void xiaomiNoModo(int modo) {
+        ShadowBuild.setManufacturer("Xiaomi");
+        InicioAutomatico.leitorDeTeste = contexto -> modo;
+    }
+
+    /** O termo aceito, a coleta ligada e o pedido do tempo todo respondido sem dá-lo, com a bateria já liberada. */
+    private EquipeNaCasca ateOTempoTodoComABateriaLiberada() {
+        liberarDaBateria(true);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
+        return c;
+    }
+
+    @Test
+    public void aTelaDoInicioAutomaticoAbreDepoisDaBateriaUmaVezPorConta() {
+        // O pedido do dono em 10/11/2026 ("claro, quando o cara instala já tem que ter tudo pronto"), depois da prova da
+        // 1.2.2 no celular dele: sem o Início automático o HyperOS não deixou o app partir pelo aviso de app atualizado
+        // ("process is not permitted to auto start"), e a coleta não voltou; com ele, voltou em 9 s.
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals("com o pedido do tempo todo na frente, nada", 0, tela.iniciosAutomaticos);
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
+        assertEquals(1, tela.baterias);
+        assertEquals("a janela da bateria na frente: a tela do HyperOS espera a volta dela", 0, tela.iniciosAutomaticos);
+        c.reavaliar(); // a volta da janela da bateria
+        assertEquals("depois da bateria, a tela do HyperOS", 1, tela.iniciosAutomaticos);
+        assertEquals("nenhuma tela nossa antes", 1, tela.termos);
+        assertFalse(chave.inicioAutomaticoPorPedir());
+
+        // A volta da tela do HyperOS sem ligar (a recusa): a coleta segue igual, e a tela não volta.
+        c.reavaliar();
+        assertEquals(1, tela.iniciosAutomaticos);
+        partidaNova();
+        casca().reavaliar();
+        assertEquals("nem na partida nova", 1, tela.iniciosAutomaticos);
+        assertEquals(0, servico.parados);
+        assertEquals(1, servico.iniciados);
+    }
+
+    @Test
+    public void comABateriaJaLiberadaATelaDoInicioAutomaticoVemLogoDepoisDoTempoTodo() {
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        ateOTempoTodoComABateriaLiberada();
+        assertEquals(0, tela.baterias);
+        assertEquals(1, tela.iniciosAutomaticos);
+    }
+
+    @Test
+    public void foraDoXiaomiNadaAbre() {
+        ShadowBuild.setManufacturer("samsung");
+        ateOTempoTodoComABateriaLiberada();
+        assertEquals(0, tela.iniciosAutomaticos);
+        assertFalse("nada a abrir: a marca sai", chave.inicioAutomaticoPorPedir());
+    }
+
+    @Test
+    public void comOInicioAutomaticoJaLigadoNadaAbreNemDepois() {
+        xiaomiNoModo(AppOpsManager.MODE_ALLOWED);
+        EquipeNaCasca c = ateOTempoTodoComABateriaLiberada();
+        assertEquals(0, tela.iniciosAutomaticos);
+        assertFalse(chave.inicioAutomaticoPorPedir());
+        // Desligado depois nos ajustes: a tela não aparece fora do fluxo do termo (é o aviso do que falta que diz).
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        c.reavaliar();
+        assertEquals(0, tela.iniciosAutomaticos);
+    }
+
+    @Test
+    public void semSaberOEstadoNadaAbre() {
+        // A leitura que o Android barrou (o método escondido): sem saber, a casca não abre nada, como a bateria sem resposta.
+        ShadowBuild.setManufacturer("Xiaomi");
+        InicioAutomatico.leitorDeTeste = contexto -> {
+            throw new NoSuchMethodException("checkOpNoThrow");
+        };
+        ateOTempoTodoComABateriaLiberada();
+        assertEquals(0, tela.iniciosAutomaticos);
+        assertFalse(chave.inicioAutomaticoPorPedir());
+    }
+
+    @Test
+    public void recusadaATelaDoInicioAutomaticoSoVoltaComAProximaContaOuOProximoTermo() {
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        EquipeNaCasca c = ateOTempoTodoComABateriaLiberada();
+        assertEquals(1, tela.iniciosAutomaticos);
+        c.reavaliar();
+        c.receberChave(true, CHAVE_B, CONTA_A); // a chave nova da mesma conta, a do 401
+        assertEquals("a mesma conta e o mesmo termo", 1, tela.iniciosAutomaticos);
+
+        // A próxima conta: B entra sem o Sair de A, e a tela vem depois do aceite do termo de B (e do tempo todo).
+        c.pedirAparelho(CONTA_B, json -> true);
+        c.receberChave(true, CHAVE_B, CONTA_B);
+        tela.aceitarDoTermo.run();
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
+        assertEquals(2, tela.iniciosAutomaticos);
+
+        // O próximo termo: o texto que muda pede o aceite de novo, e a tela vem depois dele.
+        daEquipe().edit().putString("termo_aceito", "4").commit();
+        c.reavaliar();
+        assertEquals(2, tela.iniciosAutomaticos);
+        tela.aceitarDoTermo.run();
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
+        assertEquals(3, tela.iniciosAutomaticos);
+    }
+
+    @Test
+    public void aTelaDoInicioAutomaticoQueNaoAbriuAbreNaProximaVolta() {
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        liberarDaBateria(true);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        servico.rodando = true;
+        tela.saindo = true;
+        responderOTempoTodo(c, false);
+        assertEquals(0, tela.iniciosAutomaticos);
+        assertTrue("a tela que não abriu fica por abrir", chave.inicioAutomaticoPorPedir());
+        tela.saindo = false;
+        c.aTelaSaiuDaVista();
+        c.reavaliar();
+        assertEquals("com o app no fundo, nada", 0, tela.iniciosAutomaticos);
+        c.aTelaFicouAVista();
+        c.reavaliar();
+        assertEquals(1, tela.iniciosAutomaticos);
+        c.reavaliar();
+        assertEquals(1, tela.iniciosAutomaticos);
+    }
+
+    @Test
+    public void aTelaDeVerdadeAbreOInicioAutomaticoDoHyperOSOuOsDetalhesDoApp() {
+        AppCompatActivity activity = activity();
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        assertTrue(t.pedirInicioAutomatico());
+        Intent aberta = shadowOf(activity).getNextStartedActivity();
+        assertNotNull(aberta);
+        assertEquals(new ComponentName("com.miui.securitycenter",
+            "com.miui.permcenter.autostart.AutoStartManagementActivity"), aberta.getComponent());
+        assertNull("nenhum diálogo nosso antes", ShadowDialog.getLatestDialog());
+
+        // A tela do HyperOS que não abre (outra versão do MIUI ou do HyperOS): os detalhes do app, que têm as permissões, a
+        // bateria e o Início automático.
+        shadowOf(app).checkActivities(true);
+        ResolveInfo ajustes = new ResolveInfo();
+        ajustes.activityInfo = new ActivityInfo();
+        ajustes.activityInfo.packageName = "com.android.settings";
+        ajustes.activityInfo.name = "com.android.settings.AppDetails";
+        shadowOf(app.getPackageManager()).addResolveInfoForIntent(InicioAutomatico.osDetalhesDoApp(app), ajustes);
+        assertTrue(t.pedirInicioAutomatico());
+        Intent depois = shadowOf(activity).getNextStartedActivity();
+        assertNotNull(depois);
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, depois.getAction());
+        assertEquals("package:" + app.getPackageName(), depois.getDataString());
+        assertNull("uma tela só", shadowOf(activity).getNextStartedActivity());
+
+        controle.pause().stop().destroy();
+        assertFalse("a tela saindo: a próxima volta ao app tenta", t.pedirInicioAutomatico());
+    }
+
+    // --- o aviso do que falta, na volta ao app (Task 14) ---------------------------------------------------------------
+
+    private Notification avisoDoQueFalta() {
+        NotificationManager nm = (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+        return shadowOf(nm).getNotification(AvisoDoQueFalta.ID_DA_NOTIFICACAO);
+    }
+
+    @Test
+    public void aVoltaAoAppMostraOQueFaltaDepoisDosPedidosENaoNoMeioDeles() {
+        // O pedido do dono em 10/11/2026: "se algo ficar pendente tem que ter notificação 'faltando tal coisa'". Com um
+        // pedido do Android na frente o técnico está liberando: o aviso espera a volta seguinte.
+        dar(Manifest.permission.POST_NOTIFICATIONS);
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        assertNull("com o termo na frente, nada", avisoDoQueFalta());
+        tela.aceitarDoTermo.run();
+        assertNull("com o pedido do tempo todo na frente, nada", avisoDoQueFalta());
+        servico.rodando = true;
+        responderOTempoTodo(c, false);
+        assertNull("com a janela da bateria a caminho, nada", avisoDoQueFalta());
+        c.reavaliar();
+        assertNull("com a tela do Início automático a caminho, nada", avisoDoQueFalta());
+        c.reavaliar(); // a volta da tela do HyperOS, sem ligar
+        Notification n = avisoDoQueFalta();
+        assertNotNull("recusado tudo, o aviso diz o que falta", n);
+        assertEquals("Falta: Permitir o tempo todo, bateria sem restrição e Início automático. Toque para abrir os ajustes"
+            + " do Nexus Field.", n.extras.getCharSequence(Notification.EXTRA_TEXT).toString());
+
+        // Liberado tudo nos ajustes: a volta ao app o tira.
+        dar(TEMPO_TODO);
+        liberarDaBateria(true);
+        xiaomiNoModo(AppOpsManager.MODE_ALLOWED);
+        c.reavaliar();
+        assertNull(avisoDoQueFalta());
+    }
+
+    @Test
+    public void oSairEOColetaFalseTiramOAvisoDoQueFalta() {
+        dar(Manifest.permission.POST_NOTIFICATIONS);
+        tirar(TEMPO_TODO);
+        liberarDaBateria(true); // nada mais a pedir: a volta ao app já mostra o que falta
+        comChaveETermo(CHAVE_A);
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertNotNull(avisoDoQueFalta());
+        c.sair();
+        assertNull("o Sair", avisoDoQueFalta());
+
+        comChaveETermo(CHAVE_A);
+        c.reavaliar();
+        assertNotNull(avisoDoQueFalta());
+        c.receberChave(false, null, CONTA_A);
+        assertNull("o coleta:false", avisoDoQueFalta());
     }
 
     // --- o tempo todo (R15) -------------------------------------------------------------------------------------------
@@ -2227,13 +2468,15 @@ public class EquipeNaCascaTest {
     // texto? Mude o TERMO_VERSAO e a primeira linha do texto, e acrescente aqui a versão nova com o resumo dela.
     // A 1 (09/11/2026) prometia só a cidade fora de usina; a 2 (10/11/2026, R13) mostra o ponto exato e o percurso; a 3
     // (10/11/2026, R15) pede o Permitir o tempo todo e a bateria sem restrição, e diz que a coleta volta sozinha no mesmo
-    // dia depois de reiniciar ou atualizar.
+    // dia depois de reiniciar ou atualizar; a 4 (10/11/2026, o Celular pronto) diz que os ajustes do celular vão ao Nexus;
+    // a 5 (10/11/2026, a Task 14) acrescenta a eles o Início automático dos celulares Xiaomi e pede que fique ligado.
     private static final Map<String, String> TEXTO_DE_CADA_VERSAO = new HashMap<>();
     static {
         TEXTO_DE_CADA_VERSAO.put("1", "7bf3bf6f12d6aeb38ecb3229e780fbcce48cd8af8c3c29301070ccf2a9c5f7b1");
         TEXTO_DE_CADA_VERSAO.put("2", "3e9742434fb1d7f4b48b4fc72308463cb370125f7eb198b039e1ba3d0e945840");
         TEXTO_DE_CADA_VERSAO.put("3", "292030c089bc624bf37dd9a22eb177a5916f7b66a3177933c79ac1c727726a5b");
         TEXTO_DE_CADA_VERSAO.put("4", "a82d5069f3ce35b3505cd672ded5df43ed02de1381e689e6346ea64051cba1a0");
+        TEXTO_DE_CADA_VERSAO.put("5", "e8a039a2f82f0608b824f413c7812772f2d37085420e946e7080fe07ca9d50e8");
     }
 
     private static String sha256(String texto) throws Exception {
@@ -2265,7 +2508,9 @@ public class EquipeNaCascaTest {
                 "1 ano", "24 horas", "Google Maps", "art. 18", "ANPD", "RH da Grid Co.", "Sair do aplicativo",
                 "a coleta volta sozinha se o celular reiniciar ou o aplicativo for atualizado no mesmo dia",
                 "escolha Permitir o tempo todo e deixe o Nexus Field sem restrição de bateria",
-                "os ajustes do Nexus Field neste celular que a coleta precisa"}) {
+                "os ajustes do Nexus Field neste celular que a coleta precisa",
+                "a notificação e, nos celulares Xiaomi, o Início automático estão liberados",
+                "sem restrição de bateria e, nos celulares Xiaomi, com o Início automático ligado."}) {
             assertTrue("o termo não diz \"" + trecho + "\"", termo.contains(trecho));
         }
         assertFalse("a versão 3 não manda mais escolher a durante o uso", termo.contains("Durante o uso do app"));

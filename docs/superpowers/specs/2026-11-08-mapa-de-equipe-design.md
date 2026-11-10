@@ -184,8 +184,17 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   Nexus Field, a casca abre a janela do próprio Android que pede a liberação, sem tela nossa antes; uma vez por conta e
   por termo (recusada, não volta até a próxima conta ou o próximo termo), e a coleta funciona igual com a recusa. Sem a
   otimização, o Android 12 ou mais novo deixa o app ligar o serviço em primeiro plano com o app no fundo (uma das
-  exceções da regra, a que o religamento do processo morto usa), e o HyperOS fecha menos o app. O Início automático do
-  Xiaomi (também no HyperOS) não tem janela do Android: fica no guia de instalação.
+  exceções da regra, a que o religamento do processo morto usa), e o HyperOS fecha menos o app.
+- **O Início automático do Xiaomi e o aviso do que falta (1.2.3, 10/11).** Depois da bateria, num Xiaomi, Redmi ou POCO
+  com o Início automático desligado (o MIUI o guarda na operação 10008 do AppOpsManager, que a casca lê por reflexão),
+  a casca abre a tela do Início automático do HyperOS (ou, se ela não abrir, os ajustes do app), sem tela nossa antes;
+  uma vez por conta e por termo, como a bateria. Caso: na prova da 1.2.2, sem ele o HyperOS não deixou o app partir pelo
+  aviso de app atualizado, e a coleta só voltou na abertura; ligado, voltou em 9 s ("claro, quando o cara instala já tem
+  que ter tudo pronto"). E, se algo continuar faltando (a localização precisa, o tempo todo, a bateria sem restrição ou
+  o Início automático desligado), a notificação "Falta liberar no celular" diz o quê, das 6h às 22h, para quem tem a
+  chave e o termo de agora, e o toque abre os ajustes do app ("se algo ficar pendente tem que ter notificação 'faltando
+  tal coisa'"); some sozinha quando nada falta e com o Sair. A casca a confere na volta ao app, em cada envio, no boot,
+  na atualização e às 6h, sem laço próprio.
 - **A nova tentativa da página.** O que não terminou (o token ainda sem login, a falha do nativo ou do Nexus) tenta de novo
   no online e na volta ao app, no máximo a cada 10 min contados do pedido ao nativo; com o pedido no ar nada começa outro
   (o token ou o POST que não respondem em 10 min contam como falha), e depois do Sair nada. Terminou: há chave
@@ -196,7 +205,7 @@ A coleta é da casca Android (este repositório). O dado vai para o Nexus, e a t
   coordenada nem chave.
 - **Xiaomi e afins.** A coleta com o app fechado, e a que volta sozinha, dependem do "Início automático" (também no
   HyperOS) e da bateria sem restrições, que o guia de instalação manda ligar (`docs/instalacao/`), com o "Permitir o
-  tempo todo"; a bateria e o tempo todo, a casca também pede pelo Android depois do termo (acima).
+  tempo todo"; os três, a casca também pede depois do termo (acima), e o aviso do que falta diz o que ficou.
 
 ### 4.2 No Nexus (chat "Nexus (Usinas 360)")
 
@@ -308,10 +317,12 @@ caminho e os nomes; o que mudar, ele avisa à sessão do Nexus Field antes de p�
     todo".
   - Desde a 1.2.2 (o Celular pronto, pedido do dono em 10/11/2026: "tem como sabermos qual o técnico não aceitou
     tudo?"), cada lote e o aviso sem permissão levam também `ajustes: {termo, localizacao, tempoTodo,
-    bateriaSemRestricao, notificacao}`: a versão do termo aceita (ou nulo), `"precisa"`, `"aproximada"` ou `"sem"`, e
-    três sim ou não. O Nexus que não os conhece os ignora (a 1.2.1 e as de antes não os mandam), e o Piloto mostra por
-    técnico Celular pronto ou o que falta. O termo versão 4 diz isso na seção 2. O Início automático do Xiaomi não vai:
-    o Android não deixa nenhum app lê-lo.
+    bateriaSemRestricao, notificacao, inicioAutomatico}`: a versão do termo aceita (ou nulo), `"precisa"`, `"aproximada"`
+    ou `"sem"`, três sim ou não e, desde a 1.2.3, o `inicioAutomatico` do Xiaomi: `true` ligado, `false` desligado e
+    `null` fora do Xiaomi, Redmi e POCO ou quando a casca não conseguiu ler (só o `false` é o que falta). O Nexus que não
+    os conhece os ignora (a 1.2.1 e as de antes não mandam os ajustes, e a 1.2.2 manda cinco, sem o `inicioAutomatico`),
+    e o Piloto mostra por técnico Celular pronto ou o que falta. O termo versão 5 diz isso na seção 2 (a 4 dizia os
+    cinco de antes): o Nexus compara a versão do termo com o `TERMO_ATUAL` dele.
   - O Nexus descarta ponto com mais de 7 dias ou fora da janela, cifra a coordenada e grava.
   - Resposta: `200 {aceitos, coleta}` (`coleta: false` faz a casca parar até a próxima carga); `401` com a chave
     inválida ou revogada (a casca apaga a chave e para); qualquer `5xx` é como sem rede (a fila e a chave ficam).

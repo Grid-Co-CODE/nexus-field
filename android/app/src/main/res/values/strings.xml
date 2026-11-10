@@ -109,6 +109,24 @@
     <string name="notificacao_inicio_texto">Toque para abrir o Nexus Field e começar o dia.</string>
 
     <!--
+      O aviso do que falta liberar no celular (Task 14, o pedido do dono em 10/11/2026: "se algo ficar pendente tem que ter
+      notificação 'faltando tal coisa'"; AvisoDoQueFalta). Textos novos, PENDENTES de aprovação do dono da casca: vão à
+      prévia (docs/previas/telas.html, a seção Localização da equipe, #t-equipe-falta, e o quadro dos ajustes, #t-canais) e
+      só valem depois de aprovados. O nome do canal tem o prefixo dos canais; o id (ajustes_da_localizacao) fica no código,
+      e o canal só nasce no aparelho do piloto em que algo falta. O título, o texto e os nomes do que falta têm prefixo
+      próprio, notificacao_falta_. O texto leva a lista no %1$s, com a vírgula entre os itens e o "e" antes do último (o
+      AvisoDoQueFalta a monta, na ordem destes nomes): "Falta: Permitir o tempo todo e Início automático. Toque para abrir
+      os ajustes do Nexus Field."
+    -->
+    <string name="notificacao_canal_ajustes_da_localizacao">Ajustes da localização</string>
+    <string name="notificacao_falta_titulo">Falta liberar no celular</string>
+    <string name="notificacao_falta_texto">Falta: %1$s. Toque para abrir os ajustes do Nexus Field.</string>
+    <string name="notificacao_falta_localizacao">localização precisa</string>
+    <string name="notificacao_falta_tempo_todo">Permitir o tempo todo</string>
+    <string name="notificacao_falta_bateria">bateria sem restrição</string>
+    <string name="notificacao_falta_inicio_automatico">Início automático</string>
+
+    <!--
       O termo de uso e privacidade da localização da equipe (spec 2026-11-08, seção 4.1; EquipeNaCasca e TermoDaEquipe), a
       única tela da casca antes de a coleta ligar (R10, 08/11/2026: no lugar do aviso e da explicação da localização o
       tempo todo, a pedido do dono). Desde a R11 (09/11/2026, o pedido do dono: "Quero que o termo de notificação inclua
@@ -122,13 +140,14 @@
       direitos, seção 10, o RH). Aparece uma vez para cada conta (outra conta no mesmo aparelho o vê de novo), só entre as
       6h e as 22h, e não fecha tocando fora nem pelo Voltar: o Li e aceito é o único botão. Desde a versão 3 (R15,
       10/11/2026), o fim do texto diz o que escolher nas telas do próprio Android que vêm depois, o pedido da localização
-      o tempo todo e a janela da bateria ("Permitir o tempo todo" é o nome que o Android dá à opção, em português).
+      o tempo todo e a janela da bateria ("Permitir o tempo todo" é o nome que o Android dá à opção, em português), e desde a
+      versão 5 (Task 14, 10/11/2026), nos celulares Xiaomi, a tela do Início automático.
       O aceite guarda a versão do texto (ChaveDaEquipe.TERMO_VERSAO, a da primeira linha): mudou o texto, mude a versão
       nos dois lugares e o resumo do texto no EquipeNaCascaTest (TEXTO_DE_CADA_VERSAO), e quem aceitou a de antes vê o
       termo de novo.
     -->
     <string name="casca_equipe_termo_titulo">Termo de uso e privacidade da localização</string>
-    <string name="casca_equipe_termo_texto">Versão 4, de 10 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.
+    <string name="casca_equipe_termo_texto">Versão 5, de 10 de novembro de 2026. Leia até o fim: o botão Li e aceito libera no final.
         \n\n<b>1. Quem é o responsável</b>
         \nA Grid Co. é a controladora dos dados deste termo, nos termos da Lei Geral de Proteção de Dados
         Pessoais (Lei nº 13.709/2018, a LGPD).
@@ -136,7 +155,7 @@
         \nA posição deste celular (latitude e longitude), a precisão de cada leitura, a velocidade, se o celular
         está em deslocamento, a data, a hora e o fuso horário do celular. Junto vão um código do aparelho,
         criado pelo próprio Nexus Field, e a sua conta da Grid Co., para saber de quem é cada posição.
-        Também vão os ajustes do Nexus Field neste celular que a coleta precisa (a versão deste termo aceita e se a localização, o Permitir o tempo todo, a bateria sem restrição e a notificação estão liberados), para a Grid Co. saber quando a coleta não consegue funcionar. O Nexus Field não coleta contatos, fotos, mensagens, arquivos, áudio nem o uso de outros aplicativos.
+        Também vão os ajustes do Nexus Field neste celular que a coleta precisa (a versão deste termo aceita e se a localização, o Permitir o tempo todo, a bateria sem restrição, a notificação e, nos celulares Xiaomi, o Início automático estão liberados), para a Grid Co. saber quando a coleta não consegue funcionar. O Nexus Field não coleta contatos, fotos, mensagens, arquivos, áudio nem o uso de outros aplicativos.
         \n\n<b>3. Quando</b>
         \nDas 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o aplicativo
         fechado depois disso, e a coleta volta sozinha se o celular reiniciar ou o aplicativo for atualizado no
@@ -181,7 +200,8 @@
         \n\n<b>12. Mudanças neste termo</b>
         \nSe este termo mudar, o Nexus Field mostra a nova versão e pede um novo aceite antes de coletar.
         \n\nAo tocar em Li e aceito, você confirma que leu e entendeu este termo. Quando o Android perguntar,
-        escolha Permitir o tempo todo e deixe o Nexus Field sem restrição de bateria.</string>
+        escolha Permitir o tempo todo e deixe o Nexus Field sem restrição de bateria e, nos celulares Xiaomi, com o
+        Início automático ligado.</string>
     <string name="casca_equipe_termo_rolar">Role até o fim para liberar o Li e aceito</string>
     <string name="casca_equipe_termo_aceitar">Li e aceito</string>
 

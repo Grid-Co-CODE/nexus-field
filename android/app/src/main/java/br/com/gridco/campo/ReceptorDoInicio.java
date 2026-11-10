@@ -18,11 +18,16 @@ import android.util.Log;
  * voltou quando o dono o abriu. Só com o "Permitir o tempo todo" e a abertura de hoje: sem abrir o app no dia, nada volta.
  * Os dois são exceções do Android 12+ para ligar o primeiro plano com o app no fundo. O fuso e o relógio não religam.
  *
+ * O boot, a atualização e o alarme das 6h também conferem o aviso do que falta liberar no celular ({@link AvisoDoQueFalta},
+ * Task 14): o técnico vê o que falta logo de manhã e depois de reiniciar ou atualizar, sem abrir o app. No Xiaomi com o
+ * Início automático desligado, o HyperOS pode nem entregar esses eventos ao app de processo morto (o caso da prova de
+ * 10/11/2026, com a atualização): aí é a volta ao app que diz.
+ *
  * Não exportado (o manifesto): o alarme é um PendingIntent do próprio app, e os quatro eventos vêm do sistema, que alcança o
  * receptor não exportado (o "exported" só barra os outros apps). Assim, nenhum app de fora manda um "Bom dia" a qualquer
  * hora. A chave e o termo são lidos na hora, das peças do processo ({@link ServicoDaEquipe#pecas}), sem a cifra; a coleta
  * ligada é a do serviço deste processo. Nunca lança: o receptor que lança no boot derruba o app com o aviso de "parou" do
- * Android. O aviso e a coleta falham cada um por si: o que falhar num não leva o outro.
+ * Android. O aviso das 6h, o do que falta e a coleta falham cada um por si: o que falhar num não leva os outros.
  */
 public class ReceptorDoInicio extends BroadcastReceiver {
 
@@ -33,9 +38,10 @@ public class ReceptorDoInicio extends BroadcastReceiver {
         String acao = intent == null ? null : intent.getAction();
         boolean boot = Intent.ACTION_BOOT_COMPLETED.equals(acao);
         boolean atualizado = Intent.ACTION_MY_PACKAGE_REPLACED.equals(acao);
+        boolean alarme = AvisoDoInicio.ACAO_DO_ALARME.equals(acao);
         try {
             Context app = contexto.getApplicationContext();
-            if (AvisoDoInicio.ACAO_DO_ALARME.equals(acao)) {
+            if (alarme) {
                 ServicoDaEquipe.Pecas pecas = ServicoDaEquipe.pecas(app);
                 AvisoDoInicio.naHora(app, pecas.chave, ServicoDaEquipe.rodando(), pecas.relogio.getAsLong());
             } else if (boot || atualizado || Intent.ACTION_TIMEZONE_CHANGED.equals(acao)
@@ -45,6 +51,14 @@ public class ReceptorDoInicio extends BroadcastReceiver {
             }
         } catch (RuntimeException e) {
             Log.w(TAG, "o aviso das 6h falhou (" + e.getClass().getSimpleName() + ")");
+        }
+        if (boot || atualizado || alarme) {
+            try {
+                ServicoDaEquipe.Pecas pecas = ServicoDaEquipe.pecas(contexto.getApplicationContext());
+                AvisoDoQueFalta.conferir(contexto.getApplicationContext(), pecas.chave, pecas.relogio.getAsLong());
+            } catch (RuntimeException e) {
+                Log.w(TAG, "o aviso do que falta falhou (" + e.getClass().getSimpleName() + ")");
+            }
         }
         if (!boot && !atualizado) return;
         try {

@@ -49,8 +49,8 @@ import java.util.UUID;
  *       que ela não lê vale como sem conta.</li>
  *   <li>O id do aparelho é um UUID criado uma vez e sobrevive ao {@link #apagar}: é a identidade do aparelho, não o
  *       segredo.</li>
- *   <li>O aviso das 6h ({@link AvisoDoInicio}, R12) só existe com a chave: a chave que sai leva o alarme e o aviso da
- *       barra.</li>
+ *   <li>O aviso das 6h ({@link AvisoDoInicio}, R12) e o aviso do que falta ({@link AvisoDoQueFalta}, Task 14) só existem
+ *       com a chave: a chave que sai leva o alarme e os dois avisos da barra.</li>
  *   <li>A janela da bateria sem restrição (R15, {@link EquipeNaCasca}) fica por pedir a cada Li e aceito
  *       ({@link #bateriaPorPedir}) e sai quando a janela abriu ({@link #bateriaPedida}): uma vez por conta e por termo.
  *       Recusada, não volta até a próxima conta ou o próximo termo, que pedem o aceite de novo; o 401 (a mesma conta) não
@@ -59,6 +59,10 @@ import java.util.UUID;
  *       ({@link #tempoTodoPorPedir}), feito quando o técnico respondeu ao Android ou com o tempo todo já dado
  *       ({@link #tempoTodoPedido}). Recusado, a coleta segue só com a durante o uso, e o pedido não volta até a próxima
  *       conta ou o próximo termo.</li>
+ *   <li>A tela do Início automático do HyperOS (Task 14, {@link EquipeNaCasca}), igual à da bateria: por abrir a cada Li e
+ *       aceito ({@link #inicioAutomaticoPorPedir}), aberta quando a casca a mandou à tela, ou nada a abrir fora do Xiaomi
+ *       ou com ele já ligado ({@link #inicioAutomaticoPedido}). Recusada, não volta até a próxima conta ou o próximo
+ *       termo.</li>
  * </ul>
  */
 final class ChaveDaEquipe {
@@ -68,13 +72,14 @@ final class ChaveDaEquipe {
     private static final String K_CHAVE = "chave";
     private static final String K_CONTA = "conta";
     /**
-     * A versão do texto do termo de uso e privacidade (o casca_equipe_termo_texto, que diz "Versão 3" na primeira linha: o
-     * de 10/11/2026 que pede o Permitir o tempo todo e a bateria sem restrição e diz que a coleta volta sozinha no mesmo
-     * dia, R15; a 2, do mesmo dia, mostra o ponto exato e o percurso, R13; a 1, de 09/11, prometia o contrário).
-     * Mudar o texto é mudar esta constante (e a primeira linha), e o aceite da versão de antes deixa de valer: o técnico
-     * vê o termo novo antes de a coleta ligar de novo.
+     * A versão do texto do termo de uso e privacidade (o casca_equipe_termo_texto, que diz "Versão 5" na primeira linha: o
+     * de 10/11/2026 que acrescenta aos ajustes do celular o Início automático dos celulares Xiaomi e pede que fique ligado,
+     * a Task 14; a 4, do mesmo dia, diz que os ajustes vão ao Nexus; a 3 pede o Permitir o tempo todo e a bateria sem
+     * restrição, R15; a 2 mostra o ponto exato e o percurso, R13; a 1, de 09/11, prometia o contrário). Mudar o texto é
+     * mudar esta constante (e a primeira linha), e o aceite da versão de antes deixa de valer: o técnico vê o termo novo
+     * antes de a coleta ligar de novo.
      */
-    static final String TERMO_VERSAO = "4";
+    static final String TERMO_VERSAO = "5";
 
     // O aceite do termo (R10), e não o "aviso_aceito" de antes dele: quem aceitou o aviso num aparelho de prova não leu o
     // termo. Guarda a versão aceita (R11); a marca booleana que a primeira versão desta chave guardava, só nos aparelhos
@@ -89,6 +94,8 @@ final class ChaveDaEquipe {
     private static final String K_BATERIA = "bateria_por_pedir";
     // O pedido do Permitir o tempo todo por fazer (R15): posto pelo Li e aceito, tirado com a resposta do técnico.
     private static final String K_TEMPO_TODO = "tempo_todo_por_pedir";
+    // A tela do Início automático do HyperOS por abrir (Task 14): posta pelo Li e aceito, tirada quando a casca a abre.
+    private static final String K_INICIO = "inicio_automatico_por_pedir";
     // O Sair que começou e ainda não terminou ({@link #saindo}): posto no toque, tirado com a chave (o apagar) ou com a
     // chave nova (o guardar).
     private static final String K_SAINDO = "sair_por_terminar";
@@ -122,7 +129,7 @@ final class ChaveDaEquipe {
     /**
      * Guarda a chave e a conta dela, as duas cifradas, de uma vez. True se é outra chave ou outra conta que as de antes.
      * Outra conta que a guardada (ou sem conta guardada, ou com a que a cifra não lê) esquece o termo aceito, a janela da
-     * bateria e o pedido do tempo todo por fazer; a chave nova da mesma conta os mantém. Guardada (ou a mesma de antes),
+     * bateria, o pedido do tempo todo e a tela do Início automático por fazer; a chave nova da mesma conta os mantém. Guardada (ou a mesma de antes),
      * a conta fica conferida, também no disco: é a chave que a página desta tela entregou, da conta que ela mandou. A cifra
      * que falha lança antes, e a conferência fica como estava.
      */
@@ -137,7 +144,9 @@ final class ChaveDaEquipe {
         // A conta conferida vai no mesmo commit: a chave nova e a marca dela chegam juntas ao disco.
         SharedPreferences.Editor gravacao = prefs.edit().putString(K_CHAVE, cifrada).putString(K_CONTA, contaCifrada)
             .putString(K_CONFERIDA, contaCifrada);
-        if (!conta.equals(contaGuardada)) gravacao.remove(K_TERMO).remove(K_BATERIA).remove(K_TEMPO_TODO);
+        if (!conta.equals(contaGuardada)) {
+            gravacao.remove(K_TERMO).remove(K_BATERIA).remove(K_TEMPO_TODO).remove(K_INICIO);
+        }
         gravacao.remove(K_SAINDO).commit(); // a chave nova é da conta da página: o Sair de antes não vale para ela
         conferidaPelaPagina(conta);
         return true;
@@ -234,23 +243,23 @@ final class ChaveDaEquipe {
     }
 
     /**
-     * O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito, a janela da bateria e o pedido do tempo
-     * todo por fazer e a conferência (a da memória e a do disco) saem juntos, e o aviso das 6h com eles
-     * ({@link #semOAvisoDas6h}).
+     * O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito, a janela da bateria, o pedido do tempo
+     * todo e a tela do Início automático por fazer e a conferência (a da memória e a do disco) saem juntos, e o aviso das
+     * 6h e o do que falta com eles ({@link #semOsAvisos}).
      */
     synchronized void apagar() {
         prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_TERMO).remove(K_CONFERIDA).remove(K_BATERIA)
-            .remove(K_TEMPO_TODO).remove(K_SAINDO).commit();
+            .remove(K_TEMPO_TODO).remove(K_INICIO).remove(K_SAINDO).commit();
         conferida = false;
         contaDaPagina = null;
         porRefazer = false;
-        semOAvisoDas6h();
+        semOsAvisos();
     }
 
     /**
      * O toque no Sair, antes do trabalho dele (que espera na thread do envio, atrás de um envio pendurado, e revoga pela
      * rede, até 30 s com o sinal fraco): a conferência sai na hora, da memória e do disco, a marca do Sair por terminar vai
-     * ao disco e o aviso das 6h sai. Enquanto a marca existe, nada fica conferido (nem a página da mesma conta confere),
+     * ao disco e o aviso das 6h e o do que falta saem. Enquanto a marca existe, nada fica conferido (nem a página da mesma conta confere),
      * a coleta não religa sozinha ({@link ServicoDaEquipe#oQueFaltaParaReligar}) e o aviso das 6h não vale; a partida
      * seguinte termina o Sair (EquipeNaCasca). Caso que criou a regra (a revisão final do ramo, 10/11/2026): o processo
      * morto nesse minuto (tirado dos recentes, ou o HyperOS) deixava a chave e a conferência no disco (R14), e a partida
@@ -261,7 +270,7 @@ final class ChaveDaEquipe {
         porRefazer = false;
         contaDaPagina = null;
         prefs.edit().remove(K_CONFERIDA).putBoolean(K_SAINDO, true).commit();
-        semOAvisoDas6h();
+        semOsAvisos();
     }
 
     /** O Sair começou e ainda não terminou, nesta partida ou numa de antes ({@link #saindo}). Não passa pela cifra. */
@@ -274,23 +283,24 @@ final class ChaveDaEquipe {
      * mesma conta a sobe com a chave nova, e outra conta a apaga antes ({@link EquipeNaCasca}). Caso que criou a regra: A
      * trabalhou o dia sem sinal, a chave venceu e o primeiro envio levou o 401; com a conta apagada junto, B, que abriu o
      * app no dia seguinte sem o Sair de A, mandava o dia de A ao Nexus em nome de B. O termo aceito fica com a conta; a
-     * conferência sai (a da memória e a do disco), e a chave nova a refaz; o aviso das 6h sai ({@link #semOAvisoDas6h}), e
-     * a chave nova da mesma conta o agenda de novo.
+     * conferência sai (a da memória e a do disco), e a chave nova a refaz; o aviso das 6h e o do que falta saem
+     * ({@link #semOsAvisos}), e a chave nova da mesma conta os traz de novo.
      */
     synchronized void apagarAChave() {
         prefs.edit().remove(K_CHAVE).remove(K_CONFERIDA).commit();
         conferida = false;
         porRefazer = false;
-        semOAvisoDas6h();
+        semOsAvisos();
     }
 
-    // O aviso das 6h (R12) existe enquanto a chave existe: todo caminho em que ela sai passa por aqui (o Sair, a troca de
-    // conta e o coleta:false do registro ou do envio pelo apagar; o 401 pelo apagarAChave, também o do último envio das
-    // 22h, cuja resposta ninguém lê), e o alarme e o aviso da barra saem junto. Sem isto, cada um desses caminhos teria de
-    // lembrar de cancelar, e o esquecido acordaria à toa às 6h o celular de quem saiu (o aviso não apareceria: a decisão é
-    // da hora do alarme).
-    private void semOAvisoDas6h() {
+    // O aviso das 6h (R12) e o do que falta (Task 14) existem enquanto a chave existe: todo caminho em que ela sai passa
+    // por aqui (o Sair, a troca de conta e o coleta:false do registro ou do envio pelo apagar; o 401 pelo apagarAChave,
+    // também o do último envio das 22h, cuja resposta ninguém lê), e o alarme e os avisos da barra saem junto. Sem isto,
+    // cada um desses caminhos teria de lembrar de cancelar, e o esquecido acordaria à toa às 6h o celular de quem saiu (o
+    // aviso não apareceria: a decisão é da hora do alarme) e deixaria na barra de quem saiu o "Falta liberar no celular".
+    private void semOsAvisos() {
         AvisoDoInicio.cancelar(app);
+        AvisoDoQueFalta.tirar(app);
     }
 
     // Conferida, na memória e no disco: a chave guardada é da conta que a página mandou. A marca é a conta guardada tal
@@ -339,7 +349,6 @@ final class ChaveDaEquipe {
         }
     }
 
-    /** O Li e aceito do termo de uso e privacidade, da conta da chave guardada e da versão de agora do texto. */
     /**
      * A versão do termo aceita neste aparelho, a de agora ou uma de antes, ou null (o Celular pronto do Nexus, nos
      * {@link AjustesDaColeta}). A marca booleana de antes da versão não é uma versão: null. Não passa pela cifra.
@@ -352,6 +361,7 @@ final class ChaveDaEquipe {
         }
     }
 
+    /** O Li e aceito do termo de uso e privacidade, da conta da chave guardada e da versão de agora do texto. */
     synchronized boolean termoAceito() {
         try {
             return TERMO_VERSAO.equals(prefs.getString(K_TERMO, null));
@@ -362,12 +372,13 @@ final class ChaveDaEquipe {
     }
 
     /**
-     * O Li e aceito: guarda a versão do texto que o técnico leu até o fim, e deixa por pedir o Permitir o tempo todo e a
-     * janela da bateria sem restrição (R15): é o aceite da conta e do termo que os traz, uma vez.
+     * O Li e aceito: guarda a versão do texto que o técnico leu até o fim, e deixa por pedir o Permitir o tempo todo, a
+     * janela da bateria sem restrição (R15) e a tela do Início automático (Task 14): é o aceite da conta e do termo que os
+     * traz, uma vez.
      */
     synchronized void aceitarTermo() {
         prefs.edit().putString(K_TERMO, TERMO_VERSAO).putBoolean(K_TEMPO_TODO, true).putBoolean(K_BATERIA, true)
-            .commit();
+            .putBoolean(K_INICIO, true).commit();
     }
 
     /** O pedido do Permitir o tempo todo ainda por fazer, desde o último Li e aceito desta conta (R15). */
@@ -399,5 +410,22 @@ final class ChaveDaEquipe {
     /** A janela da bateria aberta (ou nada a pedir, com o app já liberado): até o próximo Li e aceito, ela não volta. */
     synchronized void bateriaPedida() {
         if (prefs.contains(K_BATERIA)) gravar(prefs.edit().remove(K_BATERIA));
+    }
+
+    /** A tela do Início automático ainda por abrir, desde o último Li e aceito desta conta (Task 14). */
+    synchronized boolean inicioAutomaticoPorPedir() {
+        try {
+            return prefs.getBoolean(K_INICIO, false) && termoAceito();
+        } catch (ClassCastException e) {
+            return false;
+        }
+    }
+
+    /**
+     * A tela do Início automático aberta (ou nada a abrir: fora do Xiaomi, sem saber o estado ou com ele já ligado): até o
+     * próximo Li e aceito, ela não volta.
+     */
+    synchronized void inicioAutomaticoPedido() {
+        if (prefs.contains(K_INICIO)) gravar(prefs.edit().remove(K_INICIO));
     }
 }

@@ -50,6 +50,10 @@ import java.util.Arrays;
  * E o quinto, "Início do dia" (R12, {@link #criarDoInicio}): o do aviso das 6h (AvisoDoInicio), com a importância e o som
  * padrão, como o resumo (para ser visto, sem aparecer por cima da tela). Nasce quando o aviso passa a valer (a chave da
  * equipe e o termo aceito), e não a cada abertura, pelo mesmo motivo do quarto; o que ele grava então não muda depois.
+ *
+ * E o sexto, "Ajustes da localização" (Task 14, 1.2.3, {@link #criarDosAjustes}): o do aviso do que falta liberar no
+ * celular (AvisoDoQueFalta), com a importância e o som padrão, como o quinto. Nasce com o primeiro aviso, só no aparelho
+ * do piloto em que algo falta, e não a cada abertura, pelo mesmo motivo do quarto; o que ele grava então não muda depois.
  */
 final class CanaisDeNotificacao {
 
@@ -134,6 +138,22 @@ final class CanaisDeNotificacao {
             NotificationManagerCompat.from(contexto).createNotificationChannel(inicio);
         } catch (RuntimeException e) {
             Log.w(CascaPlugin.TAG, "o canal do aviso das 6h não foi criado: " + e.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * Cria (ou renomeia) o canal do aviso do que falta (AvisoDoQueFalta). Nunca lança: roda na volta ao app, no envio e no
+     * receptor, antes do aviso.
+     */
+    static void criarDosAjustes(Context contexto) {
+        try {
+            NotificationChannelCompat ajustes = new NotificationChannelCompat.Builder(
+                    AvisoDoQueFalta.CANAL_AJUSTES, NotificationManagerCompat.IMPORTANCE_DEFAULT)
+                .setName(contexto.getString(R.string.notificacao_canal_ajustes_da_localizacao))
+                .build();
+            NotificationManagerCompat.from(contexto).createNotificationChannel(ajustes);
+        } catch (RuntimeException e) {
+            Log.w(CascaPlugin.TAG, "o canal do aviso do que falta não foi criado: " + e.getClass().getSimpleName());
         }
     }
 }

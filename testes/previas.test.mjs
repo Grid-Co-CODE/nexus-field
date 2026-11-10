@@ -346,8 +346,8 @@ test('nenhuma string da casca fica sem quadro, e a tabela do teste não cita str
 
 test('os nomes dos canais de notificação estão no quadro dos ajustes: os que o CanaisDeNotificacao cria, e só eles', () => {
   const doJava = canaisDoJava();
-  assert.equal(doJava.length, 5,
-    'o teste achou os cinco canais do CanaisDeNotificacao (os três do servidor, o da equipe e o do aviso das 6h)');
+  assert.equal(doJava.length, 6,
+    'o teste achou os seis canais do CanaisDeNotificacao (os três do servidor, o da equipe, o do aviso das 6h e o do aviso do que falta)');
   assert.deepEqual(stringsDosCanais().map((s) => s.nome).sort(), [...doJava].sort(),
     'todo notificacao_canal_* do strings.xml é o nome de um canal, e todo canal tira o nome de um deles');
 
@@ -391,10 +391,11 @@ test('toda string do strings.xml tem lugar na prévia: um prefixo novo não esca
   // applicationId, que o técnico não lê. Fora disso é texto novo sem quadro: ganha o quadro e o teste dele na prévia
   // antes de ir ao campo, ou entra aqui com o motivo de não aparecer ao técnico. Caso que criou a regra: os nomes dos
   // canais (18/10/2026) saíram do prefixo casca_ e ficaram fora da prévia sem nenhum teste reclamar. Os
-  // notificacao_equipe_* (a notificação fixa da localização da equipe) têm o quadro #t-equipe-notificacao, e os
-  // notificacao_inicio_* (o aviso das 6h, R12), o #t-equipe-inicio.
+  // notificacao_equipe_* (a notificação fixa da localização da equipe) têm o quadro #t-equipe-notificacao, os
+  // notificacao_inicio_* (o aviso das 6h, R12), o #t-equipe-inicio, e os notificacao_falta_* (o aviso do que falta, Task
+  // 14), o #t-equipe-falta.
   const COM_QUADRO = [/^casca_[a-z_]+$/, /^notificacao_canal_[a-z_]+$/, /^notificacao_equipe_[a-z_]+$/,
-    /^notificacao_inicio_[a-z_]+$/, /^atalho_[a-z_]+$/, /^(app_name|title_activity_main)$/];
+    /^notificacao_inicio_[a-z_]+$/, /^notificacao_falta_[a-z_]+$/, /^atalho_[a-z_]+$/, /^(app_name|title_activity_main)$/];
   const SEM_TELA = ['package_name', 'custom_url_scheme'];
   const nomes = [...STRINGS.matchAll(/<string\b[^>]*\bname="([^"]*)"/g)].map((m) => m[1]);
   assert.ok(nomes.length >= 20, 'o teste leu as strings do strings.xml');
@@ -481,23 +482,87 @@ test('o aviso das 6h tem quadro: o título e o texto que o AvisoDoInicio mostra,
   }
 });
 
+// O aviso do que falta (Task 14, o pedido do dono em 10/11/2026: "se algo ficar pendente tem que ter notificação 'faltando
+// tal coisa'"): o título, o texto com a lista no %1$s e os nomes do que falta são do strings.xml (o AvisoDoQueFalta os
+// monta), no canal próprio dele, com o som padrão e sem aparecer por cima da tela. O exemplo do quadro é o do pedido.
+const EXEMPLO_DO_QUE_FALTA = 'Falta: Permitir o tempo todo e Início automático. Toque para abrir os ajustes do Nexus Field.';
+// O texto do aviso com a lista de exemplo, como o AvisoDoQueFalta o monta (a vírgula entre os itens e o "e" no último).
+function textoDoQueFalta(...sufixos) {
+  const nomes = sufixos.map((sufixo) => stringsDe('notificacao_falta_').find((s) => s.nome === `notificacao_falta_${sufixo}`).texto);
+  const lista = nomes.length === 1 ? nomes[0] : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+  return stringsDe('notificacao_falta_').find((s) => s.nome === 'notificacao_falta_texto').texto.replace('%1$s', () => lista);
+}
+
+test('o aviso do que falta tem quadro: o título, o texto e a lista que o AvisoDoQueFalta monta, no canal dele', () => {
+  const fonte = lerArquivo(PASTA_JAVA + 'AvisoDoQueFalta.java');
+  const usadas = [...new Set([...fonte.matchAll(/R\.string\.(notificacao_falta_\w+)/g)].map((m) => m[1]))].sort();
+  const strings = stringsDe('notificacao_falta_');
+  assert.deepEqual(strings.map((s) => s.nome).sort(), usadas,
+    'todo notificacao_falta_* do strings.xml é um texto que o AvisoDoQueFalta mostra, e ele só mostra esses');
+  // A ordem do texto é a do pedido: a localização precisa, o tempo todo, a bateria e o Início automático.
+  const ordem = [...fonte.matchAll(/faltas\.add\(contexto\.getString\(R\.string\.(notificacao_falta_\w+)\)\)/g)].map((m) => m[1]);
+  assert.deepEqual(ordem, ['notificacao_falta_localizacao', 'notificacao_falta_tempo_todo', 'notificacao_falta_bateria',
+    'notificacao_falta_inicio_automatico'], 'a lista do que falta, na ordem do texto');
+  assert.match(fonte, /String\.join\(", ", itens\.subList\(0, n - 1\)\) \+ " e " \+ itens\.get\(n - 1\)/,
+    'o AvisoDoQueFalta junta a lista com a vírgula e o "e" no último, como o teste');
+  assert.equal(textoDoQueFalta('tempo_todo', 'inicio_automatico'), EXEMPLO_DO_QUE_FALTA, 'o exemplo do pedido, palavra por palavra');
+
+  const canal = fonte.match(/new NotificationCompat\.Builder\(\w+, (CANAL_\w+)\)/);
+  const id = canal && fonte.match(new RegExp(`static final String ${canal[1]} = "(\\w+)";`));
+  assert.ok(id, 'o teste leu o canal do aviso do que falta');
+  const doCanal = canaisDetalhadosDoJava().find((c) => c.id === id[1]);
+  assert.ok(doCanal, `o CanaisDeNotificacao cria o canal ${id[1]}`);
+  assert.equal(doCanal.importancia, 'DEFAULT', 'o aviso do que falta tem importância padrão');
+  assert.equal(doCanal.som, 'padrão', 'e o som padrão de notificação');
+  assert.match(fonte, /\.setOnlyAlertOnce\(true\)/, 'toca uma vez: a conferência que atualiza não toca de novo');
+  assert.doesNotMatch(fonte, /\.setOngoing\(true\)/, 'sem ser fixa: o técnico pode limpar');
+
+  const figura = doc().getElementById('t-equipe-falta');
+  const quadro = figura?.querySelector('.celular.gaveta');
+  assert.ok(quadro, 'o quadro do aviso do que falta (figure#t-equipe-falta)');
+  assert.equal(quadro.getAttribute('data-canal'), id[1]);
+  assert.equal(quadro.classList.contains('por-cima'), doCanal.importancia === 'HIGH', 'por cima da tela só a alta');
+  const de = (seletor) => compactar(quadro.querySelector(`.notificacao ${seletor}`)?.textContent ?? '');
+  assert.equal(de('.notificacao-app'), stringDoApp('app_name'));
+  assert.equal(de('.notificacao-titulo'), strings.find((s) => s.nome === 'notificacao_falta_titulo').texto);
+  assert.equal(de('.notificacao-texto'), EXEMPLO_DO_QUE_FALTA);
+  const legenda = figura.querySelector('figcaption');
+  assert.equal(compactar(legenda.querySelector('.notificacao-canal')?.textContent ?? ''), textoDe(doCanal.nome),
+    'a legenda diz o canal, com o nome do strings.xml');
+  // A legenda diz os quatro nomes, quando aparece, o que o toque faz e quando sai.
+  const dita = compactar(legenda.textContent);
+  for (const s of strings.filter((x) => !/_(titulo|texto)$/.test(x.nome))) {
+    assert.ok(dita.includes(s.texto), `a legenda do aviso do que falta diz o ${s.nome}: "${s.texto}"`);
+  }
+  for (const [o, trecho] of [['quem tem a chave e o termo', /termo/], ['a janela', /6h às 22h/],
+    ['o Início automático só desligado', /Xiaomi/], ['o toque', /[Tt]ocar abre os ajustes do Nexus Field/],
+    ['quando sai', /nada falta/], ['o Sair', /Sair/], ['a notificação que não entra', /sem ela/],
+    ['os pedidos do Android', /no meio dos pedidos/]]) {
+    assert.match(dita, trecho, `a legenda do aviso do que falta diz ${o}`);
+  }
+});
+
 // A lista "O que aprovar" e a localização da equipe (spec 2026-11-08, seção 4.1): cada texto novo é aprovado pelo texto
 // inteiro (o dono da casca, o RH e o jurídico leem as palavras, e não um resumo), e o termo tem o item do que ele promete.
 test('a lista "O que aprovar" cita cada texto da localização da equipe, inteiro, e o que o termo promete', () => {
   const d = doc();
   const citados = [...d.querySelectorAll('#o-que-aprovar .cita')].map((e) => compactar(e.textContent));
   const daEquipe = [...stringsDe('casca_equipe_'), ...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_canal_equipe_'),
-    ...stringsDe('notificacao_inicio_'), ...stringsDe('notificacao_canal_inicio_')];
+    ...stringsDe('notificacao_inicio_'), ...stringsDe('notificacao_canal_inicio_'),
+    ...stringsDe('notificacao_falta_').filter((s) => s.nome !== 'notificacao_falta_texto'),
+    ...stringsDe('notificacao_canal_ajustes_')];
+  // O texto do aviso do que falta leva a lista: a lista "O que aprovar" o cita com o exemplo do quadro.
+  assert.ok(citados.includes(EXEMPLO_DO_QUE_FALTA), `a lista "O que aprovar" não cita o aviso do que falta: "${EXEMPLO_DO_QUE_FALTA}"`);
   assert.deepEqual(stringsDe('casca_equipe_').map((s) => s.nome).sort(),
     ['casca_equipe_termo_aceitar', 'casca_equipe_termo_rolar', 'casca_equipe_termo_texto', 'casca_equipe_termo_titulo'],
     'a casca da equipe tem só o termo (R10) e a dica dele (R11): o aviso e a explicação da localização o tempo todo saíram');
-  assert.ok(daEquipe.length >= 9, 'o teste leu os textos da localização da equipe e do aviso das 6h');
+  assert.ok(daEquipe.length >= 15, 'o teste leu os textos da localização da equipe, do aviso das 6h e do aviso do que falta');
   for (const s of daEquipe) {
     assert.ok(citados.some((t) => t === s.texto), `a lista "O que aprovar" não cita o ${s.nome}: "${s.texto}"`);
   }
   // Cada item leva ao quadro certo, que existe.
   for (const [item, quadro] of [['ok-equipe-termo', 't-equipe-termo'], ['ok-equipe-notificacao', 't-equipe-notificacao'],
-    ['ok-equipe-inicio', 't-equipe-inicio']]) {
+    ['ok-equipe-inicio', 't-equipe-inicio'], ['ok-equipe-falta', 't-equipe-falta']]) {
     const li = d.getElementById(item)?.closest('li');
     assert.ok(li, `o item ${item} da lista "O que aprovar"`);
     assert.equal(li.querySelector('a.ver')?.getAttribute('href'), `#${quadro}`);
@@ -508,6 +573,7 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   const doTermo = compactar(d.getElementById('ok-equipe-termo').closest('li').querySelector('label').textContent);
   for (const trecho of [/aviso de privacidade inteiro/, /rola até o fim/, /jurídico confirmar/, /base legal \(seção 5\)/,
     /canal dos direitos \(seção 10, o RH\)/,
+    /versão 5 \(10\/11\/2026\).*nos celulares Xiaomi, o Início automático.*com o Início automático ligado/,
     /versão 4 \(10\/11\/2026\).*ajustes do Nexus Field neste celular.*celular pronto/,
     /versão 3 \(10\/11\/2026\).*Permitir o tempo todo.*bateria sem restrição.*volta sozinha no mesmo dia/,
     /versão 2 .*ponto exato.*em casa ou no hotel.*percurso/, /jurídico precisa ver/]) {
@@ -517,15 +583,16 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // (R15, do mesmo dia): o fim manda escolher o Permitir o tempo todo e a bateria sem restrição, e a seção 3 diz que a
   // coleta volta sozinha no mesmo dia (as trocas do brief, palavra por palavra).
   const textoDoTermo = compactar(daEquipe.find((s) => s.nome === 'casca_equipe_termo_texto').texto);
-  assert.match(textoDoTermo, /^Versão 4, de 10 de novembro de 2026\./);
-  // A versão 4 (o Celular pronto, 10/11/2026): a seção 2 diz que os ajustes do celular também vão ao Nexus.
-  assert.ok(textoDoTermo.includes('para saber de quem é cada posição. Também vão os ajustes do Nexus Field neste celular que a coleta precisa (a versão deste termo aceita e se a localização, o Permitir o tempo todo, a bateria sem restrição e a notificação estão liberados), para a Grid Co. saber quando a coleta não consegue funcionar. O Nexus Field não coleta'),
-    'a seção 2 da versão 4');
+  assert.match(textoDoTermo, /^Versão 5, de 10 de novembro de 2026\./);
+  // A versão 4 (o Celular pronto, 10/11/2026): a seção 2 diz que os ajustes do celular também vão ao Nexus; a 5 (Task 14,
+  // do mesmo dia) acrescenta a eles o Início automático dos celulares Xiaomi (as trocas do brief, palavra por palavra).
+  assert.ok(textoDoTermo.includes('para saber de quem é cada posição. Também vão os ajustes do Nexus Field neste celular que a coleta precisa (a versão deste termo aceita e se a localização, o Permitir o tempo todo, a bateria sem restrição, a notificação e, nos celulares Xiaomi, o Início automático estão liberados), para a Grid Co. saber quando a coleta não consegue funcionar. O Nexus Field não coleta'),
+    'a seção 2 da versão 5');
   assert.ok(textoDoTermo.includes('Das 6h às 22h, a partir da primeira vez que você abre o Nexus Field no dia, também com o '
     + 'aplicativo fechado depois disso, e a coleta volta sozinha se o celular reiniciar ou o aplicativo for atualizado no '
     + 'mesmo dia.'), 'a seção 3 da versão 3');
   assert.ok(textoDoTermo.endsWith('Quando o Android perguntar, escolha Permitir o tempo todo e deixe o Nexus Field sem '
-    + 'restrição de bateria.'), 'a última frase da versão 3');
+    + 'restrição de bateria e, nos celulares Xiaomi, com o Início automático ligado.'), 'a última frase da versão 5');
   assert.doesNotMatch(textoDoTermo, /Durante o uso do app/);
   assert.match(textoDoTermo, /última posição de cada técnico nos últimos 7 dias, onde ele estiver/);
   assert.match(textoDoTermo, /abrir o percurso de um técnico num período desses 7 dias/);
@@ -545,22 +612,24 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // A versão 2 (R13): o item não promete mais o que o mapa deixou de fazer (só a cidade de quem está parado fora de usina).
   assert.doesNotMatch(dito, /só a cidade/, 'o item do que o termo promete está na versão 2');
   assert.match(dito, /ponto exato/, 'o item do que o termo promete diz do ponto exato e do percurso');
-  // A versão 4 (o Celular pronto, R16): o item diz, em quais dados, os ajustes do celular que vão ao Nexus.
+  // A versão 4 (o Celular pronto, R16): o item diz, em quais dados, os ajustes do celular que vão ao Nexus; a versão 5
+  // (Task 14), com o Início automático dos celulares Xiaomi.
   assert.match(termo, /os ajustes do Nexus Field neste celular que a coleta precisa/);
-  assert.match(dito, /quais dados \(.*os ajustes do celular que a coleta precisa: a versão do termo aceita e se a localização, o Permitir o tempo todo, a bateria sem restrição e a notificação estão liberados/,
-    'o item do que o termo promete diz os ajustes da versão 4');
-  // A versão 3 (R15): o item promete o que vem depois do aceite, na ordem, e a coleta que volta sozinha só no dia começado.
-  assert.match(dito, /localização \(a precisa, durante o uso\), o do Permitir o tempo todo e a janela da bateria sem restrição/);
+  assert.match(dito, /quais dados \(.*os ajustes do celular que a coleta precisa: a versão do termo aceita e se a localização, o Permitir o tempo todo, a bateria sem restrição, a notificação e, nos celulares Xiaomi, o Início automático estão liberados/,
+    'o item do que o termo promete diz os ajustes da versão 5');
+  // A versão 3 (R15): o item promete o que vem depois do aceite, na ordem, e a coleta que volta sozinha só no dia começado;
+  // a 5 (Task 14), por último, a tela do Início automático nos celulares Xiaomi.
+  assert.match(dito, /localização \(a precisa, durante o uso\), o do Permitir o tempo todo, a janela da bateria sem restrição e, nos celulares Xiaomi com o Início automático desligado, a tela dele/);
   assert.match(dito, /volta sozinha se o celular reiniciar, o aplicativo for atualizado ou o Android fechar o aplicativo, e nunca sem a abertura do dia/);
-  // A seção da equipe tem o termo, a notificação e o aviso das 6h (as telas do Android que vêm depois do termo são do
-  // Android, e só as legendas as dizem), com o tempo todo de volta (R15).
+  // A seção da equipe tem o termo, a notificação, o aviso das 6h e o aviso do que falta (as telas do Android e do HyperOS
+  // que vêm depois do termo não são do Nexus Field, e só as legendas as dizem), com o tempo todo de volta (R15).
   const secao = d.getElementById('g-equipe')?.closest('section');
   assert.ok(secao, 'a seção Localização da equipe');
   assert.deepEqual([...secao.querySelectorAll('figure.item')].map((f) => f.id),
-    ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao', 't-equipe-inicio']);
+    ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao', 't-equipe-inicio', 't-equipe-falta']);
   assert.match(compactar(d.querySelector('#t-equipe-termo-fim figcaption').textContent),
-    /a coleta liga, e vem o pedido do Permitir o tempo todo.*Por último, a janela da bateria sem restrição/,
-    'a legenda do fim do termo diz a ordem das telas do Android');
+    /a coleta liga, e vem o pedido do Permitir o tempo todo.*Depois, a janela da bateria sem restrição.*Por último, nos celulares Xiaomi com o Início automático desligado, a tela do Início automático/,
+    'a legenda do fim do termo diz a ordem das telas do Android e do HyperOS');
   // O "Durante o uso do app" saiu de tudo: a versão 3 manda escolher o tempo todo, e nenhuma legenda ou item diz o contrário.
   for (const onde of [secao, d.getElementById('o-que-aprovar')]) {
     assert.doesNotMatch(compactar(onde.textContent), /escolh[ae] Durante o uso do app/,
@@ -690,8 +759,9 @@ test('os links "Ver" da lista têm alvo de toque de pelo menos 44 px', () => {
 
 test('os nomes entre aspas da lista "O que aprovar" são textos de verdade do aplicativo', () => {
   // A lista é uma terceira cópia dos títulos e dos botões; sem esta conferência ela envelhece sozinha.
-  const daEquipe = [...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_inicio_')];
+  const daEquipe = [...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_inicio_'), ...stringsDe('notificacao_falta_')];
   const permitidos = new Set([...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos(), ...daEquipe].map((s) => s.texto));
+  permitidos.add(EXEMPLO_DO_QUE_FALTA); // o texto do aviso do que falta, com a lista de exemplo
   for (const nome of ['app_name', 'title_activity_main']) permitidos.add(stringDoApp(nome)); // o nome, Nexus Field
   const erro = new JSDOM(ERRO_HTML).window.document;
   for (const el of erro.querySelectorAll('h1, p, button')) permitidos.add(compactar(el.textContent));
@@ -1008,7 +1078,7 @@ test('as notificações de exemplo: uma por quadro, no canal e na importância q
   const secao = secaoDeNotificacoes(d);
   assert.ok(secao, 'a seção Notificações');
   const canais = canaisDetalhadosDoJava();
-  assert.equal(canais.length, 5, 'o teste leu os cinco canais do CanaisDeNotificacao');
+  assert.equal(canais.length, 6, 'o teste leu os seis canais do CanaisDeNotificacao');
   const osQueAbre = padraoDaOSDoJava();
 
   // A seção diz de quem é o texto e de qual servidor ele foi copiado.

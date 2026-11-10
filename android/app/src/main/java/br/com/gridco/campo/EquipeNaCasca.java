@@ -62,8 +62,17 @@ import java.util.function.LongSupplier;
  *       do próprio Android que pede a liberação ({@link Tela#pedirSemRestricaoDeBateria}), sem tela nossa antes. Uma vez por
  *       conta e por termo ({@link ChaveDaEquipe#bateriaPorPedir}): recusada, não volta até a próxima conta ou o próximo
  *       termo, e a coleta segue igual. Por que importa: liberado da otimização, o Android 12+ deixa o app ligar o serviço
- *       em primeiro plano com o app no fundo (é uma das exceções da regra), e o HyperOS fecha menos o app. O Início
- *       automático do Xiaomi não tem janela do Android: é o guia de instalação que o pede.</li>
+ *       em primeiro plano com o app no fundo (é uma das exceções da regra), e o HyperOS fecha menos o app.</li>
+ *   <li><b>O Início automático do Xiaomi</b> (Task 14, o pedido do dono em 10/11/2026: "claro, quando o cara instala já
+ *       tem que ter tudo pronto"): depois da bateria (a janela dela já voltou, ou não havia o que pedir), num Xiaomi, Redmi
+ *       ou POCO com ele desligado ({@link InicioAutomatico#estado}), a tela do HyperOS, ou os detalhes do app quando ela
+ *       não abre ({@link Tela#pedirInicioAutomatico}), sem tela nossa antes: o termo e o aviso do que falta dizem o que
+ *       fazer. Uma vez por conta e por termo ({@link ChaveDaEquipe#inicioAutomaticoPorPedir}), como a bateria. Caso: na
+ *       prova da 1.2.2, sem ele o HyperOS não deixou o app partir pelo aviso de app atualizado ("process is not permitted
+ *       to auto start"), e a coleta não voltou; ligado, ela voltou em 9 s.</li>
+ *   <li><b>O aviso do que falta</b> ({@link AvisoDoQueFalta}, o mesmo pedido: "se algo ficar pendente tem que ter
+ *       notificação 'faltando tal coisa'"): conferido no fim de cada decisão, mas mostrado só sem um pedido do Android
+ *       na frente do técnico (no meio dos pedidos ele está liberando, e o aviso listaria o que a casca ainda vai pedir).</li>
  *   <li><b>A casca só liga o serviço com a tela à vista</b> ({@link #aTelaFicouAVista}, do onResume ao onStop): a decisão
  *       que roda na thread do envio depois de o técnico sair do app (a chave que o Nexus deu com o app já no fundo, a volta
  *       ao app atrás de um envio pendurado) não o liga. Iniciado com o app no fundo, sem o tempo todo ele não teria a
@@ -168,9 +177,9 @@ final class EquipeNaCasca {
     }
 
     /**
-     * O que o técnico vê e responde: o termo, os pedidos da localização e do tempo todo ao Android e a janela da bateria do
-     * Android ({@link TelaDaActivity}). Tudo na thread de UI. O que devolve false não apareceu (a tela saindo): a casca não
-     * fica esperando uma resposta que não vem.
+     * O que o técnico vê e responde: o termo, os pedidos da localização e do tempo todo ao Android, a janela da bateria do
+     * Android e a tela do Início automático do HyperOS ({@link TelaDaActivity}). Tudo na thread de UI. O que devolve false
+     * não apareceu (a tela saindo): a casca não fica esperando uma resposta que não vem.
      */
     interface Tela {
         /** O termo de uso da localização, que não fecha tocando fora nem pelo Voltar; o Li e aceito roda {@code aceitar}. */
@@ -187,6 +196,12 @@ final class EquipeNaCasca {
          * casca: recusada ou aceita, a coleta segue igual. False só com a tela saindo (a próxima volta ao app tenta).
          */
         boolean pedirSemRestricaoDeBateria();
+
+        /**
+         * A tela do Início automático do HyperOS, ou os detalhes do app quando ela não abre (Task 14). A resposta não volta
+         * à casca: ligado ou não, a coleta segue igual, e o aviso do que falta diz. False só com a tela saindo.
+         */
+        boolean pedirInicioAutomatico();
     }
 
     private final Context app;
@@ -212,6 +227,11 @@ final class EquipeNaCasca {
     // Só na thread do trabalho. A janela da bateria a caminho da tela: a decisão seguinte (a volta ao app, a chave que
     // chega) não abre outra por cima antes de a marca sair.
     private boolean bateriaACaminho = false;
+    // Só na thread do trabalho. A tela do Início automático a caminho da tela, como a da bateria.
+    private boolean inicioACaminho = false;
+    // Só na thread do trabalho. Esta decisão mandou algo à frente do técnico (o termo, um pedido do Android, a janela da
+    // bateria, a tela do Início automático): o aviso do que falta espera a volta seguinte.
+    private boolean pediuAgora = false;
     // A tela à vista (do onResume ao onStop, na thread de UI): só com ela o serviço liga.
     private volatile boolean aVista = false;
     // Os Sair pedidos cuja chave ainda não saiu do aparelho. A decisão que já esperava na thread antes do Sair (a volta
@@ -409,6 +429,7 @@ final class EquipeNaCasca {
     }
 
     private void reavaliarAgora() {
+        pediuAgora = false;
         if (saidasPendentes.get() > 0) {
             // O Sair a caminho: esta decisão esperava na thread desde antes dele e, com a chave de quem saiu ainda
             // guardada, ligaria a coleta dele, mostraria o termo ou avisaria o Nexus com a chave que vai ser revogada.
@@ -444,9 +465,9 @@ final class EquipeNaCasca {
                 }
                 Log.i(TAG, "a casca liga a coleta da equipe");
                 servico.iniciar();
-                // A ordem depois da localização (R15): o tempo todo e, depois da resposta dele, a bateria.
-                pedirOTempoTodo();
-                pedirABateria();
+                // A ordem depois da localização (R15, Task 14): o tempo todo, depois da resposta dele a bateria e, depois
+                // da volta dela, o Início automático.
+                pedirOsAjustes();
                 break;
             case PARAR:
                 if (rodando) Log.i(TAG, "a casca desliga a coleta da equipe");
@@ -467,15 +488,26 @@ final class EquipeNaCasca {
                 break;
             default:
                 // O NADA dentro da janela é a coleta já ligada com tudo em dia: o serviço ligado antes do tempo todo passa
-                // a pedir o religamento, e o pedido do tempo todo e a janela da bateria que não abriram (a tela saindo)
-                // abrem agora.
+                // a pedir o religamento, e o pedido do tempo todo, a janela da bateria e a tela do Início automático que
+                // não abriram (a tela saindo, ou a vez delas que ainda não tinha chegado) abrem agora.
                 if (rodando) {
                     religarSozinhoDaquiEmDiante();
-                    pedirOTempoTodo();
-                    pedirABateria();
+                    pedirOsAjustes();
                 }
                 break;
         }
+        // O aviso do que falta (Task 14), depois da decisão: com algo na frente do técnico, ele só sai (o que deixou de
+        // valer), e aparece na volta seguinte.
+        AvisoDoQueFalta.conferir(app, chave, relogio.getAsLong(),
+            !pediuAgora && !esperandoOTecnico && !bateriaACaminho && !inicioACaminho);
+    }
+
+    // Os ajustes que vêm depois da localização dada, nesta ordem e um por vez: o tempo todo, a bateria e o Início
+    // automático. A janela da bateria mandada agora segura o Início automático até a volta dela: as duas telas abertas
+    // juntas ficariam uma por cima da outra, e a de baixo só apareceria depois.
+    private void pedirOsAjustes() {
+        pedirOTempoTodo();
+        if (!pedirABateria()) pedirOInicioAutomatico();
     }
 
     // R15: logo depois da localização dada e da coleta ligada, o pedido do Android da localização o tempo todo, sozinho
@@ -490,6 +522,7 @@ final class EquipeNaCasca {
         }
         esperandoOTecnico = true;
         pedindoOTempoTodo = true;
+        pediuAgora = true;
         Log.i(TAG, "a casca pede ao Android a localização o tempo todo, logo depois da localização durante o uso");
         naTela(() -> {
             if (!tela.pedir(new String[] {ServicoDaEquipe.O_TEMPO_TODO})) trabalhar(this::tempoTodoNaoApareceu);
@@ -519,14 +552,15 @@ final class EquipeNaCasca {
     // que já está ligada), a janela do próprio Android que pede a bateria sem restrição, uma vez por conta e por termo. A
     // marca sai quando a janela abriu: recusada (ou só fechada), ela não volta; a que não abriu (a tela saindo) fica por
     // pedir. Com o app já liberado, nada a pedir, e a marca sai também (a liberação tirada depois nos ajustes não traz a
-    // janela fora do fluxo do termo).
-    private void pedirABateria() {
-        if (!aVista || esperandoOTecnico || bateriaACaminho || !chave.bateriaPorPedir()) return;
+    // janela fora do fluxo do termo). True se a janela foi mandada à tela agora.
+    private boolean pedirABateria() {
+        if (!aVista || esperandoOTecnico || bateriaACaminho || !chave.bateriaPorPedir()) return false;
         if (liberadoDaBateria()) {
             chave.bateriaPedida();
-            return;
+            return false;
         }
         bateriaACaminho = true;
+        pediuAgora = true;
         Log.i(TAG, "a casca pede ao Android a bateria sem restrição, logo depois do termo e da localização");
         naTela(() -> {
             boolean abriu = tela.pedirSemRestricaoDeBateria();
@@ -535,10 +569,37 @@ final class EquipeNaCasca {
                 if (abriu) chave.bateriaPedida();
             });
         });
+        return true;
     }
 
     private boolean liberadoDaBateria() {
         return AjustesDaColeta.bateriaSemRestricao(app);
+    }
+
+    // Task 14: depois da bateria (a janela dela já foi e voltou, ou não havia o que pedir), num Xiaomi com o Início
+    // automático desligado, a tela do HyperOS, uma vez por conta e por termo, com a mesma regra da marca da bateria: sai
+    // quando a tela abre (recusada, não volta), e a que não abriu (a tela saindo) abre na próxima volta. Fora do Xiaomi, sem
+    // saber o estado ou com ele já ligado, nada a abrir, e a marca sai também (desligado depois nos ajustes, quem diz é o
+    // aviso do que falta).
+    private void pedirOInicioAutomatico() {
+        if (!aVista || esperandoOTecnico || bateriaACaminho || inicioACaminho || chave.bateriaPorPedir()
+                || !chave.inicioAutomaticoPorPedir()) {
+            return;
+        }
+        if (!Boolean.FALSE.equals(InicioAutomatico.estado(app))) {
+            chave.inicioAutomaticoPedido();
+            return;
+        }
+        inicioACaminho = true;
+        pediuAgora = true;
+        Log.i(TAG, "a casca abre a tela do Início automático do HyperOS, logo depois da bateria");
+        naTela(() -> {
+            boolean abriu = tela.pedirInicioAutomatico();
+            trabalhar(() -> {
+                inicioACaminho = false;
+                if (abriu) chave.inicioAutomaticoPedido();
+            });
+        });
     }
 
     // R9: a conferência que o cofre não deixou fazer, de novo na volta ao app. A conta guardada que se mostra de outra
@@ -560,6 +621,7 @@ final class EquipeNaCasca {
     private void mostrarOTermo() {
         if (esperandoOTecnico) return;
         esperandoOTecnico = true;
+        pediuAgora = true;
         Log.i(TAG, "o termo de uso da localização, antes de ligar a coleta");
         naTela(() -> {
             if (!tela.mostrarTermo(() -> trabalhar(this::termoAceito))) trabalhar(this::termoNaoApareceu);
@@ -594,6 +656,7 @@ final class EquipeNaCasca {
         }
         pedirDepoisDoTermo = false;
         esperandoOTecnico = true;
+        pediuAgora = true;
         Log.i(TAG, "a casca pede a localização durante o uso, logo depois do termo");
         naTela(() -> {
             if (!tela.pedir(A_LOCALIZACAO)) trabalhar(this::pedidoNaoApareceu);
@@ -823,8 +886,8 @@ final class EquipeNaCasca {
     }
 
     /**
-     * O termo nesta activity e os pedidos ao Android (a localização e o tempo todo) pelo launcher do plugin. Só na thread
-     * de UI. Um diálogo por vez: o novo tira o anterior.
+     * O termo nesta activity, os pedidos ao Android (a localização e o tempo todo) pelo launcher do plugin, a janela da
+     * bateria e a tela do Início automático. Só na thread de UI. Um diálogo por vez: o novo tira o anterior.
      */
     static final class TelaDaActivity implements Tela {
         private final Activity activity;
@@ -884,6 +947,27 @@ final class EquipeNaCasca {
                 // O Android sem esta janela (há fabricante que a tira): nada a tentar de novo, e o guia de instalação
                 // diz o caminho nos ajustes.
                 Log.w(TAG, "a janela da bateria sem restrição não abriu (" + e.getClass().getSimpleName() + ")");
+            }
+            return true;
+        }
+
+        // A tela do HyperOS; a que não abre (outra versão do MIUI ou do HyperOS sem ela, ou com ela fechada a outros apps)
+        // cai nos detalhes do app, onde o HyperOS também mostra o Início automático. Sem nenhuma das duas, nada a tentar de
+        // novo: o aviso do que falta segue dizendo.
+        @Override
+        public boolean pedirInicioAutomatico() {
+            if (!ativa()) return false;
+            try {
+                activity.startActivity(InicioAutomatico.aTelaDoHyperOS());
+                return true;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Log.w(TAG, "a tela do Início automático do HyperOS não abriu (" + e.getClass().getSimpleName()
+                    + "): os detalhes do app");
+            }
+            try {
+                activity.startActivity(InicioAutomatico.osDetalhesDoApp(activity));
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Log.w(TAG, "os detalhes do app não abriram (" + e.getClass().getSimpleName() + ")");
             }
             return true;
         }

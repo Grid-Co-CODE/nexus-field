@@ -135,22 +135,22 @@ public class ChaveDaEquipeTest {
     }
 
     @Test
-    public void osAceitesDasVersoes1A3NaoValemMaisEODaVersao4Vale() {
+    public void osAceitesDasVersoes1A4NaoValemMaisEODaVersao5Vale() {
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
-        for (String velha : new String[] {"1", "2", "3"}) {
+        for (String velha : new String[] {"1", "2", "3", "4"}) {
             ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", velha).commit();
             assertFalse("o aceite da versão " + velha, c.termoAceito());
         }
-        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "4").commit();
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "5").commit();
         assertTrue(c.termoAceito());
     }
 
     @Test
     public void oAceiteGuardaAVersaoDoTermo() {
-        // R11: o aceite é da versão do texto (a 4, de 10/11/2026, o Celular pronto): mudar o texto é mudar a constante, e quem aceitou a
-        // versão de antes vê o termo de novo.
-        assertEquals("4", ChaveDaEquipe.TERMO_VERSAO);
+        // R11: o aceite é da versão do texto (a 5, de 10/11/2026, a do Início automático do Xiaomi): mudar o texto é mudar a
+        // constante, e quem aceitou a versão de antes vê o termo de novo.
+        assertEquals("5", ChaveDaEquipe.TERMO_VERSAO);
         ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
         c.guardar("k1", CONTA_A);
         c.aceitarTermo();
@@ -498,6 +498,42 @@ public class ChaveDaEquipeTest {
         assertTrue(c.bateriaPorPedir());
         c.apagar(); // o Sair
         assertFalse(c.bateriaPorPedir());
+    }
+
+    // --- a tela do Início automático do Xiaomi, uma vez por conta e por termo (Task 14) --------------------------------
+
+    @Test
+    public void oLiEAceitoDeixaATelaDoInicioAutomaticoPorAbrirUmaVez() {
+        // A mesma regra da janela da bateria: posta pelo Li e aceito, tirada quando a tela abre; recusada, não volta até a
+        // próxima conta ou o próximo termo; o Sair, a troca de conta e o coleta:false a apagam.
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        assertFalse("sem o termo, nada a abrir", c.inicioAutomaticoPorPedir());
+        c.aceitarTermo();
+        assertTrue(c.inicioAutomaticoPorPedir());
+        c.bateriaPedida();
+        c.tempoTodoPedido();
+        assertTrue("é outra marca: não sai com a da bateria nem com a do tempo todo", c.inicioAutomaticoPorPedir());
+        c.inicioAutomaticoPedido();
+        assertFalse(c.inicioAutomaticoPorPedir());
+        assertFalse("também na partida nova", new ChaveDaEquipe(ctx, cifra).inicioAutomaticoPorPedir());
+        c.apagarAChave(); // o 401: a mesma conta, o mesmo termo
+        assertTrue(c.guardar("k2", CONTA_A));
+        assertFalse("a chave nova da mesma conta não pede de novo", c.inicioAutomaticoPorPedir());
+
+        c.aceitarTermo(); // o próximo termo (a versão nova do texto)
+        assertTrue(c.inicioAutomaticoPorPedir());
+        assertTrue(c.guardar("k3", CONTA_B)); // a próxima conta: o termo sai, e a tela vem depois do aceite dela
+        assertFalse(c.inicioAutomaticoPorPedir());
+        assertFalse(ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("inicio_automatico_por_pedir"));
+        c.aceitarTermo();
+        assertTrue(c.inicioAutomaticoPorPedir());
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "4").commit();
+        assertFalse("o termo de antes não vale, e nada se abre sem ele", c.inicioAutomaticoPorPedir());
+        c.aceitarTermo();
+        c.apagar(); // o Sair
+        assertFalse(c.inicioAutomaticoPorPedir());
+        assertFalse(ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("inicio_automatico_por_pedir"));
     }
 
     // --- o pedido do tempo todo, uma vez por conta e por termo (R15) --------------------------------------------------

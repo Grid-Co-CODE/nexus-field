@@ -193,8 +193,10 @@ public class ServicoDaEquipe extends Service {
             LongSupplier relogio = System::currentTimeMillis;
             ChaveDaEquipe chave = new ChaveDaEquipe(app, new CifraKeystore());
             FilaDePontos fila = new FilaDePontos(app);
+            // Os ajustes de cada lote, e com eles a conferência do aviso do que falta (Task 14: cada envio é um dos pontos
+            // que o conferem, sem laço próprio).
             EnvioDePontos envio = new EnvioDePontos(chave, fila, new EnvioDePontos.Http(), relogio,
-                () -> AjustesDaColeta.ler(app, chave));
+                () -> AjustesDaColeta.doLote(app, chave, relogio.getAsLong()));
             Executor thread = Executors.newSingleThreadExecutor(tarefa -> new Thread(tarefa, "GcCasca-equipe"));
             return new Pecas(relogio, SystemClock::elapsedRealtime, chave, fila, envio, new Fused(app), thread);
         }

@@ -166,8 +166,9 @@ do processo), anotar qual foi.
       sozinho em alguns segundos. **Testar avisos** de novo: **Aviso de teste enviado para 1 aparelho(s)**, e o resumo e a
       emergência de teste chegam. Nos mesmos ajustes estão os três canais, **Resumo do dia**, **Emergências** e
       **Emergências fora do expediente**. Um quarto, **Localização da equipe** (1.2.0), só aparece no aparelho em que a
-      coleta da posição da equipe já ligou, e um quinto, **Início do dia** (1.2.0, o aviso das 6h), no aparelho com a
-      chave da equipe e o termo de uso aceito.
+      coleta da posição da equipe já ligou, um quinto, **Início do dia** (1.2.0, o aviso das 6h), no aparelho com a
+      chave da equipe e o termo de uso aceito, e um sexto, **Ajustes da localização** (1.2.3, o aviso do que falta), no
+      aparelho do piloto em que já faltou liberar algo para a coleta.
 - [ ] Ainda nos ajustes, o som de **Emergências** é um som de alarme do aparelho (o Android mostra o nome do toque do
       despertador, ou algo como "Som de alarme padrão"), e não o som padrão de notificação. Se não for, o aparelho rodou um
       APK de depuração deste trabalho de antes do alarme (pela Release isso não acontece): o canal antigo não muda
@@ -358,8 +359,9 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       localização").
 - [ ] Android 13: a notificação do Nexus Field é uma permissão, que se pode negar.
 - [ ] Android 14 ou mais novo: a notificação de primeiro plano pode ser arrastada para o lado.
-- [ ] De preferência, um Xiaomi, Redmi ou afim (o que mata o app ao tirar dos recentes), com o Início automático e a
-      bateria sem restrições do guia de instalação.
+- [ ] De preferência, um Xiaomi, Redmi ou POCO (o que mata o app ao tirar dos recentes), numa instalação nova e com o
+      Início automático desligado: a casca o pede depois da bateria (ver "O termo, a janela, a bateria e a notificação
+      fixa").
 
 ### O termo, a janela, a bateria e a notificação fixa
 
@@ -382,9 +384,9 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       liga. Desligar o TalkBack.
 - [ ] A versão nova pede de novo: no aparelho de prova que aceitou o termo curto de antes (o APK de prova anterior a
       esta mudança), instalar o APK novo por cima e abrir com a mesma conta: o termo inteiro aparece de novo, e a coleta
-      só liga depois do **Li e aceito**. Depois do aceite, fechar e abrir: ele não volta. Também quem aceitou a versão 1
-      (09/11/2026, que dizia só a cidade fora de usina) ou a 2 (10/11/2026, o ponto exato e o percurso, a da 1.2.0) vê a
-      versão 3 (10/11/2026, o Permitir o tempo todo e a coleta que volta sozinha no mesmo dia) de novo, na 1.2.1.
+      só liga depois do **Li e aceito**. Depois do aceite, fechar e abrir: ele não volta. Também quem aceitou uma versão
+      de antes (a 4, da 1.2.2, ou uma mais velha) vê a versão 5 (10/11/2026, o Início automático do Xiaomi nos ajustes que
+      vão ao Nexus e na frase final) de novo, na 1.2.3.
 - [ ] Logo depois do **Li e aceito**: o pedido do próprio Android, sem outra tela do Nexus Field antes; escolher
       **Durante o uso do app** (com a localização precisa): a coleta liga. Com a localização já liberada (o **Antes de
       começar** da instalação), nenhum pedido da localização durante o uso aparece: a coleta liga direto.
@@ -406,6 +408,27 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       Configurações, Bateria, o Nexus Field fica **Sem restrições** (o nome muda com a marca), e a janela não volta. Num
       aparelho com o Nexus Field já liberado antes do termo, nenhuma janela aparece. Se o aparelho não tiver a janela, o
       log da casca diz "a janela da bateria sem restrição não abriu" e nada mais acontece: anote o modelo.
+- [ ] A tela do Início automático, uma vez depois da bateria (1.2.3, o caso de 10/11/2026: sem ele, o HyperOS não deixou
+      o app partir pelo aviso de app atualizado, e a coleta não voltou). Num Xiaomi, Redmi ou POCO com o Início
+      automático desligado, na instalação nova: logo depois da volta da janela da bateria (ou logo depois da resposta ao
+      tempo todo, com a bateria já liberada), abre a tela do Início automático do HyperOS, sem outra tela do Nexus Field
+      antes (o log da casca diz "a casca abre a tela do Início automático do HyperOS"); se ela não abrir, abrem os
+      ajustes do Nexus Field (o log diz "a tela do Início automático do HyperOS não abriu"), onde ele também está: anote
+      o modelo e a versão do HyperOS. Ligar o Nexus Field nela e voltar: nada mais aparece. Noutra conta de teste (ou
+      depois do **Sair**), desligá-lo antes e recusar: a coleta segue igual, e a tela não volta para a mesma conta (fechar
+      e abrir o app, reiniciar o celular). Num aparelho com ele já ligado, ou de outra marca, nenhuma tela. Pelo cabo, o
+      estado do Nexus Field (só o dele) se confere com `adb shell appops get br.com.gridco.nexusfield 10008`: `allow`
+      ligado, `ignore` desligado; antes e depois da tela, a mudança tem de aparecer.
+- [ ] O aviso do que falta (1.2.3): recusar o Permitir o tempo todo, a bateria e o Início automático no fluxo do termo.
+      No meio dos pedidos nada aparece; na volta ao app depois da última tela, chega o aviso **Falta liberar no
+      celular**, **Falta: Permitir o tempo todo, bateria sem restrição e Início automático. Toque para abrir os ajustes do
+      Nexus Field.** (o Início automático só num Xiaomi), no canal **Ajustes da localização**, com o som padrão e sem
+      aparecer por cima da tela. Tocar nele abre os ajustes do Nexus Field. Liberar um dos três e voltar ao app: o aviso
+      muda a lista sem tocar de novo. Liberar tudo e voltar ao app: o aviso some. Limpá-lo da barra com algo ainda
+      faltando: ele volta na próxima volta ao app ou no envio seguinte (uns 2 a 10 min com a coleta ligada). Antes das 6h
+      e depois das 22h, nada; às 22h ele sai sozinho. Depois do **Sair**, ele some e não volta. Às 6h e depois de
+      reiniciar o celular, com algo faltando, ele aparece sem abrir o app (no Xiaomi, só com o Início automático ligado:
+      anote se, sem ele, apareceu).
 - [ ] O termo é uma vez por conta: fechar e abrir o Nexus Field, reiniciar o celular, voltar no dia seguinte: o termo não
       aparece de novo para a mesma conta.
 - [ ] A coleta liga: a notificação fixa **Localização da equipe ligada** fica na barra, sem som e sem vibração.
@@ -452,7 +475,8 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
 
 - [ ] O Celular pronto (1.2.2): com tudo dado, o Piloto do Nexus mostra a pessoa como **Celular pronto** depois do
       primeiro lote. Tirar o Permitir o tempo todo (deixar só durante o uso) ou pôr a bateria em **Otimizada**, voltar ao
-      app: no lote seguinte, o Piloto mostra o que falta. Quem aceitou a versão 3 do termo vê a versão 4 ao abrir.
+      app: no lote seguinte, o Piloto mostra o que falta (e, num Xiaomi, o Início automático desligado, quando o Nexus
+      já ler o `inicioAutomatico` dos ajustes). Quem aceitou a versão 4 do termo vê a versão 5 ao abrir.
 
 ### O aviso das 6h
 
@@ -472,7 +496,7 @@ alguns minutos depois. Cada item pede uma manhã; anote a hora em que o aviso ch
       conta que o Nexus não escolheu, ou a conta Admin), nem numa conta que ainda não aceitou o termo.
 - [ ] Reiniciar o celular não perde o aviso: à noite, reiniciar o celular e não abrir o Nexus Field: o aviso chega às 6h.
       Também depois de atualizar o Nexus Field por cima (o APK novo instalado à noite, sem abrir). No Xiaomi e afins, só
-      com o Início automático do guia de instalação ligado: anote se, sem ele, o aviso chegou.
+      com o Início automático ligado (a casca o pede depois do termo): anote se, sem ele, o aviso chegou.
 - [ ] O balde de espera restrito: com o app num balde de espera restrito (a economia de bateria agressiva), o Android
       pode atrasar o aviso das 6h: é limite do sistema sem alarme exato, e não defeito. Anote a hora em que chegou.
 - [ ] O canal desligado não mostra: nos ajustes do Android, desligar o canal **Início do dia**: na manhã seguinte nada

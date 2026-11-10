@@ -18,7 +18,7 @@ source ferramentas/ambiente.sh             # JAVA_HOME, ANDROID_HOME, PATH e and
 npx cap sync android && (cd android && ./gradlew testDebugUnitTest assembleDebug lint)
 ```
 
-O `lint` sai sem erro. Os 17 avisos que restam (medidos em 09/11/2026; os cinco `ApplySharedPref` da `ChaveDaEquipe` são
+O `lint` sai sem erro. Os 18 avisos que restam (medidos em 10/11/2026; os seis `ApplySharedPref` da `ChaveDaEquipe` são
 de propósito, ver "Localização da equipe") são do template do Capacitor (`ManifestOrder`, `UnusedResources`), da versão
 do Gradle (`AndroidGradlePluginVersion`) e dos ícones quadrados do Android 7 (`IconLauncherShape`). O `strings.xml` diz
 que os textos são em português (`tools:locale="pt"`): sem isso o lint conferia a ortografia como inglês (o "eles" do
@@ -1115,15 +1115,23 @@ O site (App de Campo) e o Fracttal não mudam.
     durante o uso, e o pedido não volta até a próxima conta ou o próximo termo), ou com o tempo todo já dado; o pedido que
     não abriu ou foi interrompido pede na próxima volta. A resposta é reconhecida pelo nome da permissão, e não só pela
     memória: do Android 11 em diante o processo pode morrer nos ajustes, e a resposta chega a uma tela nova. A janela da
-    bateria espera a resposta (a ordem: a localização, o tempo todo, a bateria). O `permissao: "sem"` continua só para a
-    falta da localização precisa ou da notificação; o tempo todo e a bateria vão nos `ajustes` (abaixo).
+    bateria espera a resposta (a ordem: a localização, o tempo todo, a bateria e, no Xiaomi, o Início automático). O
+    `permissao: "sem"` continua só para a falta da localização precisa ou da notificação; o tempo todo, a bateria e o
+    Início automático vão nos `ajustes` (abaixo).
   - **Os ajustes do celular em cada lote, o Celular pronto do Piloto (1.2.2, pedido do dono em 10/11/2026: "tem como
-    sabermos qual o técnico não aceitou tudo?").** `AjustesDaColeta.ler` monta `{termo, localizacao, tempoTodo,
-    bateriaSemRestricao, notificacao}` (a versão do termo aceita ou nulo; `"precisa"`, `"aproximada"` ou `"sem"`; três
-    sim ou não), e o `EnvioDePontos` o põe no campo `ajustes` de cada lote e do aviso sem permissão. Os ajustes que o
-    sistema não deixa ler agora não seguram os pontos: o lote vai sem eles. O Nexus que não os conhece os ignora. Só
-    depois do termo aceito (antes dele nada sai), e o termo versão 4 os diz na seção 2. O Início automático do Xiaomi
-    não entra: o Android não deixa nenhum app lê-lo, e ele fica no guia de instalação.
+    sabermos qual o técnico não aceitou tudo?"; o Início automático desde a 1.2.3).** `AjustesDaColeta.ler` monta `{termo,
+    localizacao, tempoTodo, bateriaSemRestricao, notificacao, inicioAutomatico}` (a versão do termo aceita ou nulo;
+    `"precisa"`, `"aproximada"` ou `"sem"`; três sim ou não; e o Início automático ligado, desligado ou nulo), e o
+    `EnvioDePontos` o põe no campo `ajustes` de cada lote e do aviso sem permissão, pelo `AjustesDaColeta.doLote`, que
+    também confere o aviso do que falta (abaixo). Os ajustes que o sistema não deixa ler agora não seguram os pontos: o
+    lote vai sem eles. O Nexus que não os conhece os ignora. Só depois do termo aceito (antes dele nada sai), e o termo
+    versão 5 os diz na seção 2. O Início automático não é do Android (`InicioAutomatico`): o MIUI e o HyperOS o guardam
+    na operação 10008 do AppOpsManager, lida por reflexão no `checkOpNoThrow(int, int, String)` (escondido) para o
+    próprio uid e pacote; o `MODE_ALLOWED` é ligado e qualquer outro modo, desligado. Fora do Xiaomi, Redmi e POCO
+    (`Build.MANUFACTURER`, sem diferenciar maiúscula) ou com a leitura que falha (o método barrado, a recusa do sistema),
+    nulo, com um log só com o nome da classe: sem saber, a casca não abre tela e o aviso não diz que falta (como o
+    PowerManager que não responde conta como bateria liberada). No teste, o leitor do modo é injetado
+    (`InicioAutomatico.leitorDeTeste`): o AppOpsManager do Robolectric não sabe da operação do MIUI.
   - **A janela da bateria sem restrição (R15, o mesmo pedido do dono de 10/11/2026 que trouxe a R14).** Logo depois do
     termo aceito, da localização dada e da resposta ao pedido do tempo todo (a coleta que liga, ou a que já estava
     ligada, com a tela à vista), se o
@@ -1136,11 +1144,34 @@ O site (App de Campo) e o Fracttal não mudam.
     Por que importa: sem a otimização de bateria, o Android 12+ deixa o app ligar o serviço em primeiro plano com o app no
     fundo (é uma das exceções da regra), o que o religamento do processo morto da R15 usa, e o HyperOS fecha menos o
     app. O Android
-    sem a janela (há fabricante que a tira) só deixa um aviso no log. O Início automático do Xiaomi não tem janela do
-    Android: fica no guia de instalação. Sem ele, o HyperOS não deixa o app partir por aviso do sistema: no celular do
-    dono (10/11/2026), a atualização pelo cabo deu "Unable to launch app ... MY_PACKAGE_REPLACED: process is not
-    permitted to auto start" e a coleta só voltou na abertura; ligado, ela voltou 9 s depois da instalação, sem abrir o
-    app. O `adb shell appops get br.com.gridco.nexusfield 10008` mostra o estado (`ignore` desligado, `allow` ligado).
+    sem a janela (há fabricante que a tira) só deixa um aviso no log.
+  - **A tela do Início automático e o aviso do que falta (1.2.3, os pedidos do dono em 10/11/2026, depois da prova da
+    1.2.2 no celular dele: "claro, quando o cara instala já tem que ter tudo pronto"; "se algo ficar pendente tem que ter
+    notificação 'faltando tal coisa'").** Sem o Início automático, o HyperOS não deixa o app partir por aviso do sistema:
+    no celular do dono (10/11/2026), a atualização pelo cabo deu "Unable to launch app ... MY_PACKAGE_REPLACED: process
+    is not permitted to auto start" e a coleta só voltou na abertura; ligado, ela voltou 9 s depois da instalação, sem
+    abrir o app. O `adb shell appops get br.com.gridco.nexusfield 10008` mostra o estado (`ignore` desligado, `allow`
+    ligado). **A tela**: depois da bateria (a janela dela já foi e voltou, ou não havia o que pedir; mandada na mesma
+    decisão, as duas ficariam uma por cima da outra), num Xiaomi com o Início automático desligado, a casca abre a tela
+    do HyperOS (`com.miui.securitycenter`, `com.miui.permcenter.autostart.AutoStartManagementActivity`), e a que não abre
+    (o `ActivityNotFoundException` ou o `SecurityException`) cai nos detalhes do app
+    (`ACTION_APPLICATION_DETAILS_SETTINGS`), sem tela nossa antes. A marca é a da bateria: `inicio_automatico_por_pedir`,
+    posta pelo Li e aceito, tirada quando a tela abre ou com nada a abrir (fora do Xiaomi, sem saber, já ligado); a
+    recusa não volta até a próxima conta ou o próximo termo; o Sair, a troca de conta e o `coleta:false` a apagam.
+    **O aviso** (`AvisoDoQueFalta`): **Falta liberar no celular** / "Falta: " e a lista ("localização precisa",
+    "Permitir o tempo todo", "bateria sem restrição", "Início automático", com a vírgula e o "e" no último) e ". Toque
+    para abrir os ajustes do Nexus Field.", no sexto canal, "Ajustes da localização" (`ajustes_da_localizacao`:
+    importância e som padrão, nasce com o primeiro aviso), id fixo 3.000.002, `setOnlyAlertOnce`, sem ser fixo (o técnico
+    limpa, e ele volta na próxima conferência se ainda faltar), e o toque abre os detalhes do app (no HyperOS, a mesma
+    tela tem as permissões, a bateria e o Início automático) sem tirá-lo. Aparece com a regra do aviso das 6h (a chave, o
+    termo de agora, nenhum Sair por terminar) e a hora na janela, faltando um dos quatro (o Início automático só
+    desligado; a falta da notificação não entra, porque sem ela o aviso não aparece); a lista sai dos mesmos ajustes que
+    vão ao Nexus. Sai quando nada falta, fora da janela (às 22h pelo `setTimeoutAfter`) e com a chave que sai (o
+    `semOsAvisos` da `ChaveDaEquipe`, o mesmo caminho que cancela o aviso das 6h: o Sair no toque, o `apagar` e o 401).
+    Conferido sem laço próprio: no fim de cada decisão da volta ao app (com um pedido do Android na frente do técnico, o
+    termo, a localização, o tempo todo, a bateria ou o Início automático, só sai, e aparece na volta seguinte: no meio
+    dos pedidos ele listaria o que a casca ainda vai pedir), em cada lote (`AjustesDaColeta.doLote`) e no
+    `ReceptorDoInicio` (o boot, a atualização e o alarme das 6h).
   - **O termo é o aviso de privacidade inteiro, e só se aceita depois de rolar até o fim (R11, o pedido do dono em
     09/11/2026: "Quero que o termo de notificação inclua tudo referente a LGPD e seja que nem as empresas grandes fazem,
     aparece a pessoa tem que rolar até o final para aceitar").** O texto (12 seções; o jurídico ainda confirma a base
@@ -1156,13 +1187,15 @@ O site (App de Campo) e o Fracttal não mudam.
     desligado, e um serviço de acessibilidade pode clicar sem olhar o estado. A girada da tela (a MainActivity não é
     recriada) e a volta ao app não ligam. No Robolectric a rolagem animada (TalkBack, teclado) só anda com o
     `computeScroll` que o teste chama, porque ele não desenha.
-  - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "4", o texto de 10/11/2026, R11, R13, R15 e o
-    Celular pronto).** A marca
+  - **O aceite é da versão do texto (`ChaveDaEquipe.TERMO_VERSAO`, "5", o texto de 10/11/2026, R11, R13, R15, o
+    Celular pronto e o Início automático).** A marca
     `termo_aceito` guarda a versão; outra versão, ou a marca booleana da R10 (só nos aparelhos de prova), mostra o termo de
     novo. Mudar o texto é mudar a constante e a primeira linha ("Versão N") e, no Nexus, o `TERMO_ATUAL` de
     `nexus/campo/equipe/__init__.py` (o Celular pronto do Piloto compara o `ajustes.termo` com ele): o `EquipeNaCascaTest` guarda o SHA-256 do
-    texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. A versão 4 (o Celular
-    pronto, 10/11/2026) diz na seção 2 que os ajustes do Nexus Field neste celular também vão ao Nexus; a 3 (R15, do mesmo dia)
+    texto de cada versão (`TEXTO_DE_CADA_VERSAO`) e falha no texto que muda sem a versão nova. A versão 5 (a do Início
+    automático, 10/11/2026) acrescenta a esses ajustes, nos celulares Xiaomi, o Início automático, e a frase final pede
+    que ele fique ligado; a 4 (o Celular pronto, do mesmo dia) diz na seção 2 que os ajustes do Nexus Field neste celular
+    também vão ao Nexus; a 3 (R15, do mesmo dia)
     manda escolher o Permitir o tempo todo e a bateria sem restrição e diz que a coleta volta sozinha no mesmo dia depois
     de reiniciar ou atualizar; a 2 (R13, do mesmo dia) diz que o mapa mostra a última posição de cada técnico no ponto
     exato, também parado fora de usina, e que quem vê pode abrir o percurso de um período dos 7 dias; a 1 prometia só a
@@ -1177,7 +1210,8 @@ O site (App de Campo) e o Fracttal não mudam.
     lugar do `apply()`, porque a gravação tem de chegar ao disco antes de o envio seguir, na thread dele; o termo aceito
     fica na marca `termo_aceito`, com a versão, e não na `aviso_aceito` de antes dele: quem aceitou o aviso num aparelho
     de prova não leu o termo; a conta conferida, na `conta_conferida`, a janela da bateria por pedir, na
-    `bateria_por_pedir`, e o pedido do tempo todo por fazer, na `tempo_todo_por_pedir`),
+    `bateria_por_pedir`, o pedido do tempo todo por fazer, na `tempo_todo_por_pedir`, e a tela do Início automático por
+    abrir, na `inicio_automatico_por_pedir`),
     `FilaDePontos` (SQLite: no máximo 1000 pontos e nada com mais de 24 h; passou, sai o mais velho; o ponto que não se
     lê sai antes do lote, que segue com os outros) e `EnvioDePontos` (todo 5xx, o 403, o 404, o 405, o 408, o 429, o 3xx e a falta de
     rede deixam fila e chave intactas; o outro 4xx é o lote recusado, que sai da fila; só o 401 apaga a chave; o 200 só
@@ -1251,11 +1285,13 @@ O site (App de Campo) e o Fracttal não mudam.
   `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do "O que aprovar", com o texto
   inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega). Xiaomi e afins: a coleta com o app
   fechado, e a que volta sozinha, dependem do Início automático (também no HyperOS) e da bateria sem restrições, com o
-  Permitir o tempo todo: a bateria e o tempo todo, a casca pede pelo Android depois do termo (R15), e o guia de
-  instalação (`docs/instalacao/`) manda ligar os três; sem o tempo todo, o app morto pelo sistema para a coleta até a
-  próxima abertura. O roteiro do piloto é a seção "A localização da equipe" do `docs/prova-no-aparelho.md`; falta o
-  piloto no aparelho (bateria, a parada às 22h, a tela apagada, as marcas, o aviso das 6h, a conta conferida guardada, o
-  pedido do tempo todo, a janela da bateria e a coleta que volta sozinha depois de matar o app, reiniciar e atualizar).
+  Permitir o tempo todo: os três, a casca pede depois do termo (R15, e o Início automático pela tela do HyperOS desde a
+  1.2.3), o aviso do que falta diz o que ficou, e o guia de instalação (`docs/instalacao/`) manda ligar os três; sem o
+  tempo todo, o app morto pelo sistema para a coleta até a próxima abertura. O roteiro do piloto é a seção "A
+  localização da equipe" do `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às 22h, a tela
+  apagada, as marcas, o aviso das 6h, a conta conferida guardada, o pedido do tempo todo, a janela da bateria, a tela do
+  Início automático e a leitura dele por reflexão, o aviso do que falta e a coleta que volta sozinha depois de matar o
+  app, reiniciar e atualizar).
 
 ## Distribuição
 
