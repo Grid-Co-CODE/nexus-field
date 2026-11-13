@@ -64,6 +64,9 @@
         // (o site o protege do despejo dele, no _LS_TRABALHO). Começa como o gc_inv_ do cache, e é trabalho porque o
         // `classificar` confere o trabalho antes.
         'gc_inv_rasc_',
+        // App v352 (13/11/2026): o rascunho da observação e das fotos de uma OS da FAMA (o cliente Faro; a OS não existe
+        // no Fracttal), até o técnico enviar (o site o protege do despejo dele, no _LS_TRABALHO).
+        'gc_fama_rasc_',
       ],
       excecoes: ['gc_ronda_ctx'],
     },
