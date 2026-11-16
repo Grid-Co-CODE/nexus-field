@@ -74,6 +74,9 @@
       exatas: [
         'gc_campo_apr', 'gc_campo_aprdia_f', 'gc_v1_pt_def', 'gc_ronda_ctx', 'gc_ext_ctx', 'gc_zl_modelos',
         'gc_zl_serv', 'gc_v1_minhas_prev',
+        // v357 (16/11/2026): o dia (AAAA-MM-DD) em que o App mostrou o convite para instalar o Nexus Field a quem usa o
+        // navegador; perder a marca só faz o convite aparecer de novo no mesmo dia.
+        'gc_nf_convite',
       ],
       prefixos: [
         'gc_subs_', 'gc_v1_almox_',

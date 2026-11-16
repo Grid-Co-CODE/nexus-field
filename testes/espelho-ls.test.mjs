@@ -52,7 +52,7 @@ test('classificar segue a lista da spec', () => {
     assert.equal(classificar(k), 'trabalho', k);
   for (const k of ['gc_subs_1', 'gc_campo_apr', 'gc_campo_aprdia_f', 'gc_v1_pt_def', 'gc_ronda_ctx', 'gc_ext_ctx',
     'gc_zl_modelos', 'gc_zl_serv', 'gc_v1_almox_2', 'gc_v1_minhas_prev', 'gc_inv_lista_usina_1', 'gc_inv_catalogo',
-    'gc_inv_env_usina_1', 'gc_pausadas_eu']) assert.equal(classificar(k), 'cache', k);
+    'gc_inv_env_usina_1', 'gc_pausadas_eu', 'gc_nf_convite']) assert.equal(classificar(k), 'cache', k);
   for (const k of ['msal.token.keys.x', 'gc_erros_js', 'gc_vivo', 'gc_tela', 'gc_campo_tema', 'gc_casca_sentinela'])
     assert.equal(classificar(k), null, k);
 });
