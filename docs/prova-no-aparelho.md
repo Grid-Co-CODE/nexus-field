@@ -443,15 +443,20 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       Android 10, ou os ajustes do Nexus Field do 11 em diante); na volta, a janela da bateria sem restrição; na volta
       dela, num Xiaomi, a tela do Início automático do HyperOS. Liberar tudo e voltar: o aviso **Falta liberar no
       celular** some, e nada mais aparece. Do Android 11 em diante, depois de recusar o tempo todo duas vezes (o Android
-      não pergunta mais), o **Liberar agora** abre direto os detalhes do Nexus Field nos ajustes (o log diz "o Android
-      recusou o tempo todo sem mostrar nada: a casca abre os detalhes do app"), e a janela da bateria só vem na volta
-      deles, nunca por cima. Anote se, num Android 10 com a recusa rápida (menos de 1,5 s), os detalhes abriram.
+      não pergunta mais), o **Liberar agora** abre direto os detalhes do Nexus Field nos ajustes, sem pedido nenhum antes
+      (o log diz "o Android não pergunta mais o tempo todo: a casca abriu os detalhes do app"), também no celular mais
+      simples do piloto (de preferência logo depois de reiniciá-lo), e a janela da bateria só vem na volta deles, nunca
+      por cima. Anote se, num Android 10 com a recusa rápida (menos de 1,5 s), os detalhes abriram.
 - [ ] O **Agora não** só fecha, como tocar fora e o Voltar: nada se pede, e a volta ao app não o mostra de novo no mesmo
       dia. Fechar o app com o lembrete aberto (tirá-lo dos recentes) e abrir de novo: ele não volta no mesmo dia. No dia
       seguinte, com algo ainda faltando, ele volta uma vez. Com tudo liberado, nada aparece, em nenhum dia. Antes das 6h e
-      depois das 22h, nada. Com a **Nova versão do Nexus Field** (ou outro diálogo) na frente quando o app abre, o lembrete
-      não aparece por cima; ele vem numa volta seguinte ao app. Depois do **Sair**, a conta seguinte só vê o lembrete no
-      dia seguinte ao aceite do termo dela.
+      depois das 22h, nada. Num dia de Release (só no APK da Release: o de depuração não procura versão nova), abrir o app
+      com algo faltando: a **Nova versão do Nexus Field** aparece sozinha, sem o lembrete por baixo nem por cima dela; depois
+      do **Depois** (ou da atualização), o lembrete vem numa volta seguinte ao app. Sem versão nova, ele aparece logo depois
+      de a conferência da versão voltar da rede (em até uns 3 s); com a rede lenta, numa volta seguinte. Com outro diálogo
+      na frente, também numa volta seguinte. O lembrete de ontem que ficou aberto (o app deixado no fundo pela noite, sem
+      responder): na manhã seguinte ele sai, e só o de hoje fica, uma tela só. Depois do **Sair**, a conta seguinte só vê o
+      lembrete no dia seguinte ao aceite do termo dela.
 - [ ] O termo é uma vez por conta: fechar e abrir o Nexus Field, reiniciar o celular, voltar no dia seguinte: o termo não
       aparece de novo para a mesma conta.
 - [ ] A coleta liga: a notificação fixa **Localização da equipe ligada** fica na barra, sem som e sem vibração.

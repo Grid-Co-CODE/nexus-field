@@ -91,8 +91,18 @@ public final class Atualizador {
     private static final String PASTA_NO_CACHE = "atualizacao"; // a única que o ArquivosProvider expõe
     private static final String NOME_DO_APK = "nexus-field.apk";
 
-    // Um fluxo por processo, como o espelho e o disjuntor do plugin.
-    private static final AtomicReference<Object> DONO_DO_PROCESSO = new AtomicReference<>();
+    // Um fluxo por processo, como o espelho e o disjuntor do plugin. Fora do private só para o teste do lembrete diário da
+    // equipe, que o ocupa como um fluxo no ar.
+    static final AtomicReference<Object> DONO_DO_PROCESSO = new AtomicReference<>();
+
+    /**
+     * Um fluxo da atualização no ar neste processo: a conferência do versao.json que ainda não voltou da rede, o diálogo
+     * da versão nova ou da permissão aberto, o download ou o instalador. O lembrete diário da equipe não abre enquanto isso
+     * (a revisão da Task 15): a Nova versão abria por cima dele. Na thread que for: é só a leitura do dono.
+     */
+    static boolean noAr() {
+        return DONO_DO_PROCESSO.get() != null;
+    }
 
     /** A rede. Os testes põem uma falsa; a de verdade é a {@link RedeHttp}. */
     interface Rede {

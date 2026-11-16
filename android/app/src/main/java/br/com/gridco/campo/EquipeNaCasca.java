@@ -15,9 +15,9 @@ import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
-import android.view.ViewTreeObserver;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import java.util.List;
@@ -84,12 +84,13 @@ import java.util.function.LongSupplier;
  *       tempo todo"; recusados na instalação, o tempo todo, a bateria e o Início automático não eram pedidos de novo, e o
  *       aviso da barra é fácil de ignorar): uma vez por dia do celular, na volta ao app com a coleta ligando ou ligada e a
  *       tela à vista, se falta um dos três, a tela nossa <b>Falta liberar no celular</b>, com o Agora não e o Liberar agora
- *       ({@link #lembrarSeFalta}). Não aparece com algo na frente do técnico (um pedido, uma janela, outro diálogo da casca:
- *       {@link TelaDaActivity#mostrarLembrete} confere o foco da janela), com a instalação ainda pedindo
- *       ({@link ChaveDaEquipe#ajustesPorPedir}) nem no dia em que ela já pediu ({@link ChaveDaEquipe#lembrado}). O Liberar
- *       agora reaproveita os pedidos da instalação: as três marcas por pedir de novo, e o fluxo de depois do termo pede só
- *       o que falta, na ordem dele. O pedido do tempo todo que o Android recusa sem mostrar nada (o "não perguntar de
- *       novo") cai nos detalhes do app ({@link #RECUSA_NA_HORA_MS}).</li>
+ *       ({@link #lembrarSeFalta}). Não aparece com algo na frente do técnico (um pedido, uma janela, outro diálogo da casca,
+ *       o Atualizador no ar: {@link TelaDaActivity#mostrarLembrete} confere o foco da janela e o {@link Atualizador#noAr}),
+ *       com a instalação ainda pedindo ({@link ChaveDaEquipe#ajustesPorPedir}) nem no dia em que ela já pediu
+ *       ({@link ChaveDaEquipe#lembrado}). O Liberar agora reaproveita os pedidos da instalação: as três marcas por pedir de
+ *       novo, e o fluxo de depois do termo pede só o que falta, na ordem dele. Com o Android que não pergunta mais o tempo
+ *       todo ({@link Tela#aindaPergunta}), os detalhes do app no lugar do pedido; a recusa que vem na hora
+ *       ({@link #RECUSA_NA_HORA_MS}) também cai neles.</li>
  *   <li><b>A casca só liga o serviço com a tela à vista</b> ({@link #aTelaFicouAVista}, do onResume ao onStop): a decisão
  *       que roda na thread do envio depois de o técnico sair do app (a chave que o Nexus deu com o app já no fundo, a volta
  *       ao app atrás de um envio pendurado) não o liga. Iniciado com o app no fundo, sem o tempo todo ele não teria a
@@ -162,12 +163,13 @@ final class EquipeNaCasca {
     static final long INTERVALO_SEM_PERMISSAO_MS = 30L * 60L * 1000L;
 
     /**
-     * A recusa do pedido do tempo todo que chega antes disto não passou pela mão do técnico (Task 15): o Android que não
-     * pergunta mais (do 11 em diante, a partir da segunda recusa) devolve a recusa na hora, sem mostrar nada, e o técnico
-     * que tocou em Liberar agora ficaria sem tela nenhuma. Os detalhes do app abrem no lugar. Por que 1,5 s: a recusa do
-     * Android passa pelo PermissionController, que num celular simples pode partir a frio em quase um segundo; a pessoa
-     * que lê a tela do Android e escolhe leva mais que isso, e a que escolher rápido demais vê os detalhes do app, onde
-     * também se libera (o erro para esse lado não deixa ninguém sem tela).
+     * O reforço do recuo para os detalhes do app no Liberar agora (Task 15). Quem decide primeiro é o
+     * {@link Tela#aindaPergunta}: com o pedido já feito na instalação, o false é o "não perguntar de novo" (do Android 11
+     * em diante, a partir da segunda recusa), e os detalhes abrem sem pedir. Este tempo pega o que escapar dele: a recusa
+     * do pedido do tempo todo que chega antes disto não passou pela mão do técnico. O relógio sozinho não bastava (a
+     * revisão): num celular simples o PermissionController parte a frio, e a recusa automática pode passar de 1,5 s. A
+     * pessoa que lê a tela do Android e escolhe leva mais que isso, e a que escolher rápido demais vê os detalhes do app,
+     * onde também se libera.
      */
     static final long RECUSA_NA_HORA_MS = 1_500L;
     // Sem pedido do tempo todo a medir (o tempoTodoPedidoEm).
@@ -225,6 +227,13 @@ final class EquipeNaCasca {
          * sem mostrar nada. False se não abriram (a tela saindo, o aparelho sem a tela).
          */
         boolean abrirOsDetalhesDoApp();
+
+        /**
+         * O shouldShowRequestPermissionRationale do Android (a revisão da Task 15): true depois de uma recusa, enquanto o
+         * Android ainda mostra o pedido. Com o pedido já feito antes, o false é o "não perguntar de novo"; sem ele, é o
+         * pedido que nunca foi feito.
+         */
+        boolean aindaPergunta(String permissao);
 
         /** O termo de uso da localização, que não fecha tocando fora nem pelo Voltar; o Li e aceito roda {@code aceitar}. */
         boolean mostrarTermo(Runnable aceitar);
@@ -693,8 +702,19 @@ final class EquipeNaCasca {
         pedindoOTempoTodo = true;
         pediuAgora = true;
         lembradoHoje();
+        boolean doLembrete = liberandoPeloLembrete;
         Log.i(TAG, "a casca pede ao Android a localização o tempo todo, logo depois da localização durante o uso");
         naTela(() -> {
+            // No Liberar agora, a instalação já fez este pedido (o lembrete só vem com as marcas dela tiradas): o Android
+            // que não sugere explicar de novo é o "não perguntar de novo", e o pedido seria recusado sem mostrar nada.
+            // Os detalhes do app, direto. Na instalação, o mesmo false é o pedido que nunca foi feito, e se pede.
+            if (doLembrete && !tela.aindaPergunta(ServicoDaEquipe.O_TEMPO_TODO)) {
+                // Aqui, na thread de UI, antes de abrir: o onStop dos detalhes já o vê, e solta a bateria na volta deles.
+                detalhesACaminho = true;
+                boolean abriram = tela.abrirOsDetalhesDoApp();
+                trabalhar(() -> oAndroidNaoPerguntaMais(abriram));
+                return;
+            }
             // A hora do pedido, para a recusa que vem na hora (aposOPedido, RECUSA_NA_HORA_MS).
             tempoTodoPedidoEm = monotonico.getAsLong();
             if (!tela.pedir(new String[] {ServicoDaEquipe.O_TEMPO_TODO})) trabalhar(this::tempoTodoNaoApareceu);
@@ -705,6 +725,23 @@ final class EquipeNaCasca {
     private void tempoTodoNaoApareceu() {
         esperandoOTecnico = false;
         pedindoOTempoTodo = false;
+    }
+
+    // O Liberar agora com o Android que não pergunta mais o tempo todo (a revisão da Task 15): no lugar do pedido, os
+    // detalhes do app, e o pedido conta como feito. Caso: pelo relógio só, num celular simples o PermissionController parte
+    // a frio, a recusa automática passa de RECUSA_NA_HORA_MS, e o técnico que negou duas vezes, o do pedido de 16/11/2026,
+    // nunca veria a tela do Permitir o tempo todo. A bateria e o Início automático vêm na volta dos detalhes; se eles não
+    // abriram, agora.
+    private void oAndroidNaoPerguntaMais(boolean abriram) {
+        esperandoOTecnico = false;
+        pedindoOTempoTodo = false;
+        liberandoPeloLembrete = false;
+        chave.tempoTodoPedido();
+        if (abriram) {
+            Log.i(TAG, "o Android não pergunta mais o tempo todo: a casca abriu os detalhes do app");
+            return;
+        }
+        detalhesNaoAbriram();
     }
 
     // O serviço que ligou sem o tempo todo pediu ao Android para não ser religado, e é o último início que vale: com o tempo
@@ -724,9 +761,10 @@ final class EquipeNaCasca {
     // que já está ligada), a janela do próprio Android que pede a bateria sem restrição, uma vez por conta e por termo. A
     // marca sai quando a janela abriu: recusada (ou só fechada), ela não volta; a que não abriu (a tela saindo) fica por
     // pedir. Com o app já liberado, nada a pedir, e a marca sai também (a liberação tirada depois nos ajustes não traz a
-    // janela fora do fluxo do termo). True se a janela foi mandada à tela agora.
+    // janela fora do fluxo do termo). True se a janela foi mandada à tela agora. Com os detalhes do app a caminho (o recuo
+    // do tempo todo no Liberar agora), espera a volta deles.
     private boolean pedirABateria() {
-        if (!aVista || esperandoOTecnico || bateriaACaminho || !chave.bateriaPorPedir()) return false;
+        if (!aVista || esperandoOTecnico || bateriaACaminho || detalhesACaminho || !chave.bateriaPorPedir()) return false;
         if (liberadoDaBateria()) {
             chave.bateriaPedida();
             return false;
@@ -755,8 +793,8 @@ final class EquipeNaCasca {
     // saber o estado ou com ele já ligado, nada a abrir, e a marca sai também (desligado depois nos ajustes, quem diz é o
     // aviso do que falta).
     private void pedirOInicioAutomatico() {
-        if (!aVista || esperandoOTecnico || bateriaACaminho || inicioACaminho || chave.bateriaPorPedir()
-                || !chave.inicioAutomaticoPorPedir()) {
+        if (!aVista || esperandoOTecnico || bateriaACaminho || inicioACaminho || detalhesACaminho
+                || chave.bateriaPorPedir() || !chave.inicioAutomaticoPorPedir()) {
             return;
         }
         if (!Boolean.FALSE.equals(InicioAutomatico.estado(app))) {
@@ -1073,67 +1111,82 @@ final class EquipeNaCasca {
      */
     static final class TelaDaActivity implements Tela {
         /**
-         * Quanto o lembrete diário espera o foco da janela do app (Task 15). Na partida a frio a decisão chega antes dele
-         * (ela vem da thread do envio logo depois do onResume, e a janela só ganha o foco depois de desenhada); com outro
-         * diálogo ou um pedido na frente, o foco não vem. Passado isto, a decisão pode estar velha: o lembrete não aparece
-         * agora, e a próxima volta ao app decide de novo.
+         * Quanto o lembrete diário espera ter nada na frente do técnico (Task 15). Na partida a frio a decisão chega antes
+         * do foco da janela (ela vem da thread do envio logo depois do onResume, e a janela só ganha o foco depois de
+         * desenhada), e a conferência da versão nova do Atualizador pode estar na rede; com outro diálogo ou um pedido na
+         * frente, o foco não vem. Passado isto, a decisão pode estar velha: o lembrete não aparece agora, e a próxima
+         * volta ao app decide de novo.
          */
-        static final long ESPERA_DO_FOCO_MS = 3_000L;
+        static final long ESPERA_DO_LEMBRETE_MS = 3_000L;
+        /** De quanto em quanto a espera do lembrete confere de novo se nada está na frente. */
+        static final long PASSO_DA_ESPERA_MS = 100L;
 
         private final Activity activity;
         private final Consumer<String[]> pedido;
         private final Handler principal = new Handler(Looper.getMainLooper());
         private AlertDialog aberto;
-        // O lembrete que espera o foco da janela: o ouvinte do foco, a desistência e quem espera a resposta (ou nulos).
-        private ViewTreeObserver.OnWindowFocusChangeListener esperandoOFoco;
-        private Runnable desistirDoFoco;
-        private Consumer<Boolean> depoisDoFoco;
+        // O lembrete que está na tela (ou null): o de ontem que ficou aberto sai antes do de hoje.
+        private AlertDialog lembreteAberto;
+        // O lembrete que espera ter nada na frente: a conferência seguinte e quem espera a resposta (ou nulos).
+        private Runnable conferirDeNovo;
+        private Consumer<Boolean> depoisDaEspera;
 
         TelaDaActivity(Activity activity, Consumer<String[]> pedido) {
             this.activity = activity;
             this.pedido = pedido;
         }
 
-        // Task 15: o lembrete só aparece com nada na frente do técnico. Outro diálogo da casca (a Nova versão, o Antes de
-        // começar, os avisos de depois do pedido das permissões), um pedido do Android ou outra tela tiram o foco da janela
-        // do app, e esta classe não sabe de todos eles: é o foco que diz. Sem ele agora, o lembrete espera por ele até
-        // ESPERA_DO_FOCO_MS (a partida a frio) e desiste. Tocar fora e o Voltar contam como o Agora não.
+        // Task 15: o lembrete só aparece com nada na frente do técnico (nadaNaFrente). Sem isso agora, ele confere de novo a
+        // cada PASSO_DA_ESPERA_MS até ESPERA_DO_LEMBRETE_MS e desiste. Tocar fora e o Voltar contam como o Agora não.
         @Override
         public void mostrarLembrete(String texto, Consumer<Boolean> depois, Runnable liberar) {
-            if (!ativa() || depoisDoFoco != null) {
+            if (!ativa() || depoisDaEspera != null) {
                 depois.accept(false);
                 return;
             }
-            if (activity.hasWindowFocus()) {
-                depois.accept(abrirOLembrete(texto, liberar));
-                return;
-            }
-            depoisDoFoco = depois;
-            esperandoOFoco = comFoco -> {
-                if (!comFoco) return;
-                Consumer<Boolean> quem = pararDeEsperarOFoco();
-                if (quem != null) quem.accept(ativa() && abrirOLembrete(texto, liberar));
+            // O lembrete de ontem ainda aberto (o técnico saiu pelo Início sem responder, e o processo passou a noite com
+            // a activity de pé; a revisão da Task 15): com o foco nele, o de hoje esperaria à toa e desistiria, ou abriria
+            // logo depois de um Agora não, a mesma tela duas vezes. Sai antes; o foco volta à janela, e a espera o vê.
+            fecharOLembreteAberto();
+            depoisDaEspera = depois;
+            long prazo = SystemClock.uptimeMillis() + ESPERA_DO_LEMBRETE_MS;
+            conferirDeNovo = new Runnable() {
+                @Override
+                public void run() {
+                    if (depoisDaEspera == null) return;
+                    if (!ativa() || nadaNaFrente()) {
+                        pararDeEsperar().accept(ativa() && abrirOLembrete(texto, liberar));
+                    } else if (SystemClock.uptimeMillis() >= prazo) {
+                        pararDeEsperar().accept(false);
+                    } else {
+                        principal.postDelayed(this, PASSO_DA_ESPERA_MS);
+                    }
+                }
             };
-            desistirDoFoco = () -> {
-                Consumer<Boolean> quem = pararDeEsperarOFoco();
-                if (quem != null) quem.accept(false);
-            };
-            activity.getWindow().getDecorView().getViewTreeObserver().addOnWindowFocusChangeListener(esperandoOFoco);
-            principal.postDelayed(desistirDoFoco, ESPERA_DO_FOCO_MS);
+            conferirDeNovo.run();
         }
 
-        // Tira o ouvinte do foco e a desistência do lembrete que esperava, e devolve quem esperava a resposta (null se nada
-        // esperava). O ouvinte pode sair de dentro da própria chamada: o ViewTreeObserver percorre uma cópia da lista.
-        private Consumer<Boolean> pararDeEsperarOFoco() {
-            Consumer<Boolean> quem = depoisDoFoco;
-            if (quem == null) return null;
-            ViewTreeObserver observador = activity.getWindow().getDecorView().getViewTreeObserver();
-            if (observador.isAlive()) observador.removeOnWindowFocusChangeListener(esperandoOFoco);
-            principal.removeCallbacks(desistirDoFoco);
-            esperandoOFoco = null;
-            desistirDoFoco = null;
-            depoisDoFoco = null;
+        // Nada na frente do técnico. A janela do app com o foco: outro diálogo da casca (a Nova versão, o Antes de começar,
+        // os avisos de depois do pedido das permissões), um pedido do Android ou outra tela o tiram, e esta classe não sabe
+        // de todos eles. E nenhum fluxo do Atualizador no ar (a revisão da Task 15): a conferência do versao.json vai à
+        // rede no onResume, antes da decisão da equipe, e a Nova versão abria segundos depois, por cima do lembrete, em
+        // todo dia de Release; quem tocava em Atualizar agora reiniciava o app com o dia já marcado.
+        private boolean nadaNaFrente() {
+            return activity.hasWindowFocus() && !Atualizador.noAr();
+        }
+
+        // Tira a espera do lembrete, e devolve quem esperava a resposta (null se nada esperava).
+        private Consumer<Boolean> pararDeEsperar() {
+            Consumer<Boolean> quem = depoisDaEspera;
+            if (conferirDeNovo != null) principal.removeCallbacks(conferirDeNovo);
+            conferirDeNovo = null;
+            depoisDaEspera = null;
             return quem;
+        }
+
+        private void fecharOLembreteAberto() {
+            if (lembreteAberto != null && lembreteAberto == aberto) fechar();
+            lembreteAberto = null;
         }
 
         private boolean abrirOLembrete(String texto, Runnable liberar) {
@@ -1143,10 +1196,20 @@ final class EquipeNaCasca {
                 .setNegativeButton(R.string.casca_agora_nao, null)
                 .setPositiveButton(R.string.casca_equipe_lembrete_liberar, (d, qual) -> liberar.run())
                 .create();
-            return mostrar(dialogo);
+            if (!mostrar(dialogo)) return false;
+            lembreteAberto = dialogo;
+            return true;
         }
 
-        // O recuo do tempo todo recusado na hora (Task 15): os detalhes do app, onde ficam as permissões.
+        // O Liberar agora com o Android que não pergunta mais o tempo todo (a revisão da Task 15): a tela saindo responde
+        // que pergunta, e o pedido, que também não abre, fica para a próxima volta.
+        @Override
+        public boolean aindaPergunta(String permissao) {
+            if (!ativa()) return true;
+            return ActivityCompat.shouldShowRequestPermissionRationale(activity, permissao);
+        }
+
+        // O recuo do tempo todo no Liberar agora (Task 15): os detalhes do app, onde ficam as permissões.
         @Override
         public boolean abrirOsDetalhesDoApp() {
             if (!ativa()) return false;
@@ -1234,8 +1297,8 @@ final class EquipeNaCasca {
 
         @Override
         public void fechar() {
-            // O lembrete que esperava o foco não aparece depois (o Sair, o coleta:false, a tela saindo).
-            Consumer<Boolean> esperava = pararDeEsperarOFoco();
+            // O lembrete que esperava não aparece depois (o Sair, o coleta:false, a tela saindo).
+            Consumer<Boolean> esperava = pararDeEsperar();
             if (esperava != null) esperava.accept(false);
             AlertDialog dialogo = aberto;
             aberto = null;

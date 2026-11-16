@@ -166,6 +166,11 @@ public class EquipeNaCascaTest {
         boolean outroNaFrente;
         /** O aparelho sem a tela dos detalhes do app (há fabricante que a tira). */
         boolean semOsDetalhes;
+        /**
+         * O shouldShowRequestPermissionRationale do tempo todo falso: depois da segunda recusa, o Android não pergunta mais
+         * (e, antes do primeiro pedido, também é falso).
+         */
+        boolean androidNaoPerguntaMais;
         /** O fechar que lança (o diálogo que a tela não tirou agora). */
         boolean lancarNoFechar;
         Runnable aceitarDoTermo;
@@ -191,6 +196,11 @@ public class EquipeNaCascaTest {
             if (saindo || semOsDetalhes) return false;
             detalhes++;
             return true;
+        }
+
+        @Override
+        public boolean aindaPergunta(String permissao) {
+            return !androidNaoPerguntaMais;
         }
 
         @Override
@@ -1838,6 +1848,57 @@ public class EquipeNaCascaTest {
     }
 
     @Test
+    public void oAndroidQueNaoPerguntaMaisLevaAosDetalhesSemPedirESemDependerDoRelogio() {
+        // A revisão da Task 15: num celular simples o PermissionController parte a frio, e a recusa automática passa de
+        // 1,5 s; pelo relógio só, o técnico que já negou duas vezes, o do pedido de 16/11/2026, nunca veria os detalhes.
+        // Com o pedido já feito na instalação, o Android que não sugere explicar de novo é o "não perguntar de novo": os
+        // detalhes do app, sem pedir.
+        comAInstalacaoDeOntem();
+        servico.rodando = true;
+        tela.androidNaoPerguntaMais = true;
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        tela.liberarDoLembrete.run();
+        assertTrue("nenhum pedido que o Android recusaria sem mostrar nada", tela.pedidos.isEmpty());
+        assertEquals("os detalhes do app", 1, tela.detalhes);
+        assertFalse("o pedido conta como feito", chave.tempoTodoPorPedir());
+        assertEquals("a bateria espera a volta deles", 0, tela.baterias);
+        c.reavaliar(); // uma volta ao app antes de os detalhes abrirem
+        assertEquals(0, tela.baterias);
+        c.aTelaSaiuDaVista(); // os detalhes do app na frente
+        c.aTelaFicouAVista(); // e a volta deles
+        c.reavaliar();
+        assertEquals(1, tela.baterias);
+        assertEquals("os detalhes, uma vez", 1, tela.detalhes);
+    }
+
+    @Test
+    public void semOsDetalhesNoAparelhoONaoPerguntaMaisSegueParaABateria() {
+        comAInstalacaoDeOntem();
+        servico.rodando = true;
+        tela.androidNaoPerguntaMais = true;
+        tela.semOsDetalhes = true;
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        tela.liberarDoLembrete.run();
+        assertTrue(tela.pedidos.isEmpty());
+        assertEquals(0, tela.detalhes);
+        assertEquals("sem esperar uma volta que não vem", 1, tela.baterias);
+    }
+
+    @Test
+    public void naInstalacaoOPedidoDoTempoTodoSaiMesmoSemOAndroidSugerirExplicar() {
+        // Antes do primeiro pedido o shouldShowRequestPermissionRationale também é falso: na instalação, o pedido sai, e o
+        // recuo para os detalhes é só do Liberar agora.
+        tela.androidNaoPerguntaMais = true;
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals(Collections.singletonList(oTempoTodo()), tela.pedidos);
+        assertEquals(0, tela.detalhes);
+    }
+
+    @Test
     public void oTempoTodoDadoNaHoraOuSemOsDetalhesNoAparelhoSegueParaABateria() {
         comAInstalacaoDeOntem();
         servico.rodando = true;
@@ -1930,22 +1991,31 @@ public class EquipeNaCascaTest {
         assertEquals(1, liberados[0]);
     }
 
+    private static final long PASSO = EquipeNaCasca.TelaDaActivity.PASSO_DA_ESPERA_MS;
+    private static final long ESPERA = EquipeNaCasca.TelaDaActivity.ESPERA_DO_LEMBRETE_MS;
+
+    /** O tempo da thread de UI andando: o Robolectric só roda o que foi adiado (as conferências da espera) com o idleFor. */
+    private static void andar(long ms) {
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms));
+    }
+
     @Test
-    public void comOutroDialogoNaFrenteOLembreteEsperaOFocoEDesiste() {
+    public void comOutroDialogoNaFrenteOLembreteEsperaEDesiste() {
         // A Nova versão, o Antes de começar ou um pedido do Android tiram o foco da janela do app: o lembrete não aparece
-        // por cima. Ele espera o foco um pouco (a partida a frio, abaixo) e desiste; a próxima volta ao app decide de novo.
+        // por cima. Ele espera um pouco (a partida a frio, abaixo) e desiste; a próxima volta ao app decide de novo.
         AppCompatActivity activity = activity();
         controle.windowFocusChanged(false);
         EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
         List<Boolean> apareceu = new ArrayList<>();
         t.mostrarLembrete(lembrete("bateria sem restrição"), apareceu::add, () -> fail("nada a liberar"));
-        shadowOf(Looper.getMainLooper()).idle();
+        andar(ESPERA - PASSO);
         assertNull(ShadowDialog.getLatestDialog());
         assertTrue(apareceu.isEmpty());
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(EquipeNaCasca.TelaDaActivity.ESPERA_DO_FOCO_MS));
+        andar(PASSO);
         assertEquals(Collections.singletonList(false), apareceu);
         // O foco que volta depois da desistência não abre nada.
         controle.windowFocusChanged(true);
+        andar(ESPERA);
         assertNull(ShadowDialog.getLatestDialog());
         assertEquals(Collections.singletonList(false), apareceu);
     }
@@ -1958,17 +2028,19 @@ public class EquipeNaCascaTest {
         EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
         List<Boolean> apareceu = new ArrayList<>();
         t.mostrarLembrete(lembrete("bateria sem restrição"), apareceu::add, () -> { });
+        andar(PASSO);
         assertTrue(apareceu.isEmpty());
         controle.windowFocusChanged(true);
+        andar(PASSO);
         AlertDialog d = ultimoDialogo();
         assertTrue(d.isShowing());
         assertEquals(Collections.singletonList(true), apareceu);
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(EquipeNaCasca.TelaDaActivity.ESPERA_DO_FOCO_MS));
+        andar(ESPERA);
         assertEquals("a espera acabou com o foco", Collections.singletonList(true), apareceu);
     }
 
     @Test
-    public void oFecharTiraOLembreteQueEsperavaOFoco() {
+    public void oFecharTiraOLembreteQueEsperava() {
         // O Sair, o coleta:false e a tela saindo: o lembrete que esperava não aparece depois.
         AppCompatActivity activity = activity();
         controle.windowFocusChanged(false);
@@ -1978,9 +2050,91 @@ public class EquipeNaCascaTest {
         t.fechar();
         assertEquals(Collections.singletonList(false), apareceu);
         controle.windowFocusChanged(true);
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(EquipeNaCasca.TelaDaActivity.ESPERA_DO_FOCO_MS));
+        andar(ESPERA);
         assertNull(ShadowDialog.getLatestDialog());
         assertEquals(Collections.singletonList(false), apareceu);
+    }
+
+    @Test
+    public void oLembreteDeOntemAindaAbertoSaiAntesDoDeHoje() {
+        // A revisão da Task 15: o técnico saiu pelo Início sem responder, e o processo passou a noite com a activity e o
+        // diálogo de pé. Com o foco no de ontem, o de hoje esperava à toa e desistia, ou abria logo depois de um Agora não
+        // (a mesma tela duas vezes). O de ontem sai antes, o foco volta à janela, e só o de hoje fica.
+        AppCompatActivity activity = activity();
+        controle.windowFocusChanged(true);
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        List<Boolean> apareceu = new ArrayList<>();
+        t.mostrarLembrete(lembrete("Permitir o tempo todo e bateria sem restrição"), apareceu::add, () -> { });
+        AlertDialog ontem = ultimoDialogo();
+        controle.windowFocusChanged(false); // o foco no diálogo de ontem, a noite inteira
+        t.mostrarLembrete(lembrete("bateria sem restrição"), apareceu::add, () -> { });
+        assertFalse("o de ontem sai antes", ontem.isShowing());
+        controle.windowFocusChanged(true); // sem ele, o foco volta à janela do app
+        andar(PASSO);
+        AlertDialog hoje = ultimoDialogo();
+        assertTrue("outro diálogo", hoje != ontem);
+        assertTrue(hoje.isShowing());
+        assertEquals(lembrete("bateria sem restrição"), texto(hoje, android.R.id.message));
+        assertEquals(Arrays.asList(true, true), apareceu);
+    }
+
+    @Test
+    public void comOAtualizadorNoArOLembreteNaoAbreEDesiste() {
+        // A revisão da Task 15: o onResume manda o Atualizador à rede antes da decisão da equipe, e a Nova versão abria
+        // segundos depois, por cima do lembrete, em todo dia de Release. Com o fluxo dele no ar (a conferência na rede, o
+        // diálogo da versão, o download), o lembrete não abre, mesmo com o foco livre, e fica para a volta seguinte.
+        AppCompatActivity activity = activity();
+        controle.windowFocusChanged(true);
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        List<Boolean> apareceu = new ArrayList<>();
+        Atualizador.DONO_DO_PROCESSO.set(new Object());
+        try {
+            assertTrue(Atualizador.noAr());
+            t.mostrarLembrete(lembrete("bateria sem restrição"), apareceu::add, () -> fail("nada a liberar"));
+            andar(ESPERA - PASSO);
+            assertNull(ShadowDialog.getLatestDialog());
+            assertTrue(apareceu.isEmpty());
+            andar(PASSO);
+            assertEquals(Collections.singletonList(false), apareceu);
+        } finally {
+            Atualizador.DONO_DO_PROCESSO.set(null);
+        }
+        assertFalse(Atualizador.noAr());
+        andar(ESPERA);
+        assertNull("a desistência não volta sozinha", ShadowDialog.getLatestDialog());
+    }
+
+    @Test
+    public void oAtualizadorQueVoltaDaRedeSemVersaoNovaSoltaOLembrete() {
+        // A conferência que volta sem versão nova (a maioria das aberturas) solta o fluxo logo: o lembrete abre depois
+        // dela, dentro da espera, e não por baixo de uma Nova versão que ainda poderia vir.
+        AppCompatActivity activity = activity();
+        controle.windowFocusChanged(true);
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        List<Boolean> apareceu = new ArrayList<>();
+        Atualizador.DONO_DO_PROCESSO.set(new Object());
+        try {
+            t.mostrarLembrete(lembrete("bateria sem restrição"), apareceu::add, () -> { });
+            andar(PASSO * 5);
+            assertTrue("com a conferência na rede, nada", apareceu.isEmpty());
+        } finally {
+            Atualizador.DONO_DO_PROCESSO.set(null); // a rede voltou, sem versão nova
+        }
+        andar(PASSO);
+        assertTrue(ultimoDialogo().isShowing());
+        assertEquals(Collections.singletonList(true), apareceu);
+    }
+
+    @Test
+    public void aTelaDeVerdadeDizSeOAndroidAindaPergunta() {
+        AppCompatActivity activity = activity();
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        assertFalse("o shouldShowRequestPermissionRationale falso", t.aindaPergunta(TEMPO_TODO));
+        shadowOf(app.getPackageManager()).setShouldShowRequestPermissionRationale(TEMPO_TODO, true);
+        assertTrue("depois de uma recusa, enquanto o Android ainda pergunta", t.aindaPergunta(TEMPO_TODO));
+        shadowOf(app.getPackageManager()).setShouldShowRequestPermissionRationale(TEMPO_TODO, false);
+        controle.pause().stop().destroy();
+        assertTrue("a tela saindo: decide o pedido, que também não abre", t.aindaPergunta(TEMPO_TODO));
     }
 
     @Test

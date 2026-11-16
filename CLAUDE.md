@@ -1202,17 +1202,26 @@ O site (App de Campo) e o Fracttal não mudam.
     por cima, e ele fica para o dia seguinte); o `apagar` e a outra conta a tiram, o 401 não. **O Liberar agora**
     reaproveita os pedidos da instalação, sem uma segunda cópia: `ChaveDaEquipe.liberarDeNovo` põe de novo as três marcas
     `*_por_pedir`, e a decisão de agora faz o fluxo de depois do termo, um passo por vez e só o que falta (cada pedido sai
-    sem abrir o que já está liberado). O pedido do tempo todo do Liberar agora que o Android recusa na hora, sem mostrar
-    nada (o "não perguntar de novo", do Android 11 em diante depois da segunda recusa), cai nos detalhes do app. Conta
-    como na hora a recusa que chega em menos de `RECUSA_NA_HORA_MS` (1,5 s no `elapsedRealtime`, do pedido na tela à
-    resposta no launcher): o PermissionController a frio num celular simples leva quase 1 s, e quem lê a tela do Android
-    leva mais; o erro para o outro lado (a recusa rápida de gente) só abre os detalhes, onde também se libera. A bateria
-    espera a volta deles (`detalhesACaminho`, solto na tela que sai da vista, pela thread do trabalho, atrás do onResume
-    que vem logo depois da recusa); no fluxo da instalação, a recusa rápida segue como antes. **Nada na frente**: a casca
-    não sabe de todos os diálogos (a Nova versão, o Antes de começar, os avisos depois do pedido das permissões) nem dos
-    pedidos do Android de fora dela: a `TelaDaActivity` confere o foco da janela do app, e sem ele espera até
-    `ESPERA_DO_FOCO_MS` (3 s: na partida a frio a decisão chega antes de a janela ser desenhada e ganhar o foco) e desiste
-    sem marcar o dia (a volta seguinte decide de novo). O aviso da barra continua como está.
+    sem abrir o que já está liberado). **O Android que não pergunta mais** (o "não perguntar de novo", do Android 11 em
+    diante depois da segunda recusa) recusaria o pedido do tempo todo sem mostrar nada: no Liberar agora, quem decide é o
+    `shouldShowRequestPermissionRationale` (`Tela.aindaPergunta`, na thread de UI). O lembrete só vem com as marcas da
+    instalação tiradas, então o pedido já foi feito, e o false é o "não perguntar de novo": os detalhes do app abrem no
+    lugar do pedido, e ele conta como feito. Na instalação o mesmo false é o pedido nunca feito, e se pede. O relógio fica
+    de reforço: a recusa que chega em menos de `RECUSA_NA_HORA_MS` (1,5 s no `elapsedRealtime`, do pedido na tela à
+    resposta no launcher) também cai nos detalhes. Caso (a revisão da Task 15): pelo relógio só, num celular simples o
+    PermissionController parte a frio, a recusa automática passa de 1,5 s, e o técnico que negou duas vezes nunca veria a
+    tela. A bateria espera a volta dos detalhes (`detalhesACaminho`, posto antes de eles abrirem e solto na tela que sai da
+    vista, pela thread do trabalho, atrás do onResume que vem logo depois); no fluxo da instalação, nada disso muda.
+    **Nada na frente**: a casca não sabe de todos os diálogos (o Antes de começar, os avisos depois do pedido das
+    permissões) nem dos pedidos do Android de fora dela, e a `TelaDaActivity` confere o foco da janela do app. Também
+    confere o Atualizador fora do ar (`Atualizador.noAr`: a conferência do `versao.json` na rede, o diálogo da versão ou da
+    permissão, o download). Caso (a revisão): o onResume manda o Atualizador à rede antes da decisão da equipe, e a Nova
+    versão abria por cima do lembrete em todo dia de Release. Sem as duas coisas agora, o lembrete confere de novo a cada
+    `PASSO_DA_ESPERA_MS` (100 ms) até `ESPERA_DO_LEMBRETE_MS` (3 s): na partida a frio a decisão chega antes de a janela
+    ganhar o foco, e a conferência que volta sem versão nova solta o Atualizador logo. Depois disso ele desiste sem marcar
+    o dia, e a volta seguinte decide de novo. O lembrete de ontem ainda aberto (o processo que passou a noite com a
+    activity de pé) sai antes do de hoje: com o foco nele, o de hoje esperava à toa ou abria duas vezes seguidas. O aviso
+    da barra continua como está.
   - **O termo é o aviso de privacidade inteiro, e só se aceita depois de rolar até o fim (R11, o pedido do dono em
     09/11/2026: "Quero que o termo de notificação inclua tudo referente a LGPD e seja que nem as empresas grandes fazem,
     aparece a pessoa tem que rolar até o final para aceitar").** O texto (12 seções; o jurídico ainda confirma a base
@@ -1334,8 +1343,8 @@ O site (App de Campo) e o Fracttal não mudam.
   localização da equipe" do `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às 22h, a tela
   apagada, as marcas, o aviso das 6h, a conta conferida guardada, o pedido do tempo todo, a janela da bateria, a tela do
   Início automático e a leitura dele por reflexão, o aviso do que falta, o lembrete diário com o foco da janela na
-  partida a frio e a recusa na hora que abre os detalhes do app, e a coleta que volta sozinha depois de matar o app,
-  reiniciar e atualizar).
+  partida a frio, o dia de Release e o Android que não pergunta mais o tempo todo, que leva aos detalhes do app, e a
+  coleta que volta sozinha depois de matar o app, reiniciar e atualizar).
 
 ## Distribuição
 
