@@ -206,6 +206,20 @@
     <string name="casca_equipe_termo_aceitar">Li e aceito</string>
 
     <!--
+      O lembrete diário do que falta liberar no celular (Task 15, 1.2.5, o pedido do dono em 16/11/2026: "Eu estou tendo
+      pouca adesão na parte dos técnicos. Ou eles não instalam, ou quando eles instalam, eles não marcam lá o permit o
+      tempo todo."; EquipeNaCasca). Textos novos, PENDENTES de aprovação do dono da casca: vão à prévia
+      (docs/previas/telas.html, a seção Localização da equipe, #t-equipe-lembrete) e só valem depois de aprovados. Uma vez
+      por dia, na volta ao app com a coleta ligada, se falta o Permitir o tempo todo, a bateria sem restrição ou o Início
+      automático. O texto leva a lista no %1$s, com os mesmos nomes do aviso do que falta (os notificacao_falta_, sem a
+      localização precisa), a vírgula entre eles e o "e" no último (o AvisoDoQueFalta os junta). O outro botão é o
+      casca_agora_nao, o mesmo dos outros diálogos.
+    -->
+    <string name="casca_equipe_lembrete_titulo">Falta liberar no celular</string>
+    <string name="casca_equipe_lembrete_texto">Para a localização da equipe funcionar com o app fechado, falta liberar: %1$s. Toque em Liberar agora e siga as telas do Android.</string>
+    <string name="casca_equipe_lembrete_liberar">Liberar agora</string>
+
+    <!--
       O atalho de teste dos avisos, só para administrador (decisão do dono, 18/10/2026): o toque longo no ícone do Nexus
       Field mostra estes dois atalhos só na conta que o servidor diz Admin, e cada um pede ao servidor um aviso de teste
       no canal dele (o alto e o silencioso), junto com um resumo de teste, que toca com o som normal no canal do resumo:

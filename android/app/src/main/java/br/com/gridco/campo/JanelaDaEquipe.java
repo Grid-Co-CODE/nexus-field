@@ -1,6 +1,7 @@
 package br.com.gridco.campo;
 
 import java.util.Calendar;
+import java.util.Locale;
 import java.util.TimeZone;
 
 /**
@@ -37,5 +38,16 @@ final class JanelaDaEquipe {
     /** O deslocamento do fuso em relação ao UTC, em minutos, naquele instante (Brasília: -180). */
     static int fusoEmMinutos(long instante, TimeZone fuso) {
         return fuso.getOffset(instante) / 60_000;
+    }
+
+    /**
+     * O dia do celular (no fuso dado) a que o instante pertence, como texto ("2026-313", o ano e o dia do ano): a marca do
+     * som do aviso do que falta e a do lembrete diário (Task 15). Muda à meia-noite da hora do celular, como a janela muda
+     * pela hora dele.
+     */
+    static String dia(long instante, TimeZone fuso) {
+        Calendar c = Calendar.getInstance(fuso);
+        c.setTimeInMillis(instante);
+        return String.format(Locale.ROOT, "%04d-%03d", c.get(Calendar.YEAR), c.get(Calendar.DAY_OF_YEAR));
     }
 }

@@ -16,9 +16,7 @@ import androidx.core.content.ContextCompat;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.List;
-import java.util.Locale;
 import java.util.TimeZone;
 
 /**
@@ -131,8 +129,21 @@ final class AvisoDoQueFalta {
      * sem restrição e o Início automático (só o desligado; o nulo não conta). A notificação não entra.
      */
     static List<String> oQueFalta(Context contexto, JSONObject ajustes) {
+        return oQueFalta(contexto, ajustes, true);
+    }
+
+    /**
+     * O que falta liberar para o lembrete diário (Task 15, {@link EquipeNaCasca}): os mesmos nomes, na mesma ordem, sem a
+     * localização precisa. Ela não entra porque tem o pedido dela (o Antes de começar, a cada abertura) e o lembrete só
+     * vem com ela dada: sem a durante o uso, o Android nem mostra o pedido do tempo todo.
+     */
+    static List<String> oQueFaltaLiberar(Context contexto, JSONObject ajustes) {
+        return oQueFalta(contexto, ajustes, false);
+    }
+
+    private static List<String> oQueFalta(Context contexto, JSONObject ajustes, boolean comALocalizacao) {
         List<String> faltas = new ArrayList<>();
-        if (!"precisa".equals(ajustes.optString("localizacao"))) {
+        if (comALocalizacao && !"precisa".equals(ajustes.optString("localizacao"))) {
             faltas.add(contexto.getString(R.string.notificacao_falta_localizacao));
         }
         if (!ajustes.optBoolean("tempoTodo", false)) faltas.add(contexto.getString(R.string.notificacao_falta_tempo_todo));
@@ -144,7 +155,6 @@ final class AvisoDoQueFalta {
         }
         return faltas;
     }
-
 
     // A casca só fala português (o strings.xml é tools:locale="pt"): a vírgula entre os itens e o "e" antes do último
     // ficam aqui, e os nomes no strings.xml.
@@ -187,7 +197,8 @@ final class AvisoDoQueFalta {
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         long fim = JanelaDaEquipe.fimDaJanela(agora, TimeZone.getDefault());
         String texto = app.getString(R.string.notificacao_falta_texto, lista);
-        String marca = dia(agora) + "\n" + lista;
+        // O dia do celular (o fuso dele), o mesmo do lembrete diário.
+        String marca = JanelaDaEquipe.dia(agora, TimeZone.getDefault()) + "\n" + lista;
         SharedPreferences prefs = preferencias(app);
         boolean jaTocou = marca.equals(prefs.getString(CHAVE_TOCOU, null));
         NotificationCompat.Builder b = new NotificationCompat.Builder(app, CANAL_AJUSTES)
@@ -213,7 +224,6 @@ final class AvisoDoQueFalta {
         if (!jaTocou) prefs.edit().putString(CHAVE_TOCOU, marca).apply();
     }
 
-    // O dia do celular (o fuso dele), para a marca do som.
     // O toque leva aonde se resolve o que falta. Caso de 10/11/2026 (o celular do dono, HyperOS 2): os detalhes do app
     // não têm a chave do Início automático, nem em Outras permissões, e o técnico que tocava no aviso não a achava; ela só
     // está na tela do HyperOS. Com o Início automático na lista, o toque abre essa tela, se o aparelho a tiver (o
@@ -230,12 +240,6 @@ final class AvisoDoQueFalta {
             }
         }
         return InicioAutomatico.osDetalhesDoApp(app);
-    }
-
-    private static String dia(long agora) {
-        Calendar c = Calendar.getInstance(TimeZone.getDefault());
-        c.setTimeInMillis(agora);
-        return String.format(Locale.ROOT, "%04d-%03d", c.get(Calendar.YEAR), c.get(Calendar.DAY_OF_YEAR));
     }
 
     private static SharedPreferences preferencias(Context contexto) {

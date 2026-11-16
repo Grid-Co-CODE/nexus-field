@@ -396,15 +396,15 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       **Permitir o tempo todo** e voltar ao app: a janela da bateria vem em seguida, e o log da casca diz "o tempo todo
       dado com a coleta ligada: a casca a inicia de novo". Noutra conta de teste (ou depois do **Sair**), ficar com a
       durante o uso: a coleta segue igual, a janela da bateria vem igual, o mapa não muda (não é falta de permissão), e o
-      pedido não volta para a mesma conta (fechar e abrir o app, reiniciar o celular, voltar no dia seguinte). Num
-      aparelho com o tempo todo já dado, nada se pede.
+      pedido não volta sozinho para a mesma conta (fechar e abrir o app, reiniciar o celular); no dia seguinte, quem o traz
+      é o lembrete diário (1.2.5, abaixo). Num aparelho com o tempo todo já dado, nada se pede.
 - [ ] A janela da bateria, uma vez depois do termo: logo depois do **Li e aceito**, da localização dada e da resposta ao
       pedido do tempo todo (a ordem: a localização, o tempo todo, a bateria), com a coleta ligada, aparece a janela do
       próprio Android que pede deixar o Nexus Field sem restrição de bateria (o texto é do Android e muda com a versão e a
       marca: anote o que apareceu), sem outra tela do Nexus Field antes, e a notificação fixa **Localização da equipe
       ligada** já está na barra (a coleta liga antes das duas). Recusar: a coleta segue
-      igual, e a janela não volta para a mesma conta (fechar e abrir o app, reiniciar o celular, voltar no dia
-      seguinte). Noutra conta de teste (ou depois do **Sair**), o termo e a janela aparecem de novo. Aceitar: em
+      igual, e a janela não volta sozinha para a mesma conta (fechar e abrir o app, reiniciar o celular); no dia
+      seguinte, quem a traz é o lembrete diário. Noutra conta de teste (ou depois do **Sair**), o termo e a janela aparecem de novo. Aceitar: em
       Configurações, Bateria, o Nexus Field fica **Sem restrições** (o nome muda com a marca), e a janela não volta. Num
       aparelho com o Nexus Field já liberado antes do termo, nenhuma janela aparece. Se o aparelho não tiver a janela, o
       log da casca diz "a janela da bateria sem restrição não abriu" e nada mais acontece: anote o modelo.
@@ -415,8 +415,9 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       antes (o log da casca diz "a casca abre a tela do Início automático do HyperOS"); se ela não abrir, abrem os
       ajustes do Nexus Field (o log diz "a tela do Início automático do HyperOS não abriu"), onde ele também está: anote
       o modelo e a versão do HyperOS. Ligar o Nexus Field nela e voltar: nada mais aparece. Noutra conta de teste (ou
-      depois do **Sair**), desligá-lo antes e recusar: a coleta segue igual, e a tela não volta para a mesma conta (fechar
-      e abrir o app, reiniciar o celular). Num aparelho com ele já ligado, ou de outra marca, nenhuma tela.
+      depois do **Sair**), desligá-lo antes e recusar: a coleta segue igual, e a tela não volta sozinha para a mesma conta
+      (fechar e abrir o app, reiniciar o celular); no dia seguinte, quem a traz é o lembrete diário. Num aparelho com ele
+      já ligado, ou de outra marca, nenhuma tela.
 - [ ] O aviso do que falta (1.2.3): recusar o Permitir o tempo todo, a bateria e o Início automático no fluxo do termo.
       No meio dos pedidos nada aparece; na volta ao app depois da última tela, chega o aviso **Falta liberar no
       celular**, **Falta: Permitir o tempo todo, bateria sem restrição e Início automático. Toque para abrir os ajustes do
@@ -429,6 +430,28 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       e depois das 22h, nada; às 22h ele sai sozinho. Depois do **Sair**, ele some e não volta. Às 6h e depois de
       reiniciar o celular, com algo faltando, ele aparece sem abrir o app (no Xiaomi, só com o Início automático ligado:
       anote se, sem ele, apareceu).
+- [ ] O lembrete diário (1.2.5, o pedido do dono em 16/11/2026: técnicos que instalavam e não deixavam o Permitir o
+      tempo todo). Recusar o Permitir o tempo todo (e, se der, a bateria e o Início automático) no fluxo do termo: no
+      mesmo dia, fechar e abrir o app e voltar a ele não traz o lembrete (o fluxo da instalação já pediu hoje). No dia
+      seguinte, depois das 6h (ou com o relógio do aparelho no dia seguinte, com o horário automático desligado), abrir o
+      Nexus Field: com a coleta ligando, aparece a tela do Nexus Field **Falta liberar no celular**, **Para a localização
+      da equipe funcionar com o app fechado, falta liberar: Permitir o tempo todo, bateria sem restrição e Início
+      automático. Toque em Liberar agora e siga as telas do Android.** (só o que falta; o Início automático só num
+      Xiaomi), com os botões **Agora não** e **Liberar agora**, sem o aviso da barra tocando junto (ele vem na volta ou no
+      envio seguinte). O log da casca diz "o lembrete do dia: falta liberar". Anote o modelo e a versão do Android.
+- [ ] O **Liberar agora** leva às telas, uma por vez e só do que falta: o pedido do Permitir o tempo todo (a tela do
+      Android 10, ou os ajustes do Nexus Field do 11 em diante); na volta, a janela da bateria sem restrição; na volta
+      dela, num Xiaomi, a tela do Início automático do HyperOS. Liberar tudo e voltar: o aviso **Falta liberar no
+      celular** some, e nada mais aparece. Do Android 11 em diante, depois de recusar o tempo todo duas vezes (o Android
+      não pergunta mais), o **Liberar agora** abre direto os detalhes do Nexus Field nos ajustes (o log diz "o Android
+      recusou o tempo todo sem mostrar nada: a casca abre os detalhes do app"), e a janela da bateria só vem na volta
+      deles, nunca por cima. Anote se, num Android 10 com a recusa rápida (menos de 1,5 s), os detalhes abriram.
+- [ ] O **Agora não** só fecha, como tocar fora e o Voltar: nada se pede, e a volta ao app não o mostra de novo no mesmo
+      dia. Fechar o app com o lembrete aberto (tirá-lo dos recentes) e abrir de novo: ele não volta no mesmo dia. No dia
+      seguinte, com algo ainda faltando, ele volta uma vez. Com tudo liberado, nada aparece, em nenhum dia. Antes das 6h e
+      depois das 22h, nada. Com a **Nova versão do Nexus Field** (ou outro diálogo) na frente quando o app abre, o lembrete
+      não aparece por cima; ele vem numa volta seguinte ao app. Depois do **Sair**, a conta seguinte só vê o lembrete no
+      dia seguinte ao aceite do termo dela.
 - [ ] O termo é uma vez por conta: fechar e abrir o Nexus Field, reiniciar o celular, voltar no dia seguinte: o termo não
       aparece de novo para a mesma conta.
 - [ ] A coleta liga: a notificação fixa **Localização da equipe ligada** fica na barra, sem som e sem vibração.

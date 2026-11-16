@@ -63,6 +63,13 @@ import java.util.UUID;
  *       aceito ({@link #inicioAutomaticoPorPedir}), aberta quando a casca a mandou à tela, ou nada a abrir fora do Xiaomi
  *       ou com ele já ligado ({@link #inicioAutomaticoPedido}). Recusada, não volta até a próxima conta ou o próximo
  *       termo.</li>
+ *   <li>O lembrete diário do que falta liberar (Task 15, {@link EquipeNaCasca}): o dia em que o técnico já foi lembrado
+ *       ({@link #diaDoLembrete}), posto quando o lembrete aparece, e também pelo Li e aceito e por cada pedido do fluxo
+ *       da instalação, que já pediram tudo naquele dia ({@link #lembrado}). No disco, e não na memória: o app fechado com
+ *       o lembrete aberto não o traz de volta no mesmo dia. O Liberar agora deixa os três pedidos de depois do termo por
+ *       fazer de novo ({@link #liberarDeNovo}), e o fluxo da instalação os faz, só o que falta. Caso que criou a regra (o
+ *       pedido do dono em 16/11/2026): recusado na instalação, o pedido não voltava, e os técnicos ficavam sem o Permitir o
+ *       tempo todo.</li>
  * </ul>
  */
 final class ChaveDaEquipe {
@@ -99,6 +106,9 @@ final class ChaveDaEquipe {
     // O Sair que começou e ainda não terminou ({@link #saindo}): posto no toque, tirado com a chave (o apagar) ou com a
     // chave nova (o guardar).
     private static final String K_SAINDO = "sair_por_terminar";
+    // O dia do celular (JanelaDaEquipe.dia) em que o técnico já foi lembrado do que falta liberar (Task 15): o lembrete
+    // diário que apareceu, o Li e aceito ou um pedido do fluxo da instalação. Tirado pelo apagar e pela outra conta.
+    private static final String K_LEMBRETE = "lembrete_do_dia";
 
     private final Context app;
     private final SharedPreferences prefs;
@@ -129,7 +139,8 @@ final class ChaveDaEquipe {
     /**
      * Guarda a chave e a conta dela, as duas cifradas, de uma vez. True se é outra chave ou outra conta que as de antes.
      * Outra conta que a guardada (ou sem conta guardada, ou com a que a cifra não lê) esquece o termo aceito, a janela da
-     * bateria, o pedido do tempo todo e a tela do Início automático por fazer; a chave nova da mesma conta os mantém. Guardada (ou a mesma de antes),
+     * bateria, o pedido do tempo todo e a tela do Início automático por fazer e o dia do lembrete; a chave nova da mesma
+     * conta os mantém. Guardada (ou a mesma de antes),
      * a conta fica conferida, também no disco: é a chave que a página desta tela entregou, da conta que ela mandou. A cifra
      * que falha lança antes, e a conferência fica como estava.
      */
@@ -145,7 +156,7 @@ final class ChaveDaEquipe {
         SharedPreferences.Editor gravacao = prefs.edit().putString(K_CHAVE, cifrada).putString(K_CONTA, contaCifrada)
             .putString(K_CONFERIDA, contaCifrada);
         if (!conta.equals(contaGuardada)) {
-            gravacao.remove(K_TERMO).remove(K_BATERIA).remove(K_TEMPO_TODO).remove(K_INICIO);
+            gravacao.remove(K_TERMO).remove(K_BATERIA).remove(K_TEMPO_TODO).remove(K_INICIO).remove(K_LEMBRETE);
         }
         gravacao.remove(K_SAINDO).commit(); // a chave nova é da conta da página: o Sair de antes não vale para ela
         conferidaPelaPagina(conta);
@@ -244,13 +255,13 @@ final class ChaveDaEquipe {
 
     /**
      * O Sair, a troca de conta e o coleta:false: a chave, a conta, o termo aceito, a janela da bateria, o pedido do tempo
-     * todo e a tela do Início automático por fazer e a conferência (a da memória e a do disco) saem juntos, e o aviso das
-     * 6h e o do que falta com eles ({@link #semOsAvisos}), com a marca do som do aviso do que falta (a próxima conta ouve o
-     * aviso dela).
+     * todo e a tela do Início automático por fazer, o dia do lembrete e a conferência (a da memória e a do disco) saem
+     * juntos, e o aviso das 6h e o do que falta com eles ({@link #semOsAvisos}), com a marca do som do aviso do que falta
+     * (a próxima conta ouve o aviso dela).
      */
     synchronized void apagar() {
         prefs.edit().remove(K_CHAVE).remove(K_CONTA).remove(K_TERMO).remove(K_CONFERIDA).remove(K_BATERIA)
-            .remove(K_TEMPO_TODO).remove(K_INICIO).remove(K_SAINDO).commit();
+            .remove(K_TEMPO_TODO).remove(K_INICIO).remove(K_SAINDO).remove(K_LEMBRETE).commit();
         conferida = false;
         contaDaPagina = null;
         porRefazer = false;
@@ -429,5 +440,39 @@ final class ChaveDaEquipe {
      */
     synchronized void inicioAutomaticoPedido() {
         if (prefs.contains(K_INICIO)) gravar(prefs.edit().remove(K_INICIO));
+    }
+
+    /**
+     * Algum dos três pedidos de depois do termo ainda por fazer (o tempo todo, a bateria, o Início automático): o fluxo da
+     * instalação, ou o do Liberar agora, ainda vai pedir, e o lembrete diário não aparece por cima dele (Task 15).
+     */
+    synchronized boolean ajustesPorPedir() {
+        return tempoTodoPorPedir() || bateriaPorPedir() || inicioAutomaticoPorPedir();
+    }
+
+    /**
+     * O Liberar agora do lembrete diário (Task 15): os três pedidos de depois do termo ficam por fazer de novo, como o Li e
+     * aceito os deixa, e o fluxo da instalação os faz, na ordem dele e só o que falta (cada um sai sem pedir quando já está
+     * liberado). Sem o termo de agora aceito, as marcas não valem ({@link #tempoTodoPorPedir} e as outras).
+     */
+    synchronized void liberarDeNovo() {
+        gravar(prefs.edit().putBoolean(K_TEMPO_TODO, true).putBoolean(K_BATERIA, true).putBoolean(K_INICIO, true));
+    }
+
+    /** O dia do celular ({@link JanelaDaEquipe#dia}) em que o técnico já foi lembrado do que falta liberar, ou null. */
+    synchronized String diaDoLembrete() {
+        try {
+            return prefs.getString(K_LEMBRETE, null);
+        } catch (ClassCastException e) {
+            return null;
+        }
+    }
+
+    /**
+     * O técnico foi lembrado neste dia do celular: o lembrete diário apareceu, ou o Li e aceito e o fluxo da instalação já
+     * pediram. Até o dia seguinte o lembrete não volta (Task 15).
+     */
+    synchronized void lembrado(String dia) {
+        if (!dia.equals(diaDoLembrete())) gravar(prefs.edit().putString(K_LEMBRETE, dia));
     }
 }

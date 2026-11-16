@@ -57,6 +57,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.function.Consumer;
 
 import org.json.JSONObject;
 import org.junit.After;
@@ -147,9 +148,9 @@ public class EquipeNaCascaTest {
     }
 
     /**
-     * A tela de mentira: guarda o Li e aceito do termo, os pedidos ao Android, as janelas da bateria e as telas do Início
-     * automático; com {@code saindo}, nada abre. Ela só tem o termo e as telas do Android e do HyperOS: nenhuma outra tela
-     * nossa existe para a casca abrir.
+     * A tela de mentira: guarda o Li e aceito do termo, os pedidos ao Android, as janelas da bateria, as telas do Início
+     * automático, os lembretes diários e os detalhes do app; com {@code saindo}, nada abre. As telas nossas são só o termo
+     * e o lembrete diário (Task 15); as outras são do Android e do HyperOS.
      */
     private static final class TelaFalsa implements EquipeNaCasca.Tela {
         int termos;
@@ -158,11 +159,39 @@ public class EquipeNaCascaTest {
         int baterias;
         /** A tela do Início automático do HyperOS (Task 14). */
         int iniciosAutomaticos;
+        /** Os detalhes do app, o recuo do tempo todo que o Android recusou sem mostrar nada (Task 15). */
+        int detalhes;
         boolean saindo;
+        /** Outro diálogo da casca, ou um pedido do Android, na frente: o lembrete não aparece agora. */
+        boolean outroNaFrente;
+        /** O aparelho sem a tela dos detalhes do app (há fabricante que a tira). */
+        boolean semOsDetalhes;
         /** O fechar que lança (o diálogo que a tela não tirou agora). */
         boolean lancarNoFechar;
         Runnable aceitarDoTermo;
         final List<List<String>> pedidos = new ArrayList<>();
+        /** O texto de cada lembrete diário que apareceu (Task 15). */
+        final List<String> lembretes = new ArrayList<>();
+        /** O Liberar agora do último lembrete que apareceu. */
+        Runnable liberarDoLembrete;
+
+        @Override
+        public void mostrarLembrete(String texto, Consumer<Boolean> depois, Runnable liberar) {
+            if (saindo || outroNaFrente) {
+                depois.accept(false);
+                return;
+            }
+            lembretes.add(texto);
+            liberarDoLembrete = liberar;
+            depois.accept(true);
+        }
+
+        @Override
+        public boolean abrirOsDetalhesDoApp() {
+            if (saindo || semOsDetalhes) return false;
+            detalhes++;
+            return true;
+        }
 
         @Override
         public boolean pedirSemRestricaoDeBateria() {
@@ -203,6 +232,8 @@ public class EquipeNaCascaTest {
     private Application app;
     private TimeZone fusoDeAntes;
     private long agora;
+    /** O relógio que não volta (o elapsedRealtime do Android): mede quanto o Android levou para responder a um pedido. */
+    private long monotonico;
     private CifraFalsa cifra;
     private ChaveDaEquipe chave;
     private FilaDePontos fila;
@@ -264,7 +295,7 @@ public class EquipeNaCascaTest {
     /** A casca com a thread do envio e a de UI rodando na hora, na thread do teste, e a tela à vista (o onResume). */
     private EquipeNaCasca casca() {
         EquipeNaCasca c = new EquipeNaCasca(app, chave, fila, envio(), servico, tela, Runnable::run, Runnable::run,
-            () -> agora, "1.2.0");
+            () -> agora, () -> monotonico, "1.2.0");
         c.aTelaFicouAVista();
         return c;
     }
@@ -881,7 +912,7 @@ public class EquipeNaCascaTest {
     /** A casca com a thread do envio em fila: o que entra nela só roda no {@link #soltar}. */
     private EquipeNaCasca cascaComAThreadEmFila(Deque<Runnable> threadDoEnvio) {
         EquipeNaCasca c = new EquipeNaCasca(app, chave, fila, envio(), servico, tela, threadDoEnvio::add, Runnable::run,
-            () -> agora, "1.2.0");
+            () -> agora, () -> monotonico, "1.2.0");
         c.aTelaFicouAVista();
         return c;
     }
@@ -1542,6 +1573,7 @@ public class EquipeNaCascaTest {
         tirar(TEMPO_TODO);
         liberarDaBateria(true); // nada mais a pedir: a volta ao app já mostra o que falta
         comChaveETermo(CHAVE_A);
+        jaLembradoHoje(); // o lembrete do dia já apareceu: nada na frente do aviso (Task 15)
         EquipeNaCasca c = casca();
         c.reavaliar();
         assertNotNull(avisoDoQueFalta());
@@ -1549,10 +1581,419 @@ public class EquipeNaCascaTest {
         assertNull("o Sair", avisoDoQueFalta());
 
         comChaveETermo(CHAVE_A);
+        jaLembradoHoje();
         c.reavaliar();
         assertNotNull(avisoDoQueFalta());
         c.receberChave(false, null, CONTA_A);
         assertNull("o coleta:false", avisoDoQueFalta());
+    }
+
+    // --- o lembrete diário do que falta liberar (Task 15, 1.2.5) ------------------------------------------------------
+
+    /**
+     * O aparelho cuja instalação terminou num dia de antes: a chave da conta A, o termo de agora aceito e os três pedidos
+     * de depois do termo já feitos (recusados, ou nada a pedir), sem a marca do dia de hoje.
+     */
+    private void comAInstalacaoDeOntem() {
+        chave.guardar(CHAVE_A, CONTA_A);
+        chave.aceitarTermo();
+        chave.tempoTodoPedido();
+        chave.bateriaPedida();
+        chave.inicioAutomaticoPedido();
+    }
+
+    /** O texto do lembrete com a lista do que falta, palavra por palavra (o pedido do dono em 16/11/2026). */
+    private static String lembrete(String lista) {
+        return "Para a localização da equipe funcionar com o app fechado, falta liberar: " + lista
+            + ". Toque em Liberar agora e siga as telas do Android.";
+    }
+
+    /** O lembrete de hoje já apareceu (a marca do dia no disco). */
+    private void jaLembradoHoje() {
+        chave.lembrado(JanelaDaEquipe.dia(agora, BRASILIA));
+    }
+
+    @Test
+    public void comOLembreteNaFrenteOAvisoDoQueFaltaEsperaAVoltaSeguinte() {
+        // A mesma regra dos pedidos do Android: com o lembrete na frente do técnico, o aviso da barra com o mesmo título não
+        // toca por cima dele; ele vem na volta seguinte (ou no envio seguinte, que também o confere), como antes.
+        dar(Manifest.permission.POST_NOTIFICATIONS);
+        comAInstalacaoDeOntem();
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertEquals(1, tela.lembretes.size());
+        assertNull("com o lembrete na frente, nada", avisoDoQueFalta());
+        servico.rodando = true;
+        c.reavaliar();
+        assertNotNull("na volta seguinte, o aviso de sempre", avisoDoQueFalta());
+    }
+
+    @Test
+    public void oLembreteApareceUmaVezPorDiaSoQuandoFaltaAlgo() {
+        // O pedido do dono em 16/11/2026: "Ou eles não instalam, ou quando eles instalam, eles não marcam lá o permit o
+        // tempo todo." Recusado no fluxo da instalação, o pedido não voltava, e só o aviso da barra lembrava. A casca
+        // insiste uma vez por dia, na volta ao app, até tudo estar liberado.
+        comAInstalacaoDeOntem();
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertEquals("a coleta liga, como sempre", 1, servico.iniciados);
+        assertEquals(Collections.singletonList(lembrete("Permitir o tempo todo e bateria sem restrição")), tela.lembretes);
+        assertEquals("nenhuma outra tela", 0, tela.termos + tela.pedidos.size() + tela.baterias);
+
+        servico.rodando = true;
+        c.reavaliar();
+        partidaNova();
+        casca().reavaliar();
+        assertEquals("uma vez por dia, também na partida nova", 1, tela.lembretes.size());
+
+        agora = em(10, 7, 0); // o dia seguinte
+        EquipeNaCasca amanha = casca();
+        amanha.reavaliar();
+        assertEquals(2, tela.lembretes.size());
+
+        // Tudo liberado: nada aparece, nem no outro dia.
+        dar(TEMPO_TODO);
+        liberarDaBateria(true);
+        agora = em(11, 7, 0);
+        amanha.reavaliar();
+        assertEquals(2, tela.lembretes.size());
+        assertEquals("nada foi pedido sem o Liberar agora", 0, tela.pedidos.size() + tela.baterias);
+    }
+
+    @Test
+    public void oTextoDizSoOQueFaltaComOsNomesDoAvisoDoQueFalta() {
+        // Os mesmos nomes do aviso do que falta, na ordem da instalação, com a vírgula e o "e" no último. A localização
+        // precisa e a notificação têm os pedidos e os diálogos delas, e não entram.
+        assertEquals(lembrete("Permitir o tempo todo, bateria sem restrição e Início automático"),
+            EquipeNaCasca.textoDoLembrete(app,
+                Arrays.asList("Permitir o tempo todo", "bateria sem restrição", "Início automático")));
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        dar(TEMPO_TODO);
+        liberarDaBateria(true);
+        comAInstalacaoDeOntem();
+        casca().reavaliar();
+        assertEquals(Collections.singletonList(lembrete("Início automático")), tela.lembretes);
+    }
+
+    @Test
+    public void oInicioAutomaticoSoEntraDesligadoENuncaSemSaber() {
+        // O nulo (fora do Xiaomi, ou a leitura que falhou) não conta, como no aviso do que falta.
+        ShadowBuild.setManufacturer("Xiaomi");
+        InicioAutomatico.leitorDeTeste = contexto -> {
+            throw new NoSuchMethodException("checkOpNoThrow");
+        };
+        dar(TEMPO_TODO);
+        liberarDaBateria(true);
+        comAInstalacaoDeOntem();
+        casca().reavaliar();
+        assertTrue("sem saber, nada falta", tela.lembretes.isEmpty());
+    }
+
+    @Test
+    public void foraDaJanelaNadaAparece() {
+        comAInstalacaoDeOntem();
+        agora = em(9, 5, 59);
+        casca().reavaliar();
+        agora = em(9, 22, 0);
+        casca().reavaliar();
+        assertTrue("antes das 6h e depois das 22h, nada", tela.lembretes.isEmpty());
+        agora = em(9, 6, 0);
+        casca().reavaliar();
+        assertEquals("às 6h em ponto vale", 1, tela.lembretes.size());
+    }
+
+    @Test
+    public void semChaveSemOTermoDeAgoraOuComOSairPorTerminarNadaAparece() {
+        casca().reavaliar();
+        assertTrue("sem a chave", tela.lembretes.isEmpty());
+
+        comAInstalacaoDeOntem();
+        daEquipe().edit().putString("termo_aceito", "4").commit();
+        casca().reavaliar();
+        assertEquals("o termo de antes: o termo aparece", 1, tela.termos);
+        assertTrue("e não o lembrete", tela.lembretes.isEmpty());
+
+        // O Sair que não terminou na partida de antes: a abertura o termina, e nada aparece.
+        daEquipe().edit().putString("termo_aceito", ChaveDaEquipe.TERMO_VERSAO).commit();
+        chave.saindo();
+        partidaNova();
+        casca().reavaliar();
+        assertNull(chave.chave());
+        assertTrue("com o Sair por terminar", tela.lembretes.isEmpty());
+    }
+
+    @Test
+    public void comOutroPedidoOuDialogoNaFrenteNadaAparece() {
+        // A instalação que não terminou num dia de antes (a janela da bateria não abriu, com a tela saindo): o fluxo de
+        // depois do termo pede, e o lembrete fica para o dia seguinte, como no dia do aceite.
+        comChaveETermo(CHAVE_A); // a bateria e o Início automático ainda por pedir
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertEquals(1, tela.baterias);
+        assertTrue("com a janela da bateria na frente, nada", tela.lembretes.isEmpty());
+        servico.rodando = true;
+        c.reavaliar(); // a volta da janela
+        assertTrue("a instalação pediu hoje: o lembrete fica para amanhã", tela.lembretes.isEmpty());
+
+        // Outro diálogo da casca (a Nova versão, o Antes de começar) ou um pedido do Android na frente: o lembrete não
+        // aparece agora, a marca do dia não vai ao disco, e a volta seguinte decide de novo.
+        agora = em(10, 7, 0);
+        tela.outroNaFrente = true;
+        c.reavaliar();
+        assertTrue(tela.lembretes.isEmpty());
+        tela.outroNaFrente = false;
+        c.reavaliar();
+        assertEquals(Collections.singletonList(lembrete("Permitir o tempo todo e bateria sem restrição")), tela.lembretes);
+    }
+
+    @Test
+    public void noDiaDoAceiteDoTermoOLembreteFicaParaODiaSeguinte() {
+        // No mesmo dia, o fluxo da instalação já pediu tudo: o técnico que acabou de recusar não vê o lembrete por cima.
+        EquipeNaCasca c = casca();
+        c.receberChave(true, CHAVE_A, CONTA_A);
+        tela.aceitarDoTermo.run();
+        assertEquals(Collections.singletonList(oTempoTodo()), tela.pedidos);
+        servico.rodando = true;
+        responderOTempoTodo(c, false); // na hora, mas no fluxo da instalação: sem o recuo dos detalhes do app
+        assertEquals(0, tela.detalhes);
+        assertEquals(1, tela.baterias);
+        c.reavaliar(); // a volta da janela da bateria
+        c.reavaliar();
+        assertTrue(tela.lembretes.isEmpty());
+
+        agora = em(10, 7, 0);
+        c.reavaliar();
+        assertEquals(Collections.singletonList(lembrete("Permitir o tempo todo e bateria sem restrição")), tela.lembretes);
+    }
+
+    @Test
+    public void oLiberarAgoraPedeSoOQueFaltaNaOrdemDaInstalacaoUmPorVez() {
+        // Os mesmos pedidos de depois do termo, nenhuma segunda cópia: o tempo todo, a bateria e o Início automático.
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        comAInstalacaoDeOntem();
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertEquals(Collections.singletonList(lembrete("Permitir o tempo todo, bateria sem restrição e Início automático")),
+            tela.lembretes);
+        servico.rodando = true;
+        tela.liberarDoLembrete.run();
+        assertEquals("primeiro o tempo todo", Collections.singletonList(oTempoTodo()), tela.pedidos);
+        assertEquals("um passo por vez", 0, tela.baterias + tela.iniciosAutomaticos);
+        monotonico += 8_000; // o técnico nos ajustes do Android
+        responderOTempoTodo(c, false);
+        assertEquals("depois, a janela da bateria", 1, tela.baterias);
+        assertEquals(0, tela.iniciosAutomaticos);
+        assertEquals("o Android mostrou o pedido: sem o recuo", 0, tela.detalhes);
+        c.reavaliar(); // a volta da janela da bateria
+        assertEquals("por último, a tela do Início automático", 1, tela.iniciosAutomaticos);
+        c.reavaliar();
+        assertEquals("nada mais", 1, tela.pedidos.size());
+        assertEquals(1, tela.baterias);
+        assertEquals(1, tela.iniciosAutomaticos);
+        assertFalse(chave.ajustesPorPedir());
+        assertEquals("o lembrete não volta no mesmo dia", 1, tela.lembretes.size());
+        assertEquals(0, tela.termos);
+    }
+
+    @Test
+    public void oLiberarAgoraNaoPedeOQueJaEstaLiberado() {
+        // Só a bateria falta: nem o pedido do tempo todo, nem a tela do Início automático.
+        dar(TEMPO_TODO);
+        xiaomiNoModo(AppOpsManager.MODE_ALLOWED);
+        comAInstalacaoDeOntem();
+        servico.rodando = true;
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertEquals(Collections.singletonList(lembrete("bateria sem restrição")), tela.lembretes);
+        tela.liberarDoLembrete.run();
+        assertTrue(tela.pedidos.isEmpty());
+        assertEquals(1, tela.baterias);
+        c.reavaliar();
+        assertEquals(0, tela.iniciosAutomaticos);
+        assertFalse(chave.ajustesPorPedir());
+    }
+
+    @Test
+    public void oTempoTodoRecusadoNaHoraNoLiberarAgoraCaiNosDetalhesDoApp() {
+        // O "não perguntar de novo": o Android recusa o pedido sem mostrar nada, e o técnico que tocou em Liberar agora
+        // ficaria sem tela nenhuma. A casca abre os detalhes do app, e a bateria vem na volta deles, não por cima.
+        comAInstalacaoDeOntem();
+        servico.rodando = true;
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        tela.liberarDoLembrete.run();
+        assertEquals(Collections.singletonList(oTempoTodo()), tela.pedidos);
+        monotonico += 200; // a resposta na hora
+        responderOTempoTodo(c, false);
+        assertEquals("os detalhes do app", 1, tela.detalhes);
+        assertEquals("a bateria espera a volta deles", 0, tela.baterias);
+        c.reavaliar(); // o onResume logo depois da recusa, antes de os detalhes abrirem
+        assertEquals(0, tela.baterias);
+        c.aTelaSaiuDaVista(); // os detalhes do app na frente
+        c.aTelaFicouAVista(); // e a volta deles
+        c.reavaliar();
+        assertEquals(1, tela.baterias);
+        assertEquals("os detalhes, uma vez", 1, tela.detalhes);
+        assertFalse(chave.tempoTodoPorPedir());
+    }
+
+    @Test
+    public void oTempoTodoDadoNaHoraOuSemOsDetalhesNoAparelhoSegueParaABateria() {
+        comAInstalacaoDeOntem();
+        servico.rodando = true;
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        tela.liberarDoLembrete.run();
+        responderOTempoTodo(c, true); // dado na hora (o Android 10 que já tinha a opção)
+        assertEquals(0, tela.detalhes);
+        assertEquals(1, tela.baterias);
+
+        // O aparelho sem a tela dos detalhes do app: a recusa na hora segue para a bateria, sem esperar uma volta que
+        // não vem.
+        agora = em(10, 7, 0);
+        tirar(TEMPO_TODO);
+        liberarDaBateria(false);
+        tela.semOsDetalhes = true;
+        c.reavaliar();
+        assertEquals(2, tela.lembretes.size());
+        tela.liberarDoLembrete.run();
+        responderOTempoTodo(c, false);
+        assertEquals(0, tela.detalhes);
+        assertEquals(2, tela.baterias);
+    }
+
+    @Test
+    public void oAgoraNaoEOFecharNoMeioNaoFazemVoltarNoMesmoDia() {
+        comAInstalacaoDeOntem();
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertEquals(1, tela.lembretes.size());
+        // O Agora não só fecha: nada se pede, e a volta ao app não o mostra de novo.
+        servico.rodando = true;
+        c.aTelaSaiuDaVista();
+        c.aTelaFicouAVista();
+        c.reavaliar();
+        assertEquals(1, tela.lembretes.size());
+        assertTrue(tela.pedidos.isEmpty());
+        // O app fechado com o lembrete aberto: a marca foi ao disco quando ele apareceu, e a partida nova não o mostra.
+        partidaNova();
+        casca().reavaliar();
+        assertEquals(1, tela.lembretes.size());
+        // No dia seguinte, volta.
+        agora = em(10, 6, 0);
+        casca().reavaliar();
+        assertEquals(2, tela.lembretes.size());
+    }
+
+    @Test
+    public void oSairEOColetaFalseTiramAMarcaDoDia() {
+        comAInstalacaoDeOntem();
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertNotNull(chave.diaDoLembrete());
+        c.receberChave(false, null, CONTA_A);
+        assertNull("o coleta:false", chave.diaDoLembrete());
+
+        comAInstalacaoDeOntem();
+        c.reavaliar();
+        assertEquals(2, tela.lembretes.size());
+        c.sair();
+        assertNull("o Sair", chave.diaDoLembrete());
+    }
+
+    @Test
+    public void aTelaDeVerdadeMostraOLembreteComOAgoraNaoEOLiberarAgora() {
+        AppCompatActivity activity = activity();
+        controle.windowFocusChanged(true);
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        List<Boolean> apareceu = new ArrayList<>();
+        int[] liberados = {0};
+        String texto = lembrete("Permitir o tempo todo e bateria sem restrição");
+        t.mostrarLembrete(texto, apareceu::add, () -> liberados[0]++);
+        AlertDialog d = ultimoDialogo();
+        assertTrue(d.isShowing());
+        assertEquals(Collections.singletonList(true), apareceu);
+        assertEquals("Falta liberar no celular", texto(d, androidx.appcompat.R.id.alertTitle));
+        assertEquals(texto, texto(d, android.R.id.message));
+        assertEquals("Liberar agora", d.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
+        assertEquals("Agora não", d.getButton(AlertDialog.BUTTON_NEGATIVE).getText().toString());
+        d.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertFalse(d.isShowing());
+        assertEquals("o Agora não só fecha", 0, liberados[0]);
+
+        t.mostrarLembrete(texto, apareceu::add, () -> liberados[0]++);
+        AlertDialog outro = ultimoDialogo();
+        outro.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertFalse(outro.isShowing());
+        assertEquals(1, liberados[0]);
+    }
+
+    @Test
+    public void comOutroDialogoNaFrenteOLembreteEsperaOFocoEDesiste() {
+        // A Nova versão, o Antes de começar ou um pedido do Android tiram o foco da janela do app: o lembrete não aparece
+        // por cima. Ele espera o foco um pouco (a partida a frio, abaixo) e desiste; a próxima volta ao app decide de novo.
+        AppCompatActivity activity = activity();
+        controle.windowFocusChanged(false);
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        List<Boolean> apareceu = new ArrayList<>();
+        t.mostrarLembrete(lembrete("bateria sem restrição"), apareceu::add, () -> fail("nada a liberar"));
+        shadowOf(Looper.getMainLooper()).idle();
+        assertNull(ShadowDialog.getLatestDialog());
+        assertTrue(apareceu.isEmpty());
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(EquipeNaCasca.TelaDaActivity.ESPERA_DO_FOCO_MS));
+        assertEquals(Collections.singletonList(false), apareceu);
+        // O foco que volta depois da desistência não abre nada.
+        controle.windowFocusChanged(true);
+        assertNull(ShadowDialog.getLatestDialog());
+        assertEquals(Collections.singletonList(false), apareceu);
+    }
+
+    @Test
+    public void naPartidaAFrioOLembreteEsperaOFocoDaJanela() {
+        // A decisão vem da thread do envio logo depois do onResume, e a janela só ganha o foco depois de desenhada.
+        AppCompatActivity activity = activity();
+        controle.windowFocusChanged(false);
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        List<Boolean> apareceu = new ArrayList<>();
+        t.mostrarLembrete(lembrete("bateria sem restrição"), apareceu::add, () -> { });
+        assertTrue(apareceu.isEmpty());
+        controle.windowFocusChanged(true);
+        AlertDialog d = ultimoDialogo();
+        assertTrue(d.isShowing());
+        assertEquals(Collections.singletonList(true), apareceu);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(EquipeNaCasca.TelaDaActivity.ESPERA_DO_FOCO_MS));
+        assertEquals("a espera acabou com o foco", Collections.singletonList(true), apareceu);
+    }
+
+    @Test
+    public void oFecharTiraOLembreteQueEsperavaOFoco() {
+        // O Sair, o coleta:false e a tela saindo: o lembrete que esperava não aparece depois.
+        AppCompatActivity activity = activity();
+        controle.windowFocusChanged(false);
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        List<Boolean> apareceu = new ArrayList<>();
+        t.mostrarLembrete(lembrete("bateria sem restrição"), apareceu::add, () -> { });
+        t.fechar();
+        assertEquals(Collections.singletonList(false), apareceu);
+        controle.windowFocusChanged(true);
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(EquipeNaCasca.TelaDaActivity.ESPERA_DO_FOCO_MS));
+        assertNull(ShadowDialog.getLatestDialog());
+        assertEquals(Collections.singletonList(false), apareceu);
+    }
+
+    @Test
+    public void aTelaDeVerdadeAbreOsDetalhesDoApp() {
+        AppCompatActivity activity = activity();
+        EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
+        assertTrue(t.abrirOsDetalhesDoApp());
+        Intent aberta = shadowOf(activity).getNextStartedActivity();
+        assertNotNull(aberta);
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, aberta.getAction());
+        assertEquals("package:" + app.getPackageName(), aberta.getDataString());
+        controle.pause().stop().destroy();
+        assertFalse("a tela saindo", t.abrirOsDetalhesDoApp());
     }
 
     // --- o tempo todo (R15) -------------------------------------------------------------------------------------------
@@ -2057,7 +2498,7 @@ public class EquipeNaCascaTest {
         cascaComAThreadEmFila(new ArrayDeque<>()).sair();
         partidaNova();
         EquipeNaCasca c = new EquipeNaCasca(app, chave, fila, envio(), servico, tela, Runnable::run, Runnable::run,
-            () -> agora, "1.2.0");
+            () -> agora, () -> monotonico, "1.2.0");
         List<String> respostas = new ArrayList<>();
         c.pedirAparelho(CONTA_A, respostas::add);
         assertFalse("a página registra a conta de novo", new JSONObject(respostas.get(0)).getBoolean("temChave"));

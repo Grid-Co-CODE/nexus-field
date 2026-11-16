@@ -115,6 +115,11 @@ const DIALOGOS = [
   // fim (o botão ligado, sem a dica).
   { titulo: 'casca_equipe_termo_titulo', textos: ['casca_equipe_termo_texto'], botoes: ['casca_equipe_termo_aceitar'],
     dica: 'casca_equipe_termo_rolar' },
+  // O lembrete diário do que falta liberar (1.2.5, Task 15, pendente; o EquipeNaCasca): o texto leva a lista no %1$s, que
+  // tem espaços (o regexDe só aceita uma palavra no %1), e o quadro mostra o exemplo com os três nomes
+  // (EXEMPLO_DO_LEMBRETE), como o quadro do aviso do que falta mostra o dele. O Agora não é o mesmo dos outros diálogos.
+  { titulo: 'casca_equipe_lembrete_titulo', textos: ['casca_equipe_lembrete_texto'],
+    botoes: ['casca_agora_nao', 'casca_equipe_lembrete_liberar'], exemplo: () => EXEMPLO_DO_LEMBRETE },
 ];
 // Os toasts, na ordem da prévia: o do download que começou e o da atualização que não deu certo; depois, os do resultado
 // do teste dos avisos pelo atalho do ícone (só para administrador): enviado (com e sem a contagem), só administrador, sem
@@ -294,7 +299,8 @@ test('cada quadro de diálogo é um grupo do strings.xml: título, texto e os bo
     assert.ok(grupo, `título sem grupo no strings.xml: "${titulo}"`);
 
     const texto = compactar(quadro.querySelector('.dialogo-texto').textContent);
-    const variante = grupo.textos.find((nome) => regexDe(textoDe(nome)).test(texto));
+    const variante = grupo.textos.find((nome) => (grupo.exemplo ? texto === grupo.exemplo()
+      : regexDe(textoDe(nome)).test(texto)));
     assert.ok(variante, `o texto do diálogo "${titulo}" não é nenhum de ${grupo.textos.join(' / ')}: "${texto}"`);
 
     // O botão desligado e a dica são só do termo, e andam juntos: a dica fica enquanto o botão está desligado. O mesmo
@@ -542,27 +548,71 @@ test('o aviso do que falta tem quadro: o título, o texto e a lista que o AvisoD
   }
 });
 
+// O lembrete diário do que falta liberar (1.2.5, Task 15, o pedido do dono em 16/11/2026: "Eu estou tendo pouca adesão na
+// parte dos técnicos"): um diálogo da casca, com os mesmos nomes do aviso do que falta (sem a localização precisa, que tem
+// o pedido dela), juntados do mesmo jeito. O exemplo do quadro tem os três, para mostrar a vírgula e o "e".
+const EXEMPLO_DO_LEMBRETE = 'Para a localização da equipe funcionar com o app fechado, falta liberar: Permitir o tempo '
+  + 'todo, bateria sem restrição e Início automático. Toque em Liberar agora e siga as telas do Android.';
+function textoDoLembrete(...sufixos) {
+  const nomes = sufixos.map((sufixo) => stringsDe('notificacao_falta_').find((s) => s.nome === `notificacao_falta_${sufixo}`).texto);
+  const lista = nomes.length === 1 ? nomes[0] : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+  return textoDe('casca_equipe_lembrete_texto').replace('%1$s', () => lista);
+}
+
+test('o lembrete diário tem quadro na seção da equipe: o título, o texto com a lista e os botões que o EquipeNaCasca monta', () => {
+  const fonte = lerArquivo(PASTA_JAVA + 'EquipeNaCasca.java');
+  assert.match(fonte, /getString\(R\.string\.casca_equipe_lembrete_texto, AvisoDoQueFalta\.emLista\(\w+\)\)/,
+    'o texto leva a lista juntada pelo AvisoDoQueFalta, com a vírgula e o "e", como o aviso do que falta');
+  assert.match(fonte, /AvisoDoQueFalta\.oQueFaltaLiberar\(/, 'a lista sai dos nomes e da ordem do aviso do que falta');
+  assert.match(lerArquivo(PASTA_JAVA + 'AvisoDoQueFalta.java'), /static List<String> oQueFaltaLiberar\(/);
+  assert.equal(textoDoLembrete('tempo_todo', 'bateria', 'inicio_automatico'), EXEMPLO_DO_LEMBRETE,
+    'o exemplo, com o texto do pedido palavra por palavra');
+  assert.equal(textoDe('casca_equipe_lembrete_titulo'), 'Falta liberar no celular');
+  assert.equal(textoDe('casca_equipe_lembrete_liberar'), 'Liberar agora');
+
+  const figura = doc().getElementById('t-equipe-lembrete');
+  const quadro = figura?.querySelector('.celular .dialogo');
+  assert.ok(quadro, 'o quadro do lembrete diário (figure#t-equipe-lembrete)');
+  assert.equal(compactar(quadro.querySelector('.dialogo-titulo').textContent), textoDe('casca_equipe_lembrete_titulo'));
+  assert.equal(compactar(quadro.querySelector('.dialogo-texto').textContent), EXEMPLO_DO_LEMBRETE);
+  const dita = compactar(figura.querySelector('figcaption').textContent);
+  for (const [o, trecho] of [['uma vez por dia', /uma vez por dia/], ['a janela', /6h às 22h/],
+    ['quem tem a chave e o termo', /termo/], ['o dia do aceite', /dia seguinte/], ['o Agora não', /Agora não.*amanhã/],
+    ['a ordem do Liberar agora', /Permitir o tempo todo.*bateria sem restrição.*Início automático/],
+    ['o recuo do tempo todo', /detalhes do Nexus Field/], ['tudo liberado', /nada aparece/],
+    ['o que não entra', /localização precisa e a notificação/], ['o aviso que fica', /Falta liberar no celular/]]) {
+    assert.match(dita, trecho, `a legenda do lembrete diário diz ${o}`);
+  }
+});
+
 // A lista "O que aprovar" e a localização da equipe (spec 2026-11-08, seção 4.1): cada texto novo é aprovado pelo texto
 // inteiro (o dono da casca, o RH e o jurídico leem as palavras, e não um resumo), e o termo tem o item do que ele promete.
 test('a lista "O que aprovar" cita cada texto da localização da equipe, inteiro, e o que o termo promete', () => {
   const d = doc();
   const citados = [...d.querySelectorAll('#o-que-aprovar .cita')].map((e) => compactar(e.textContent));
-  const daEquipe = [...stringsDe('casca_equipe_'), ...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_canal_equipe_'),
+  const daEquipe = [...stringsDe('casca_equipe_').filter((s) => s.nome !== 'casca_equipe_lembrete_texto'),
+    ...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_canal_equipe_'),
     ...stringsDe('notificacao_inicio_'), ...stringsDe('notificacao_canal_inicio_'),
     ...stringsDe('notificacao_falta_').filter((s) => s.nome !== 'notificacao_falta_texto'),
     ...stringsDe('notificacao_canal_ajustes_')];
-  // O texto do aviso do que falta leva a lista: a lista "O que aprovar" o cita com o exemplo do quadro.
+  // O texto do aviso do que falta e o do lembrete diário levam a lista: a lista "O que aprovar" os cita com o exemplo do
+  // quadro de cada um.
   assert.ok(citados.includes(EXEMPLO_DO_QUE_FALTA), `a lista "O que aprovar" não cita o aviso do que falta: "${EXEMPLO_DO_QUE_FALTA}"`);
+  assert.ok(citados.includes(EXEMPLO_DO_LEMBRETE), `a lista "O que aprovar" não cita o lembrete diário: "${EXEMPLO_DO_LEMBRETE}"`);
+  // As telas nossas da equipe são o termo (R10) com a dica dele (R11) e, desde a 1.2.5, o lembrete diário do que falta
+  // liberar (Task 15, o pedido do dono em 16/11/2026): o aviso e a explicação da localização o tempo todo continuam fora.
   assert.deepEqual(stringsDe('casca_equipe_').map((s) => s.nome).sort(),
-    ['casca_equipe_termo_aceitar', 'casca_equipe_termo_rolar', 'casca_equipe_termo_texto', 'casca_equipe_termo_titulo'],
-    'a casca da equipe tem só o termo (R10) e a dica dele (R11): o aviso e a explicação da localização o tempo todo saíram');
+    ['casca_equipe_lembrete_liberar', 'casca_equipe_lembrete_texto', 'casca_equipe_lembrete_titulo',
+      'casca_equipe_termo_aceitar', 'casca_equipe_termo_rolar', 'casca_equipe_termo_texto', 'casca_equipe_termo_titulo'],
+    'a casca da equipe tem o termo, a dica dele e o lembrete diário: o aviso e a explicação da localização o tempo todo saíram');
   assert.ok(daEquipe.length >= 15, 'o teste leu os textos da localização da equipe, do aviso das 6h e do aviso do que falta');
   for (const s of daEquipe) {
     assert.ok(citados.some((t) => t === s.texto), `a lista "O que aprovar" não cita o ${s.nome}: "${s.texto}"`);
   }
   // Cada item leva ao quadro certo, que existe.
   for (const [item, quadro] of [['ok-equipe-termo', 't-equipe-termo'], ['ok-equipe-notificacao', 't-equipe-notificacao'],
-    ['ok-equipe-inicio', 't-equipe-inicio'], ['ok-equipe-falta', 't-equipe-falta']]) {
+    ['ok-equipe-inicio', 't-equipe-inicio'], ['ok-equipe-falta', 't-equipe-falta'],
+    ['ok-equipe-lembrete', 't-equipe-lembrete']]) {
     const li = d.getElementById(item)?.closest('li');
     assert.ok(li, `o item ${item} da lista "O que aprovar"`);
     assert.equal(li.querySelector('a.ver')?.getAttribute('href'), `#${quadro}`);
@@ -621,12 +671,13 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // a 5 (Task 14), por último, a tela do Início automático nos celulares Xiaomi.
   assert.match(dito, /localização \(a precisa, durante o uso\), o do Permitir o tempo todo, a janela da bateria sem restrição e, nos celulares Xiaomi com o Início automático desligado, a tela dele/);
   assert.match(dito, /volta sozinha se o celular reiniciar, o aplicativo for atualizado ou o Android fechar o aplicativo, e nunca sem a abertura do dia/);
-  // A seção da equipe tem o termo, a notificação, o aviso das 6h e o aviso do que falta (as telas do Android e do HyperOS
-  // que vêm depois do termo não são do Nexus Field, e só as legendas as dizem), com o tempo todo de volta (R15).
+  // A seção da equipe tem o termo, a notificação, o aviso das 6h, o aviso do que falta e o lembrete diário (as telas do
+  // Android e do HyperOS que vêm depois do termo e do Liberar agora não são do Nexus Field, e só as legendas as dizem), com o
+  // tempo todo de volta (R15).
   const secao = d.getElementById('g-equipe')?.closest('section');
   assert.ok(secao, 'a seção Localização da equipe');
   assert.deepEqual([...secao.querySelectorAll('figure.item')].map((f) => f.id),
-    ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao', 't-equipe-inicio', 't-equipe-falta']);
+    ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao', 't-equipe-inicio', 't-equipe-falta', 't-equipe-lembrete']);
   assert.match(compactar(d.querySelector('#t-equipe-termo-fim figcaption').textContent),
     /a coleta liga, e vem o pedido do Permitir o tempo todo.*Depois, a janela da bateria sem restrição.*Por último, nos celulares Xiaomi com o Início automático desligado, a tela do Início automático/,
     'a legenda do fim do termo diz a ordem das telas do Android e do HyperOS');
@@ -762,6 +813,7 @@ test('os nomes entre aspas da lista "O que aprovar" são textos de verdade do ap
   const daEquipe = [...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_inicio_'), ...stringsDe('notificacao_falta_')];
   const permitidos = new Set([...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos(), ...daEquipe].map((s) => s.texto));
   permitidos.add(EXEMPLO_DO_QUE_FALTA); // o texto do aviso do que falta, com a lista de exemplo
+  permitidos.add(EXEMPLO_DO_LEMBRETE); // e o do lembrete diário, com a dele
   for (const nome of ['app_name', 'title_activity_main']) permitidos.add(stringDoApp(nome)); // o nome, Nexus Field
   const erro = new JSDOM(ERRO_HTML).window.document;
   for (const el of erro.querySelectorAll('h1, p, button')) permitidos.add(compactar(el.textContent));

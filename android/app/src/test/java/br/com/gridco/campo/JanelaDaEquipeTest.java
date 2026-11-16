@@ -2,6 +2,7 @@ package br.com.gridco.campo;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -41,6 +42,17 @@ public class JanelaDaEquipeTest {
         long instante = em(BRASILIA, 6, 30, 0);
         assertTrue(JanelaDaEquipe.dentro(instante, BRASILIA));
         assertFalse(JanelaDaEquipe.dentro(instante, CUIABA));
+    }
+
+    @Test
+    public void oDiaEODoFusoDoCelularEMudaNaMeiaNoite() {
+        // A marca do lembrete diário (Task 15) e a do som do aviso do que falta: o dia é o do relógio do celular, como a
+        // janela. A 0h10 de Brasília ainda é a véspera em Cuiabá.
+        assertEquals(JanelaDaEquipe.dia(em(BRASILIA, 6, 0, 0), BRASILIA), JanelaDaEquipe.dia(em(BRASILIA, 23, 59, 59), BRASILIA));
+        long meiaNoite = em(BRASILIA, 23, 59, 59) + 1000L;
+        assertNotEquals(JanelaDaEquipe.dia(em(BRASILIA, 23, 59, 59), BRASILIA), JanelaDaEquipe.dia(meiaNoite, BRASILIA));
+        long dezMinutosDepois = meiaNoite + 10L * 60_000L;
+        assertEquals(JanelaDaEquipe.dia(em(BRASILIA, 12, 0, 0), BRASILIA), JanelaDaEquipe.dia(dezMinutosDepois, CUIABA));
     }
 
     @Test

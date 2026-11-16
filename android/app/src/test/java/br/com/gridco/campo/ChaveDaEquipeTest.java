@@ -568,6 +568,62 @@ public class ChaveDaEquipeTest {
         assertFalse(ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("tempo_todo_por_pedir"));
     }
 
+    // --- o lembrete diário do que falta liberar (Task 15) -------------------------------------------------------------
+
+    @Test
+    public void aMarcaDoDiaDoLembreteFicaNoDiscoEOApagarATira() {
+        // A marca vai ao disco quando o lembrete aparece: fechar o app no meio não o faz voltar no mesmo dia. O 401 é a
+        // mesma conta, e a marca fica; o Sair, a troca de conta e o coleta:false (o apagar) a tiram.
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        c.aceitarTermo();
+        assertNull("nenhum lembrete ainda", c.diaDoLembrete());
+        c.lembrado("2026-313");
+        assertEquals("2026-313", c.diaDoLembrete());
+        assertEquals("também na partida nova", "2026-313", new ChaveDaEquipe(ctx, cifra).diaDoLembrete());
+        c.apagarAChave(); // o 401
+        assertEquals("o 401 não a tira", "2026-313", c.diaDoLembrete());
+        assertTrue(c.guardar("k2", CONTA_A));
+        assertEquals("nem a chave nova da mesma conta", "2026-313", c.diaDoLembrete());
+
+        assertTrue(c.guardar("k3", CONTA_B)); // a troca de conta sem o Sair: o dia de A não vale para B
+        assertNull(c.diaDoLembrete());
+        c.aceitarTermo();
+        c.lembrado("2026-314");
+        c.apagar(); // o Sair e o coleta:false
+        assertNull(c.diaDoLembrete());
+        assertFalse(ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).contains("lembrete_do_dia"));
+    }
+
+    @Test
+    public void oLiberarAgoraDeixaPorPedirDeNovoOsTresAjustesDaInstalacao() {
+        // O Liberar agora do lembrete reaproveita os pedidos da instalação: põe de novo as três marcas que o Li e aceito
+        // põe, e o fluxo de depois do termo pede só o que falta, um por vez. Sem o termo de agora, nada fica por pedir.
+        ChaveDaEquipe c = new ChaveDaEquipe(ctx, cifra);
+        c.guardar("k1", CONTA_A);
+        c.aceitarTermo();
+        assertTrue("o Li e aceito: a instalação pede", c.ajustesPorPedir());
+        c.tempoTodoPedido();
+        c.bateriaPedida();
+        assertTrue("falta a tela do Início automático", c.ajustesPorPedir());
+        c.inicioAutomaticoPedido();
+        assertFalse("a instalação terminou", c.ajustesPorPedir());
+
+        c.liberarDeNovo();
+        assertTrue(c.tempoTodoPorPedir());
+        assertTrue(c.bateriaPorPedir());
+        assertTrue(c.inicioAutomaticoPorPedir());
+        assertTrue(c.ajustesPorPedir());
+        assertTrue("o termo continua aceito", c.termoAceito());
+
+        c.tempoTodoPedido();
+        c.bateriaPedida();
+        c.inicioAutomaticoPedido();
+        ctx.getSharedPreferences("equipe", Context.MODE_PRIVATE).edit().putString("termo_aceito", "4").commit();
+        c.liberarDeNovo();
+        assertFalse("sem o termo de agora, nada se pede", c.ajustesPorPedir());
+    }
+
     // --- R9: a conferência que o cofre não deixou fazer ---------------------------------------------------------------
 
     @Test
