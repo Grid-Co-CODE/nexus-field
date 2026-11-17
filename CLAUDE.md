@@ -1270,8 +1270,9 @@ O site (App de Campo) e o Fracttal não mudam.
   - A seção 10 do `inicio.js` (a chave da equipe) pede a chave ao Nexus mostrando o login Microsoft da página: o token
     nunca chega ao nativo, ao espelho nem ao log. Só pede sem chave guardada, ou depois do 401 (cada pedido gera uma chave
     nova e revoga a anterior do par): depois de terminar com a chave, a volta ao app pergunta de novo ao nativo se ela
-    ainda está lá (no máximo a cada 10 min) e só vai ao Nexus com o `temChave: false`; o `coleta:false` não pergunta de
-    novo. Caso: o Nexus revoga as chaves às 9h, o envio leva o 401 e para, e a coleta só voltava na próxima carga a frio.
+    ainda está lá (no máximo a cada 10 min) e só vai ao Nexus com o `temChave: false`; depois do `coleta:false`, a volta
+    ao app e o online perguntam de novo só passadas 6 h (o caso de 17/11/2026: o Nexus passou a coletar de todo técnico
+    com o app, e quem tinha o `coleta:false` esperava a próxima carga a frio, às vezes dias depois). Caso: o Nexus revoga as chaves às 9h, o envio leva o 401 e para, e a coleta só voltava na próxima carga a frio.
     Os endereços são `https://app.gridco.com.br` + `/t/campo/equipe/aparelho`,
     `/t/campo/equipe/posicoes` e `/t/campo/equipe/aparelho/revogar` (seção 8 do desenho: o chat do Nexus pode trocar, e avisa).
 - **A chave é da conta, e a fila também (R5, R6).** A página manda ao nativo a `conta` (SHA-256 de uma frase fixa mais o

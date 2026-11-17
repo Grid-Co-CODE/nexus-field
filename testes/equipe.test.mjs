@@ -439,6 +439,29 @@ test('o coleta:false do Nexus vai ao nativo com a conta e sem chave, e não tent
   assert.equal(j.pedidos.length, 1);
 });
 
+test('depois do coleta:false, a volta ao app pergunta de novo, mas só passadas 6 h', async () => {
+  // O caso de 17/11/2026: o Nexus passou a coletar de todo técnico com o app, e quem tinha recebido o coleta:false só
+  // pedia de novo na próxima carga a frio da página (com o app vivo no fundo, às vezes dias depois).
+  const SEIS_H_MS = 6 * 60 * 60 * 1000;
+  const j = montar({ nexus: responde(200, { coleta: false }) });
+  await carregar(j);
+  j.nativo();
+  await ate(() => j.doTipo('equipeChave').length > 0, 'o equipeChave');
+  await tudoQueTentariaDeNovo(j);
+  assert.equal(pedidosAoNativo(j), 1, 'antes das 6 h, nada pergunta de novo');
+  j.avancar(SEIS_H_MS);
+  await resumido(j);
+  assert.equal(pedidosAoNativo(j), 1, 'as 6 h sozinhas não perguntam: só a volta ao app ou o online, com a tela à vista');
+  mostrar(j);
+  await resumido(j);
+  assert.equal(pedidosAoNativo(j), 2, 'passadas as 6 h, a volta ao app pergunta ao nativo');
+  j.nativo();
+  await ate(() => j.pedidos.length === 2, 'o segundo pedido ao Nexus');
+  await ate(() => j.doTipo('equipeChave').length === 2, 'o segundo equipeChave');
+  await tudoQueTentariaDeNovo(j);
+  assert.equal(pedidosAoNativo(j), 2, 'o novo coleta:false recomeça as 6 h');
+});
+
 test('503 e depois o online: tenta de novo, no máximo uma vez a cada 10 minutos (o online da espera tenta quando ela acaba)', async () => {
   const j = montar({ nexus: responde(503, {}) });
   await carregar(j);

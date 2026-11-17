@@ -2004,6 +2004,7 @@
   //     App dentro desse prazo. Quem segura os dois toques seguidos é o nativo, que recebe os toques.
   var ESPERA_PUSH_MS = 5000;
   var INTERVALO_PUSH_MS = 10 * 60 * 1000;
+  var PERGUNTAR_SEM_COLETA_MS = 6 * 60 * 60 * 1000;   // a chave da equipe depois do coleta:false (seção 10)
   var PRAZO_ESQUECER_MS = 3000;
   var PRAZO_TESTE_MS = 20000;
   // Sem MutationObserver, a espera da tela do App é uma consulta de 1 s, por 3 minutos (a volta do loginRedirect leva
@@ -2886,9 +2887,10 @@
   // DEPOIS DE TERMINAR COM A CHAVE, a volta ao app pergunta de novo ao nativo se ela ainda está lá (o pedido do aparelho é
   // local e barato), no máximo uma vez a cada 10 minutos, e o Nexus só é chamado com o temChave false. Caso que criou a
   // regra: o Nexus revoga ou troca as chaves às 9h, o envio do nativo leva o 401, apaga a chave e para, e sem isso a
-  // coleta só voltava na próxima carga a frio da página (às vezes no dia seguinte). O coleta:false não pergunta de novo:
-  // sem chave, o nativo diria sempre que não tem, e quem não está na coleta (o supervisor, o administrador) iria ao
-  // Nexus a cada volta ao app.
+  // coleta só voltava na próxima carga a frio da página (às vezes no dia seguinte). O coleta:false pergunta de novo só
+  // passadas 6 h (PERGUNTAR_SEM_COLETA_MS): sem chave, o nativo diria sempre que não tem, e quem não está na coleta (o
+  // supervisor, o administrador) iria ao Nexus a cada volta ao app; sem pergunta nenhuma, o técnico que o Nexus passa a
+  // coletar (17/11/2026) esperaria a próxima carga a frio.
   // Avisa ({t:'erro', onde:'equipe', motivo}, com um texto nosso) cada falha do nativo ou do Nexus e, uma vez por carga
   // cada, o token que não diz de quem é e a página que não resume a conta (as falhas que só aparecem no aparelho). O
   // `motivo` é de uma lista fechada (MOTIVOS_DA_EQUIPE, a mesma do Mensageiro.MOTIVOS_DA_PAGINA, que o leva ao log; o
@@ -2983,6 +2985,12 @@
     // novo ao nativo se ela ainda está lá (o 401 do envio a apaga). Com o coleta:false, não.
     var comChave = false;
     var reconferir = false;  // a volta ao app pediu essa pergunta, e ela espera a vez (os 10 minutos)
+    // Depois do coleta:false, a volta ao app e o online perguntam de novo, mas só passadas 6 h (`semColetaVenceu`). Caso
+    // de 17/11/2026: o Nexus passou a coletar de todo técnico com o app, e quem tinha recebido o coleta:false só pedia de
+    // novo na próxima carga a frio da página (com o app vivo no fundo, às vezes dias depois). O supervisor e o
+    // administrador, que seguem fora da coleta, vão ao Nexus no máximo a cada 6 h.
+    var semColetaVenceu = false;
+    var timerSemColeta = null;
     // A espera da seção 8 (10 minutos), contada do pedido ao nativo.
     var espera = criarEspera(agendar, cancelar, INTERVALO_PUSH_MS, tentarDeNovo);
     var prazo = null;        // o prazo de 10 minutos da fase 'local' ou 'nexus' de agora
@@ -3083,6 +3091,8 @@
       if (fase === 'semLogin') { tentarDeNovo(); return; }
       // Terminou com a chave: só a volta ao app pergunta de novo ao nativo se ela ainda está lá.
       if (fase === 'terminou' && volta && comChave) reconferir = true;
+      // Terminou com o coleta:false: pergunta de novo só passadas as 6 h.
+      if (fase === 'terminou' && !comChave && semColetaVenceu) { semColetaVenceu = false; reconferir = true; }
       // O nativo foi chamado (e talvez o Nexus): no máximo uma vez a cada 10 minutos; dentro da espera, quando ela acabar.
       if (fase === 'nativo' || fase === 'falhou' || (fase === 'terminou' && reconferir)) {
         if (espera.ativa()) espera.depois();
@@ -3096,6 +3106,12 @@
     function entregou(foi, chave) {
       fase = foi ? 'terminou' : 'falhou';
       comChave = foi && chave;
+      if (foi && !chave) {
+        // O coleta:false: as 6 h recomeçam a cada resposta dele.
+        if (timerSemColeta !== null) cancelar(timerSemColeta);
+        semColetaVenceu = false;
+        timerSemColeta = agendar(function () { timerSemColeta = null; semColetaVenceu = true; }, PERGUNTAR_SEM_COLETA_MS);
+      }
     }
 
     // A falha do nativo ou do Nexus: avisa, e a próxima tentativa sai no online ou na volta ao app.
