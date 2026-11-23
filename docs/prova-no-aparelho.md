@@ -407,7 +407,8 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       **Liberar agora** da trava. Noutra conta de teste (ou depois do **Sair**), o termo e a janela aparecem de novo. Aceitar: em
       Configurações, Bateria, o Nexus Field fica **Sem restrições** (o nome muda com a marca), e a janela não volta. Num
       aparelho com o Nexus Field já liberado antes do termo, nenhuma janela aparece. Se o aparelho não tiver a janela, o
-      log da casca diz "a janela da bateria sem restrição não abriu" e nada mais acontece: anote o modelo.
+      log da casca diz "a janela da bateria sem restrição não abriu" e abre a lista da bateria do Android (ou, sem ela, os
+      ajustes do Nexus Field), onde se tira o Nexus Field da otimização: anote o modelo e o que abriu.
 - [ ] A tela do Início automático, uma vez depois da bateria (1.2.3, o caso de 10/11/2026: sem ele, o HyperOS não deixou
       o app partir pelo aviso de app atualizado, e a coleta não voltou). Num Xiaomi, Redmi ou POCO com o Início
       automático desligado, na instalação nova: logo depois da volta da janela da bateria (ou logo depois da resposta ao
@@ -500,6 +501,9 @@ valem só depois de aprovados. Anote o modelo e a versão do Android.
       bateria em **Otimizada** (o nome muda com a marca): **Falta liberar: bateria sem restrição.** (5) Num Xiaomi,
       desligar o Início automático: **Falta liberar: Início automático.** Com dois ou mais, a lista vem nessa ordem, com a
       vírgula e o "e" no último. Ela aparece também antes das 6h e depois das 22h, e na abertura com o app fechado.
+      Liberar cada um e voltar: ele sai da lista. Num Xiaomi em que o Início automático ligado não sai da lista, ou em que
+      o log da casca diz "o Início automático respondeu um modo que não diz se está ligado", anote o modelo, a versão do
+      HyperOS e o número do modo: só o ligado e o desligado da prova (o allow e o ignore) contam.
 - [ ] A trava não fecha: tocar nela fora do botão não faz nada, e nada do App de Campo embaixo responde (nem pelo
       TalkBack, que só lê a trava). O Voltar do Android (o gesto ou o botão) só manda o Nexus Field para o fundo: voltar a
       ele pelos recentes ou pelo ícone mostra a trava de novo, no mesmo lugar. Girar a tela, a fonte no máximo e a tela

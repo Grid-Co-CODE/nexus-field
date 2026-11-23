@@ -27,8 +27,9 @@ import java.util.Locale;
  *   <li>Não é do Android: o MIUI o guarda na operação {@link #OP_INICIO_AUTOMATICO} do AppOpsManager, lida pelo
  *       {@code checkOpNoThrow(int, int, String)}, que é escondido (por reflexão). O {@code adb shell appops get
  *       br.com.gridco.nexusfield 10008} mostra o mesmo ({@code allow} ligado, {@code ignore} desligado).</li>
- *   <li>Sem saber, nada: fora do Xiaomi, ou com a leitura que falhou, o estado é nulo, a casca não abre tela e o aviso
- *       não diz que falta (como o PowerManager que não responde conta como bateria liberada).</li>
+ *   <li>Sem saber, nada: fora do Xiaomi, com a leitura que falhou ou com um modo que não é o {@code allow} nem o
+ *       {@code ignore}, o estado é nulo, a casca não abre tela, o aviso não diz que falta e a trava não trava (como o
+ *       PowerManager que não responde conta como bateria liberada).</li>
  * </ul>
  */
 final class InicioAutomatico {
@@ -63,13 +64,20 @@ final class InicioAutomatico {
 
     /**
      * A regra: fora do Xiaomi, Redmi e POCO (sem diferenciar maiúscula), null sem ler nada; neles, o modo permitido é
-     * ligado e qualquer outro é desligado. A leitura que falha (o método escondido que o Android barrou, o sistema que
-     * recusa, o que o MIUI lançar) dá null e um log com o nome da classe, sem o texto (pode citar o uid e o pacote).
+     * ligado, o ignorado é desligado (os dois que a prova viu no HyperOS 2: o {@code allow} e o {@code ignore}), e qualquer
+     * outro é null, como sem saber. Caso (a revisão da Task 16): com o outro modo lido como desligado, um ROM que responda o
+     * modo padrão, o de erro ou um próprio prendia o técnico na trava, porque a tela do HyperOS liga o Início automático sem
+     * mudar essa leitura. A leitura que falha (o método escondido que o Android barrou, o sistema que recusa, o que o MIUI
+     * lançar) dá null e um log com o nome da classe, sem o texto (pode citar o uid e o pacote).
      */
     static Boolean estado(String fabricante, Context contexto, LeitorDoModo leitor) {
         if (!doXiaomi(fabricante)) return null;
         try {
-            return leitor.modo(contexto.getApplicationContext()) == AppOpsManager.MODE_ALLOWED;
+            int modo = leitor.modo(contexto.getApplicationContext());
+            if (modo == AppOpsManager.MODE_ALLOWED) return true;
+            if (modo == AppOpsManager.MODE_IGNORED) return false;
+            Log.w(TAG, "o Início automático respondeu um modo que não diz se está ligado (" + modo + ")");
+            return null;
         } catch (Throwable e) {
             // O Error (a memória que acabou) não é falha da leitura: segue.
             if (e instanceof Error) throw (Error) e;

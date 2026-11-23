@@ -1130,10 +1130,13 @@ O site (App de Campo) e o Fracttal não mudam.
     lote vai sem eles. O Nexus que não os conhece os ignora. Só depois do termo aceito (antes dele nada sai), e o termo
     versão 5 os diz na seção 2. O Início automático não é do Android (`InicioAutomatico`): o MIUI e o HyperOS o guardam
     na operação 10008 do AppOpsManager, lida por reflexão no `checkOpNoThrow(int, int, String)` (escondido) para o
-    próprio uid e pacote; o `MODE_ALLOWED` é ligado e qualquer outro modo, desligado. Fora do Xiaomi, Redmi e POCO
-    (`Build.MANUFACTURER`, sem diferenciar maiúscula) ou com a leitura que falha (o método barrado, a recusa do sistema),
-    nulo, com um log só com o nome da classe: sem saber, a casca não abre tela e o aviso não diz que falta (como o
-    PowerManager que não responde conta como bateria liberada). No teste, o leitor do modo é injetado
+    próprio uid e pacote; o `MODE_ALLOWED` é ligado, o `MODE_IGNORED` é desligado (os dois que a prova viu no HyperOS 2,
+    `allow` e `ignore`) e qualquer outro modo é nulo, com o modo no log. Caso (a revisão da Task 16): lido como
+    desligado, o modo padrão, o de erro ou um próprio de outro ROM prendia o técnico na trava, porque a tela do HyperOS
+    liga o Início automático sem mudar essa leitura. Fora do Xiaomi, Redmi e POCO (`Build.MANUFACTURER`, sem diferenciar
+    maiúscula) ou com a leitura que falha (o método barrado, a recusa do sistema), nulo, com um log só com o nome da
+    classe: sem saber, a casca não abre tela, o aviso não diz que falta e a trava não trava (como o PowerManager que não
+    responde conta como bateria liberada). No teste, o leitor do modo é injetado
     (`InicioAutomatico.leitorDeTeste`): o AppOpsManager do Robolectric não sabe da operação do MIUI.
   - **A janela da bateria sem restrição (R15, o mesmo pedido do dono de 10/11/2026 que trouxe a R14).** Logo depois do
     termo aceito, da localização dada e da resposta ao pedido do tempo todo (a coleta que liga, ou a que já estava
@@ -1147,8 +1150,11 @@ O site (App de Campo) e o Fracttal não mudam.
     com o app já liberado; a que não abriu (a tela saindo) abre na próxima volta. A coleta funciona igual com a recusa.
     Por que importa: sem a otimização de bateria, o Android 12+ deixa o app ligar o serviço em primeiro plano com o app no
     fundo (é uma das exceções da regra), o que o religamento do processo morto da R15 usa, e o HyperOS fecha menos o
-    app. O Android
-    sem a janela (há fabricante que a tira) só deixa um aviso no log.
+    app. O Android sem a janela (há fabricante que a tira) tem o recuo (`TelaDaActivity.pedirSemRestricaoDeBateria`): a
+    lista da bateria do Android (`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`) e depois os detalhes do app; sem nada
+    disso, a marca sai e a decisão segue na hora (o `Abertura.NADA_ABRIU`), sem esperar uma volta ao app que não vem.
+    Caso (a revisão da Task 16): sem recuo, com a trava no ar, o técnico não tinha como liberar a bateria, e o Liberar
+    agora parava ali, sem o Início automático.
   - **A tela do Início automático e o aviso do que falta (1.2.3, os pedidos do dono em 10/11/2026, depois da prova da
     1.2.2 no celular dele: "claro, quando o cara instala já tem que ter tudo pronto"; "se algo ficar pendente tem que ter
     notificação 'faltando tal coisa'").** Sem o Início automático, o HyperOS não deixa o app partir por aviso do sistema:
@@ -1262,7 +1268,11 @@ O site (App de Campo) e o Fracttal não mudam.
     todo; os ajustes de notificação para a notificação, com os detalhes do app quando eles não abrem); a recusa em menos
     de `RECUSA_NA_HORA_MS` também cai nele; o pedido seguinte espera a volta do recuo (`ajustesACaminho`). O toque no
     Liberar agora com um pedido já na frente não pede de novo (o botão da trava não fecha com o toque, como o de um
-    diálogo). Os testes: o `EquipeNaCascaTest` (a seção da trava e a da tela de verdade dela) e o `AvisoDoQueFaltaTest`
+    diálogo); conta só o que está na frente agora (`abertoNaFrente`: o pedido esperando a resposta e o que está a
+    caminho da tela), e não o "mandado nesta decisão" da decisão de antes: o pedido que volta vazio na hora ou a tela que
+    não abre não trazem volta ao app, e o botão ficava morto (a revisão da Task 16). Com o cofre que não responde, a
+    decisão não mexe na coleta, mas confere a trava, que não passa pela cifra: a que estava no ar sai com tudo
+    liberado. Os testes: o `EquipeNaCascaTest` (a seção da trava e a da tela de verdade dela) e o `AvisoDoQueFaltaTest`
     (a lista); no aparelho, a seção "A trava" do `docs/prova-no-aparelho.md`.
   - **O termo é o aviso de privacidade inteiro, e só se aceita depois de rolar até o fim (R11, o pedido do dono em
     09/11/2026: "Quero que o termo de notificação inclua tudo referente a LGPD e seja que nem as empresas grandes fazem,

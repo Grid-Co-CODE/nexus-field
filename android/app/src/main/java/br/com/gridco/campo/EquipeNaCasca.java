@@ -240,6 +240,13 @@ final class EquipeNaCasca {
         }
     }
 
+    /**
+     * O que abriu no lugar de uma tela dos ajustes do Android que não devolve resposta (a janela da bateria): ela ou o
+     * recuo dela; nada, neste aparelho (a casca segue sem esperar uma volta que não vem); ou nada, com a tela saindo (a
+     * próxima volta ao app tenta).
+     */
+    enum Abertura { ABRIU, NADA_ABRIU, TELA_SAINDO }
+
     private static final String TAG = CascaPlugin.TAG;
     // Quando o Nexus soube, pela última vez, que falta a permissão (epoch ms). Fora do backup, como tudo (regras_dados.xml).
     private static final String PREFERENCIAS = "equipe_casca";
@@ -323,10 +330,11 @@ final class EquipeNaCasca {
         void fechar();
 
         /**
-         * A janela do próprio Android que pede a bateria sem restrição para o Nexus Field (R15). A resposta não volta à
-         * casca: recusada ou aceita, a coleta segue igual. False só com a tela saindo (a próxima volta ao app tenta).
+         * A janela do próprio Android que pede a bateria sem restrição para o Nexus Field (R15), ou o recuo dela (a lista
+         * da bateria do Android, os detalhes do app). A resposta não volta à casca: recusada ou aceita, a coleta segue
+         * igual. Diz se algo abriu, se nada abriu neste aparelho, ou se a tela está saindo (a próxima volta ao app tenta).
          */
-        boolean pedirSemRestricaoDeBateria();
+        Abertura pedirSemRestricaoDeBateria();
 
         /**
          * A tela do Início automático do HyperOS, ou os detalhes do app quando ela não abre (Task 14). A resposta não volta
@@ -612,8 +620,11 @@ final class EquipeNaCasca {
         try {
             temChave = chave.chave() != null;
         } catch (RuntimeException e) {
-            // O cofre do aparelho não respondeu agora (a chave guardada continua lá): nada muda nesta volta.
+            // O cofre do aparelho não respondeu agora (a chave guardada continua lá): a coleta não muda nesta volta. A
+            // trava, sim: ela não passa pela cifra (a chave guardada, o termo e os ajustes), e sem isto a que estava no ar
+            // não saía nem com tudo liberado, até o app ser morto (a revisão da Task 16).
             Log.w(TAG, "a chave da equipe não pôde ser lida agora (" + e.getClass().getSimpleName() + ")");
+            conferirATrava();
             return;
         }
         boolean rodando = servico.rodando();
@@ -679,8 +690,13 @@ final class EquipeNaCasca {
     // Algo desta casca na frente do técnico, ou a caminho dela: o termo ou um pedido do Android esperando a resposta, a
     // janela da bateria, a tela do Início automático, o lembrete diário ou os ajustes do recuo; ou mandado nesta decisão.
     private boolean algoNaFrente() {
-        return pediuAgora || esperandoOTecnico || bateriaACaminho || inicioACaminho || lembreteACaminho
-            || ajustesACaminho;
+        return pediuAgora || abertoNaFrente();
+    }
+
+    // O que está na frente do técnico agora, fora desta decisão: o termo ou um pedido do Android esperando a resposta, e o
+    // que está a caminho da tela (a janela da bateria, a tela do Início automático, o lembrete, os ajustes do recuo).
+    private boolean abertoNaFrente() {
+        return esperandoOTecnico || bateriaACaminho || inicioACaminho || lembreteACaminho || ajustesACaminho;
     }
 
     // Os ajustes que vêm depois da localização dada, nesta ordem e um por vez: o tempo todo, a bateria e o Início
@@ -750,9 +766,11 @@ final class EquipeNaCasca {
     // por pedir de novo, e as da localização e da notificação, se faltam; a decisão de agora pede pela ordem da trava (a
     // localização, o tempo todo, a notificação, a bateria e o Início automático), um por vez e só o que falta: cada pedido
     // sai sem abrir o que já está liberado. O toque com um pedido já na frente (o botão da trava não fecha com o toque,
-    // como o de um diálogo) não pede de novo.
+    // como o de um diálogo) não pede de novo; o que conta é o que está na frente agora (abertoNaFrente), e não o "mandado
+    // nesta decisão" da decisão de antes. Caso (a revisão da Task 16): o pedido que voltou vazio na hora, ou a tela que não
+    // abriu, não trazem volta ao app, e o botão ficava morto até o técnico sair e voltar.
     private void liberarAgora() {
-        if (algoNaFrente()) {
+        if (abertoNaFrente()) {
             Log.i(TAG, "o Liberar agora com um pedido já na frente: nada a pedir de novo");
             return;
         }
@@ -1029,10 +1047,18 @@ final class EquipeNaCasca {
         lembradoHoje();
         Log.i(TAG, "a casca pede ao Android a bateria sem restrição, logo depois do termo e da localização");
         naTela(() -> {
-            boolean abriu = tela.pedirSemRestricaoDeBateria();
+            Abertura abertura = tela.pedirSemRestricaoDeBateria();
             trabalhar(() -> {
                 bateriaACaminho = false;
-                if (abriu) chave.bateriaPedida();
+                if (abertura == Abertura.TELA_SAINDO) return;
+                chave.bateriaPedida();
+                // Nada abriu (a revisão da Task 16: o aparelho sem a janela, a lista da bateria e os detalhes do app):
+                // nenhuma volta ao app vem depois, e o Liberar agora parava aqui, sem o Início automático. A decisão é
+                // agora; a marca já saiu, e ela não volta a esta tela.
+                if (abertura == Abertura.NADA_ABRIU) {
+                    Log.w(TAG, "nada da bateria sem restrição abriu neste aparelho: o fluxo segue");
+                    reavaliarAgora();
+                }
             });
         });
         return true;
@@ -1669,20 +1695,33 @@ final class EquipeNaCasca {
 
         // O BatteryLife do lint avisa que a loja do Google só aceita esta janela em poucos casos: o Nexus Field não é da
         // loja (sai pela Release do GitHub), e a janela é decisão do dono (R15).
+        // O Android sem esta janela (há fabricante que a tira) tem o recuo: a lista da bateria do Android, onde se tira o
+        // Nexus Field da otimização, e depois os detalhes do app, onde a bateria também está. Caso (a revisão da Task 16):
+        // sem recuo, com a trava no ar, o técnico não tinha como liberar a bateria pelo Liberar agora.
         @SuppressLint("BatteryLife")
         @Override
-        public boolean pedirSemRestricaoDeBateria() {
-            if (!ativa()) return false;
+        public Abertura pedirSemRestricaoDeBateria() {
+            if (!ativa()) return Abertura.TELA_SAINDO;
             Intent janela = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                 Uri.parse("package:" + activity.getPackageName()));
-            try {
-                activity.startActivity(janela);
-            } catch (ActivityNotFoundException | SecurityException e) {
-                // O Android sem esta janela (há fabricante que a tira): nada a tentar de novo, e o guia de instalação
-                // diz o caminho nos ajustes.
-                Log.w(TAG, "a janela da bateria sem restrição não abriu (" + e.getClass().getSimpleName() + ")");
+            if (abrir(janela, "a janela da bateria sem restrição")) return Abertura.ABRIU;
+            if (abrir(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS), "a lista da bateria")) {
+                return Abertura.ABRIU;
             }
-            return true;
+            if (abrir(InicioAutomatico.osDetalhesDoApp(activity), "os detalhes do app")) return Abertura.ABRIU;
+            return Abertura.NADA_ABRIU;
+        }
+
+        // Abre uma tela dos ajustes do Android; a que este aparelho não tem (ou fecha a outros apps) fica no log, só com o
+        // nome da classe.
+        private boolean abrir(Intent tela, String qual) {
+            try {
+                activity.startActivity(tela);
+                return true;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Log.w(TAG, qual + " não abriu (" + e.getClass().getSimpleName() + ")");
+                return false;
+            }
         }
 
         // A tela do HyperOS; a que não abre (outra versão do MIUI ou do HyperOS sem ela, ou com ela fechada a outros apps)

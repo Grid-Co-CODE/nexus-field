@@ -75,6 +75,9 @@ public class AjustesDaColetaTest {
         assertTrue(AjustesDaColeta.ler(app, chave).getBoolean("inicioAutomatico"));
         InicioAutomatico.leitorDeTeste = contexto -> AppOpsManager.MODE_IGNORED;
         assertFalse(AjustesDaColeta.ler(app, chave).getBoolean("inicioAutomatico"));
+        // Outro modo (o padrão, o de erro): não diz se está ligado, e vai nulo, como sem saber (a revisão da Task 16).
+        InicioAutomatico.leitorDeTeste = contexto -> AppOpsManager.MODE_DEFAULT;
+        assertTrue(AjustesDaColeta.ler(app, chave).isNull("inicioAutomatico"));
         // A leitura que falha (o método escondido): nulo, como fora do Xiaomi, e os outros ajustes vão igual.
         InicioAutomatico.leitorDeTeste = contexto -> {
             throw new NoSuchMethodException("checkOpNoThrow");

@@ -59,14 +59,19 @@ public class InicioAutomaticoTest {
     }
 
     @Test
-    public void noXiaomiRedmiEPocoOModoPermitidoELigadoEOutroModoEDesligado() {
+    public void noXiaomiRedmiEPocoOPermitidoELigadoOIgnoradoEDesligadoEOutroModoENulo() {
+        // Os dois modos que a prova viu no HyperOS 2 (o adb: allow ligado, ignore desligado). Outro modo (o padrão, o de
+        // erro, um próprio de um MIUI de outra versão) não diz nada do Início automático: nulo, como sem saber. Caso (a
+        // revisão da Task 16): lido como desligado, ele prendia o técnico na trava, porque a tela do HyperOS liga o
+        // Início automático sem mudar a leitura.
         for (String fabricante : new String[] {"Xiaomi", "XIAOMI", "xiaomi", "Redmi", "REDMI", "POCO", "Poco"}) {
             assertEquals(fabricante, Boolean.TRUE,
                 InicioAutomatico.estado(fabricante, app, modo(AppOpsManager.MODE_ALLOWED)));
-            for (int outro : new int[] {AppOpsManager.MODE_IGNORED, AppOpsManager.MODE_ERRORED,
-                    AppOpsManager.MODE_DEFAULT, 5}) {
-                assertEquals(fabricante + " no modo " + outro, Boolean.FALSE,
-                    InicioAutomatico.estado(fabricante, app, modo(outro)));
+            assertEquals(fabricante, Boolean.FALSE,
+                InicioAutomatico.estado(fabricante, app, modo(AppOpsManager.MODE_IGNORED)));
+            for (int outro : new int[] {AppOpsManager.MODE_ERRORED, AppOpsManager.MODE_DEFAULT,
+                    AppOpsManager.MODE_FOREGROUND, 5, -1}) {
+                assertNull(fabricante + " no modo " + outro, InicioAutomatico.estado(fabricante, app, modo(outro)));
             }
         }
     }

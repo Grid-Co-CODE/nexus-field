@@ -180,6 +180,8 @@ public class EquipeNaCascaTest {
         Runnable liberarDaTrava;
         /** O aparelho sem a tela dos detalhes do app (há fabricante que a tira). */
         boolean semOsDetalhes;
+        /** O aparelho em que nada da bateria abre: nem a janela do Android, nem a lista da bateria, nem os detalhes. */
+        boolean semNadaDaBateria;
         /**
          * O shouldShowRequestPermissionRationale do tempo todo falso: depois da segunda recusa, o Android não pergunta mais
          * (e, antes do primeiro pedido, também é falso).
@@ -244,10 +246,11 @@ public class EquipeNaCascaTest {
         }
 
         @Override
-        public boolean pedirSemRestricaoDeBateria() {
-            if (saindo) return false;
+        public EquipeNaCasca.Abertura pedirSemRestricaoDeBateria() {
+            if (saindo) return EquipeNaCasca.Abertura.TELA_SAINDO;
+            if (semNadaDaBateria) return EquipeNaCasca.Abertura.NADA_ABRIU;
             baterias++;
-            return true;
+            return EquipeNaCasca.Abertura.ABRIU;
         }
 
         @Override
@@ -1388,22 +1391,46 @@ public class EquipeNaCascaTest {
         assertEquals(1, tela.baterias);
     }
 
+    /** Uma tela dos ajustes do Android que este aparelho tem (com o checkActivities, as outras não abrem). */
+    private void comATelaDosAjustes(Intent intent) {
+        ResolveInfo ajustes = new ResolveInfo();
+        ajustes.activityInfo = new ActivityInfo();
+        ajustes.activityInfo.packageName = "com.android.settings";
+        ajustes.activityInfo.name = "com.android.settings.Ajustes" + intent.getAction().hashCode();
+        shadowOf(app.getPackageManager()).addResolveInfoForIntent(intent, ajustes);
+    }
+
     @Test
-    public void aTelaDeVerdadeAbreAJanelaDaBateriaDoProprioAndroid() {
+    public void aTelaDeVerdadeAbreAJanelaDaBateriaDoProprioAndroidOuORecuo() {
         AppCompatActivity activity = activity();
         EquipeNaCasca.TelaDaActivity t = new EquipeNaCasca.TelaDaActivity(activity, p -> fail("nada de permissão aqui"));
-        assertTrue(t.pedirSemRestricaoDeBateria());
+        assertEquals(EquipeNaCasca.Abertura.ABRIU, t.pedirSemRestricaoDeBateria());
         Intent aberta = shadowOf(activity).getNextStartedActivity();
         assertNotNull(aberta);
         assertEquals(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, aberta.getAction());
         assertEquals("package:" + app.getPackageName(), aberta.getDataString());
         assertNull("nenhum diálogo nosso antes", ShadowDialog.getLatestDialog());
 
-        // O Android sem a janela (o fabricante que a tirou): nada quebra, e nada fica para tentar de novo.
+        // O Android sem a janela (o fabricante que a tirou; a revisão da Task 16): com a trava, o técnico ficaria sem como
+        // liberar a bateria. Nada aberto, nada liberado, e cada toque no Liberar agora voltava à janela que não existe.
+        // Nada disso abre: a volta é a decisão de agora, e o fluxo segue.
         shadowOf(app).checkActivities(true);
-        assertTrue(t.pedirSemRestricaoDeBateria());
+        assertEquals(EquipeNaCasca.Abertura.NADA_ABRIU, t.pedirSemRestricaoDeBateria());
+        assertNull(shadowOf(activity).getNextStartedActivity());
+        // Com os detalhes do app: eles, onde a bateria também se libera.
+        comATelaDosAjustes(InicioAutomatico.osDetalhesDoApp(app));
+        assertEquals(EquipeNaCasca.Abertura.ABRIU, t.pedirSemRestricaoDeBateria());
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, shadowOf(activity).getNextStartedActivity().getAction());
+        // Com a lista da bateria do Android: ela, antes dos detalhes.
+        comATelaDosAjustes(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+        assertEquals(EquipeNaCasca.Abertura.ABRIU, t.pedirSemRestricaoDeBateria());
+        assertEquals(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+            shadowOf(activity).getNextStartedActivity().getAction());
+        assertNull("uma tela só", shadowOf(activity).getNextStartedActivity());
+
         controle.pause().stop().destroy();
-        assertFalse("a tela saindo: a próxima volta ao app tenta", t.pedirSemRestricaoDeBateria());
+        assertEquals("a tela saindo: a próxima volta ao app tenta", EquipeNaCasca.Abertura.TELA_SAINDO,
+            t.pedirSemRestricaoDeBateria());
     }
 
     @Test
@@ -1860,6 +1887,16 @@ public class EquipeNaCascaTest {
         comAInstalacaoDeOntem();
         casca().reavaliar();
         assertNull("sem saber o Início automático", tela.trava);
+        // O modo que não é o ligado nem o desligado do MIUI (a revisão da Task 16: um ROM que responde outro modo à
+        // operação 10008 ficava preso na trava, porque a tela do HyperOS liga o Início automático sem mudar a leitura).
+        for (int outro : new int[] {AppOpsManager.MODE_DEFAULT, AppOpsManager.MODE_ERRORED, 5}) {
+            xiaomiNoModo(outro);
+            casca().reavaliar();
+            assertNull("o modo " + outro, tela.trava);
+        }
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        casca().reavaliar();
+        assertEquals("o desligado trava", trava("Início automático"), tela.trava);
         ShadowBuild.setManufacturer("samsung");
         InicioAutomatico.leitorDeTeste = null;
         casca().reavaliar();
@@ -2046,6 +2083,78 @@ public class EquipeNaCascaTest {
         c.reavaliar();
         assertEquals(1, tela.pedidos.size());
         assertEquals(trava("localização precisa"), tela.trava);
+    }
+
+    @Test
+    public void oLiberarAgoraNaoFicaMortoComUmPassoQueNaoTirouOAppDaFrente() {
+        // A revisão da Task 16: o botão olhava o "mandado nesta decisão" da decisão de antes, que só sai na decisão
+        // seguinte. O pedido que volta vazio na hora (outro pedido de permissão já no ar, o da página) ou que não abre não
+        // traz volta ao app, e o botão ficava morto até o técnico sair e voltar.
+        tudoLiberado();
+        tirar(PRECISA, APROXIMADA);
+        comAInstalacaoDeOntem();
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        tela.liberarDaTrava.run();
+        assertEquals(1, tela.pedidos.size());
+        c.aposOPedido(Collections.emptyMap()); // voltou vazio, sem o técnico responder
+        tela.liberarDaTrava.run();
+        assertEquals("o toque seguinte pede de novo", 2, tela.pedidos.size());
+
+        tela.saindo = true;
+        c.aposOPedido(Collections.emptyMap());
+        tela.liberarDaTrava.run(); // o pedido que não abriu
+        tela.saindo = false;
+        tela.liberarDaTrava.run();
+        assertEquals(3, tela.pedidos.size());
+    }
+
+    @Test
+    public void semNadaDaBateriaNoAparelhoOLiberarAgoraSegueEOBotaoNaoMorre() {
+        // A revisão da Task 16: no aparelho sem a janela da bateria (há fabricante que a tira), nada abria, nenhuma volta ao
+        // app vinha depois, e o Liberar agora parava ali: o Início automático não era pedido, e os toques seguintes não
+        // faziam nada. A tela de verdade tenta antes a lista da bateria e os detalhes do app; sem nada disso, a casca
+        // segue na hora, sem esperar uma volta que não vem.
+        tudoLiberado();
+        liberarDaBateria(false);
+        xiaomiNoModo(AppOpsManager.MODE_IGNORED);
+        comAInstalacaoDeOntem();
+        servico.rodando = true;
+        tela.semNadaDaBateria = true;
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertEquals(trava("bateria sem restrição e Início automático"), tela.trava);
+        tela.liberarDaTrava.run();
+        assertEquals(0, tela.baterias);
+        assertFalse("nada a abrir: a marca sai, sem laço", chave.bateriaPorPedir());
+        assertEquals("o fluxo segue para o Início automático", 1, tela.iniciosAutomaticos);
+        c.reavaliar(); // a volta da tela do HyperOS, sem ligar
+        assertEquals(1, tela.iniciosAutomaticos);
+
+        // O toque seguinte pede de novo, em vez de ficar morto.
+        tela.semNadaDaBateria = false;
+        tela.liberarDaTrava.run();
+        assertEquals(1, tela.baterias);
+    }
+
+    @Test
+    public void comOCofreQueNaoRespondeATravaNoArAindaSegueOQueFalta() {
+        // A revisão da Task 16: com o Keystore fora, a decisão voltava antes de conferir a trava, e ela ficava na tela com
+        // tudo liberado até o app ser morto. A trava não passa pela cifra (a chave guardada, o termo e os ajustes).
+        comAInstalacaoDeOntem();
+        EquipeNaCasca c = casca();
+        c.reavaliar();
+        assertEquals(trava("Permitir o tempo todo e bateria sem restrição"), tela.trava);
+        int antes = servico.iniciados + servico.parados;
+        cifra.keystoreFora = true;
+        liberarDaBateria(true);
+        c.reavaliar();
+        assertEquals(trava("Permitir o tempo todo"), tela.trava);
+        tudoLiberado();
+        c.reavaliar();
+        assertNull("tudo liberado: ela sai, com o cofre fora", tela.trava);
+        assertEquals("e nada da coleta muda com o cofre fora", antes, servico.iniciados + servico.parados);
+        cifra.keystoreFora = false;
     }
 
     @Test
