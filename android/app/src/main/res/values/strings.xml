@@ -116,13 +116,15 @@
       e o canal só nasce no aparelho do piloto em que algo falta. O título, o texto e os nomes do que falta têm prefixo
       próprio, notificacao_falta_. O texto leva a lista no %1$s, com a vírgula entre os itens e o "e" antes do último (o
       AvisoDoQueFalta a monta, na ordem destes nomes): "Falta: Permitir o tempo todo e Início automático. Toque para abrir
-      os ajustes do Nexus Field."
+      os ajustes do Nexus Field." A notificação (1.2.7, Task 16, PENDENTE) é nome só da trava, abaixo: sem ela, este aviso
+      nem aparece.
     -->
     <string name="notificacao_canal_ajustes_da_localizacao">Ajustes da localização</string>
     <string name="notificacao_falta_titulo">Falta liberar no celular</string>
     <string name="notificacao_falta_texto">Falta: %1$s. Toque para abrir os ajustes do Nexus Field.</string>
     <string name="notificacao_falta_localizacao">localização precisa</string>
     <string name="notificacao_falta_tempo_todo">Permitir o tempo todo</string>
+    <string name="notificacao_falta_notificacao">notificação</string>
     <string name="notificacao_falta_bateria">bateria sem restrição</string>
     <string name="notificacao_falta_inicio_automatico">Início automático</string>
 
@@ -218,6 +220,20 @@
     <string name="casca_equipe_lembrete_titulo">Falta liberar no celular</string>
     <string name="casca_equipe_lembrete_texto">Para a localização da equipe funcionar com o app fechado, falta liberar: %1$s. Toque em Liberar agora e siga as telas do Android.</string>
     <string name="casca_equipe_lembrete_liberar">Liberar agora</string>
+
+    <!--
+      A trava do App de Campo até o celular estar pronto (Task 16, 1.2.7, o pedido do dono em 23/11/2026: "a gente precisa
+      obrigar eles a aceitarem isso [...] A gente não pode ficar só dependendo da boa vontade deles"; EquipeNaCasca e o
+      layout equipe_trava). Textos novos, PENDENTES de aprovação do dono da casca: vão à prévia (docs/previas/telas.html, a
+      seção Localização da equipe, #t-equipe-trava) e só valem depois de aprovados. Uma tela nossa, de tela cheia, por cima
+      do App de Campo, enquanto faltar algo, com um botão só. O texto leva a lista no %1$s, com os nomes do aviso do que
+      falta e a notificação (os notificacao_falta_), a vírgula entre eles e o "e" no último (o AvisoDoQueFalta os junta). O
+      título fala do site, o App de Campo, que a trava cobre (o testes/nome.test.mjs tem a exceção).
+    -->
+    <string name="casca_equipe_trava_titulo">Libere o celular para usar o App de Campo</string>
+    <string name="casca_equipe_trava_texto">Falta liberar: %1$s.</string>
+    <string name="casca_equipe_trava_motivo">É o que deixa a localização da equipe funcionar com o app fechado. Os celulares são da Grid Co.</string>
+    <string name="casca_equipe_trava_liberar">Liberar agora</string>
 
     <!--
       O atalho de teste dos avisos, só para administrador (decisão do dono, 18/10/2026): o toque longo no ícone do Nexus

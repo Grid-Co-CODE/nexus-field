@@ -23,7 +23,9 @@ import android.provider.Settings;
 
 import androidx.core.app.NotificationCompat;
 
+import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.TimeZone;
 
 import org.json.JSONObject;
@@ -456,6 +458,44 @@ public class AvisoDoQueFaltaTest {
         for (ShadowLog.LogItem item : ShadowLog.getLogs()) {
             assertFalse(item.msg != null && (item.msg.contains(CHAVE) || item.msg.contains(CONTA)));
         }
+    }
+
+    // --- a lista da trava (Task 16) ----------------------------------------------------------------------------------
+
+    /** Os ajustes de um lote, como o AjustesDaColeta os monta. */
+    private static JSONObject ajustes(String localizacao, boolean tempoTodo, boolean notificacao, boolean bateria,
+            Object inicioAutomatico) throws Exception {
+        return new JSONObject().put("termo", ChaveDaEquipe.TERMO_VERSAO).put("localizacao", localizacao)
+            .put("tempoTodo", tempoTodo).put("bateriaSemRestricao", bateria).put("notificacao", notificacao)
+            .put("inicioAutomatico", inicioAutomatico);
+    }
+
+    @Test
+    public void aListaDaTravaTemOsNomesDoAvisoComANotificacaoNaOrdemDoLiberarAgora() throws Exception {
+        // O pedido do dono em 23/11/2026 ("falta permitir o tempo todo [...] falta notificação"): a trava diz também a
+        // notificação, que o aviso não diz (sem ela, ele nem aparece).
+        assertEquals(Arrays.asList("localização precisa", "Permitir o tempo todo", "notificação", "bateria sem restrição",
+            "Início automático"), AvisoDoQueFalta.oQueTrava(app, ajustes("sem", false, false, false, false)));
+        assertEquals(Collections.emptyList(), AvisoDoQueFalta.oQueTrava(app, ajustes("precisa", true, true, true, true)));
+        assertEquals("o Início automático nulo não trava", Collections.emptyList(),
+            AvisoDoQueFalta.oQueTrava(app, ajustes("precisa", true, true, true, JSONObject.NULL)));
+        assertEquals("a aproximada não basta", Collections.singletonList("localização precisa"),
+            AvisoDoQueFalta.oQueTrava(app, ajustes("aproximada", true, true, true, JSONObject.NULL)));
+        assertEquals(Collections.singletonList("notificação"),
+            AvisoDoQueFalta.oQueTrava(app, ajustes("precisa", true, false, true, JSONObject.NULL)));
+        // O aviso continua como está: sem a notificação.
+        assertEquals(Arrays.asList("localização precisa", "Permitir o tempo todo", "bateria sem restrição",
+            "Início automático"), AvisoDoQueFalta.oQueFalta(app, ajustes("sem", false, false, false, false)));
+    }
+
+    @Test
+    @Config(sdk = Build.VERSION_CODES.P)
+    public void naTravaDoAndroidAntesDo10OTempoTodoNaoEntra() throws Exception {
+        // Do Android 9 para trás não existe o tempo todo à parte: a localização precisa basta, e já está na lista.
+        assertEquals(Collections.singletonList("localização precisa"),
+            AvisoDoQueFalta.oQueTrava(app, ajustes("sem", false, true, true, JSONObject.NULL)));
+        assertEquals(Collections.emptyList(),
+            AvisoDoQueFalta.oQueTrava(app, ajustes("precisa", false, true, true, JSONObject.NULL)));
     }
 
     @Test

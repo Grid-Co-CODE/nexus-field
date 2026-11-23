@@ -127,6 +127,13 @@ const DIALOGOS = [
 const TOASTS = ['casca_atualizacao_baixando', 'casca_atualizacao_sha_toast',
   'casca_teste_enviado', 'casca_teste_enviado_sem_contagem', 'casca_teste_so_admin', 'casca_teste_entrar',
   'casca_teste_falhou', 'casca_teste_ja_pedido'];
+// As telas nossas de tela cheia, que não são um AlertDialog (o quadro delas não é um .dialogo): a trava do App de Campo
+// até o celular estar pronto (1.2.7, Task 16, pendente; o EquipeNaCasca e o layout equipe_trava), com o título, o texto
+// com a lista, o texto menor e um botão só.
+const TELAS = [
+  { titulo: 'casca_equipe_trava_titulo', textos: ['casca_equipe_trava_texto', 'casca_equipe_trava_motivo'],
+    botoes: ['casca_equipe_trava_liberar'] },
+];
 
 // Os botões de cada AlertDialog.Builder do código Java, "negativo>positivo" (ou só o positivo): é como o aplicativo os
 // monta de verdade. Vai até o primeiro .show() ou .create() da cadeia (as lambdas dos botões não têm nenhum dos dois).
@@ -344,7 +351,8 @@ test('cada toast da prévia é um que o Java mostra, e todo toast do Java tem qu
 });
 
 test('nenhuma string da casca fica sem quadro, e a tabela do teste não cita string que não existe', () => {
-  const citadas = new Set([...TOASTS, ...DIALOGOS.flatMap((g) => [g.titulo, ...g.textos, ...g.botoes, ...(g.dica ? [g.dica] : [])])]);
+  const citadas = new Set([...TOASTS, ...DIALOGOS.flatMap((g) => [g.titulo, ...g.textos, ...g.botoes, ...(g.dica ? [g.dica] : [])]),
+    ...TELAS.flatMap((g) => [g.titulo, ...g.textos, ...g.botoes])]);
   const existentes = new Set(stringsDaCasca().map((s) => s.nome));
   for (const nome of existentes) assert.ok(citadas.has(nome), `${nome} está no strings.xml e não tem quadro na prévia`);
   for (const nome of citadas) assert.ok(existentes.has(nome), `${nome} está na tabela do teste e não existe no strings.xml`);
@@ -505,10 +513,13 @@ test('o aviso do que falta tem quadro: o título, o texto e a lista que o AvisoD
   const strings = stringsDe('notificacao_falta_');
   assert.deepEqual(strings.map((s) => s.nome).sort(), usadas,
     'todo notificacao_falta_* do strings.xml é um texto que o AvisoDoQueFalta mostra, e ele só mostra esses');
-  // A ordem do texto é a do pedido: a localização precisa, o tempo todo, a bateria e o Início automático.
+  // A ordem do texto é a do pedido: a localização precisa, o tempo todo, a bateria e o Início automático; a notificação, só
+  // na trava (1.2.7, Task 16: sem ela o aviso nem aparece), entre o tempo todo e a bateria, a ordem do Liberar agora.
   const ordem = [...fonte.matchAll(/faltas\.add\(contexto\.getString\(R\.string\.(notificacao_falta_\w+)\)\)/g)].map((m) => m[1]);
-  assert.deepEqual(ordem, ['notificacao_falta_localizacao', 'notificacao_falta_tempo_todo', 'notificacao_falta_bateria',
-    'notificacao_falta_inicio_automatico'], 'a lista do que falta, na ordem do texto');
+  assert.deepEqual(ordem, ['notificacao_falta_localizacao', 'notificacao_falta_tempo_todo', 'notificacao_falta_notificacao',
+    'notificacao_falta_bateria', 'notificacao_falta_inicio_automatico'], 'a lista do que falta, na ordem do texto');
+  assert.match(fonte, /if \(daTrava && !ajustes\.optBoolean\("notificacao", false\)\)/,
+    'a notificação entra só na lista da trava');
   assert.match(fonte, /String\.join\(", ", itens\.subList\(0, n - 1\)\) \+ " e " \+ itens\.get\(n - 1\)/,
     'o AvisoDoQueFalta junta a lista com a vírgula e o "e" no último, como o teste');
   assert.equal(textoDoQueFalta('tempo_todo', 'inicio_automatico'), EXEMPLO_DO_QUE_FALTA, 'o exemplo do pedido, palavra por palavra');
@@ -585,12 +596,81 @@ test('o lembrete diário tem quadro na seção da equipe: o título, o texto com
   }
 });
 
+// A trava do App de Campo até o celular estar pronto (1.2.7, Task 16, o pedido do dono em 23/11/2026: "a gente precisa
+// obrigar eles a aceitarem isso"): a tela nossa de tela cheia por cima do App de Campo, com os nomes do aviso do que falta
+// e a notificação, juntados do mesmo jeito, e o Liberar agora só. O exemplo do quadro é o caso de 23/11 ("falta permitir o
+// tempo todo [...] falta notificação"), com a bateria, para mostrar a vírgula e o "e".
+const EXEMPLO_DA_TRAVA = 'Falta liberar: Permitir o tempo todo, notificação e bateria sem restrição.';
+function textoDaTrava(...sufixos) {
+  const nomes = sufixos.map((sufixo) => stringsDe('notificacao_falta_').find((s) => s.nome === `notificacao_falta_${sufixo}`).texto);
+  const lista = nomes.length === 1 ? nomes[0] : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+  return textoDe('casca_equipe_trava_texto').replace('%1$s', () => lista);
+}
+
+test('a trava tem quadro na seção da equipe: o título, o texto com a lista, o motivo e o Liberar agora, nas cores da casca', () => {
+  const fonte = lerArquivo(PASTA_JAVA + 'EquipeNaCasca.java');
+  assert.match(fonte, /getString\(R\.string\.casca_equipe_trava_texto, AvisoDoQueFalta\.emLista\(\w+\)\)/,
+    'o texto leva a lista juntada pelo AvisoDoQueFalta, com a vírgula e o "e", como o aviso do que falta');
+  assert.match(fonte, /AvisoDoQueFalta\.oQueTrava\(/, 'a lista sai dos nomes e da ordem do aviso do que falta');
+  assert.match(lerArquivo(PASTA_JAVA + 'AvisoDoQueFalta.java'), /static List<String> oQueTrava\(/);
+  // O layout é o que vai à tela: o título, o motivo e o botão do strings.xml (o texto com a lista vem do código), e um
+  // botão só.
+  const layout = lerArquivo('../android/app/src/main/res/layout/equipe_trava.xml');
+  const botao = lerArquivo('../android/app/src/main/res/drawable/equipe_trava_botao.xml');
+  for (const nome of ['casca_equipe_trava_titulo', 'casca_equipe_trava_motivo', 'casca_equipe_trava_liberar']) {
+    assert.ok(layout.includes(`@string/${nome}`), `o layout da trava mostra o ${nome}`);
+  }
+  assert.equal((layout.match(/<Button\b/g) || []).length, 1, 'um botão só, o Liberar agora');
+  assert.equal(textoDaTrava('tempo_todo', 'notificacao', 'bateria'), EXEMPLO_DA_TRAVA,
+    'o exemplo, com o texto do pedido palavra por palavra');
+  assert.equal(textoDe('casca_equipe_trava_titulo'), 'Libere o celular para usar o App de Campo');
+  assert.equal(textoDe('casca_equipe_trava_motivo'),
+    'É o que deixa a localização da equipe funcionar com o app fechado. Os celulares são da Grid Co.');
+  assert.equal(textoDe('casca_equipe_trava_liberar'), 'Liberar agora');
+  assert.equal(stringsDe('notificacao_falta_').find((s) => s.nome === 'notificacao_falta_notificacao')?.texto, 'notificação');
+
+  const figura = doc().getElementById('t-equipe-trava');
+  const quadro = figura?.querySelector('.celular.trava .trava-tela');
+  assert.ok(quadro, 'o quadro da trava (figure#t-equipe-trava)');
+  assert.equal(figura.querySelector('.dialogo'), null, 'uma tela de tela cheia, e não um diálogo');
+  assert.equal(compactar(quadro.querySelector('.trava-titulo').textContent), textoDe('casca_equipe_trava_titulo'));
+  assert.equal(compactar(quadro.querySelector('.trava-texto').textContent), EXEMPLO_DA_TRAVA);
+  assert.equal(compactar(quadro.querySelector('.trava-motivo').textContent), textoDe('casca_equipe_trava_motivo'));
+  assert.deepEqual([...quadro.querySelectorAll('.trava-botao')].map((b) => compactar(b.textContent)),
+    [textoDe('casca_equipe_trava_liberar')], 'um botão só');
+  // As cores são as do aparelho (o res/values/cores.xml e o navy do ícone), que são as da tela Sem internet: a outra tela
+  // nossa de tela cheia.
+  const cores = lerArquivo('../android/app/src/main/res/values/cores.xml');
+  const cor = (nome) => cores.match(new RegExp(`<color name="${nome}">(#[0-9A-Fa-f]{6})</color>`))?.[1].toLowerCase();
+  const raiz = regraDe(folha(), ':root').decl;
+  for (const [token, nome, doErro] of [['--trava-texto', 'casca_texto', '--texto'],
+    ['--trava-suave', 'casca_texto_suave', '--texto-suave'], ['--trava-botao', 'casca_destaque', '--destaque']]) {
+    assert.ok(cor(nome), `o res/values/cores.xml tem o ${nome}`);
+    assert.equal(raiz[token]?.toLowerCase(), cor(nome), `o ${token} da prévia é o ${nome} do aparelho`);
+    assert.match(ERRO_HTML, new RegExp(`${doErro}:\\s*${cor(nome)}`, 'i'), `o ${nome} é o ${doErro} da tela Sem internet`);
+  }
+  for (const nome of ['ic_launcher_background', 'casca_texto', 'casca_texto_suave', 'casca_destaque']) {
+    assert.ok(layout.includes(`@color/${nome}`) || botao.includes(`@color/${nome}`), `a trava usa o @color/${nome}`);
+  }
+  assert.equal(regraDe(folha(), '.celular.trava').decl.background, 'var(--icone-fundo)', 'o fundo é o navy do ícone');
+  const dita = compactar(figura.querySelector('figcaption').textContent);
+  for (const [o, trecho] of [['quem tem a chave e o termo', /termo/], ['quem nunca a vê', /[Ss]upervisor/],
+    ['a qualquer hora', /a qualquer hora/], ['que não fecha', /não fecha/], ['o Voltar', /Voltar.*fundo/],
+    ['a ordem do Liberar agora', /localização precisa.*Permitir o tempo todo.*notificação.*bateria sem restrição.*Início automático/],
+    ['os recuos', /detalhes do Nexus Field.*ajustes de notificação/], ['quando sai', /sai sozinha/],
+    ['o fluxo da instalação antes', /no meio deles/], ['o lembrete', /lembrete diário não aparece/],
+    ['o aviso que fica', /Falta liberar no celular/], ['a atualização', /Nova versão do Nexus Field/]]) {
+    assert.match(dita, trecho, `a legenda da trava diz ${o}`);
+  }
+});
+
 // A lista "O que aprovar" e a localização da equipe (spec 2026-11-08, seção 4.1): cada texto novo é aprovado pelo texto
 // inteiro (o dono da casca, o RH e o jurídico leem as palavras, e não um resumo), e o termo tem o item do que ele promete.
 test('a lista "O que aprovar" cita cada texto da localização da equipe, inteiro, e o que o termo promete', () => {
   const d = doc();
   const citados = [...d.querySelectorAll('#o-que-aprovar .cita')].map((e) => compactar(e.textContent));
-  const daEquipe = [...stringsDe('casca_equipe_').filter((s) => s.nome !== 'casca_equipe_lembrete_texto'),
+  const daEquipe = [...stringsDe('casca_equipe_')
+    .filter((s) => !['casca_equipe_lembrete_texto', 'casca_equipe_trava_texto'].includes(s.nome)),
     ...stringsDe('notificacao_equipe_'), ...stringsDe('notificacao_canal_equipe_'),
     ...stringsDe('notificacao_inicio_'), ...stringsDe('notificacao_canal_inicio_'),
     ...stringsDe('notificacao_falta_').filter((s) => s.nome !== 'notificacao_falta_texto'),
@@ -599,12 +679,15 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // quadro de cada um.
   assert.ok(citados.includes(EXEMPLO_DO_QUE_FALTA), `a lista "O que aprovar" não cita o aviso do que falta: "${EXEMPLO_DO_QUE_FALTA}"`);
   assert.ok(citados.includes(EXEMPLO_DO_LEMBRETE), `a lista "O que aprovar" não cita o lembrete diário: "${EXEMPLO_DO_LEMBRETE}"`);
-  // As telas nossas da equipe são o termo (R10) com a dica dele (R11) e, desde a 1.2.5, o lembrete diário do que falta
-  // liberar (Task 15, o pedido do dono em 16/11/2026): o aviso e a explicação da localização o tempo todo continuam fora.
+  assert.ok(citados.includes(EXEMPLO_DA_TRAVA), `a lista "O que aprovar" não cita a trava: "${EXEMPLO_DA_TRAVA}"`);
+  // As telas nossas da equipe são o termo (R10) com a dica dele (R11), desde a 1.2.5 o lembrete diário do que falta
+  // liberar (Task 15, o pedido do dono em 16/11/2026) e, desde a 1.2.7, a trava (Task 16, o de 23/11/2026): o aviso e a
+  // explicação da localização o tempo todo continuam fora.
   assert.deepEqual(stringsDe('casca_equipe_').map((s) => s.nome).sort(),
     ['casca_equipe_lembrete_liberar', 'casca_equipe_lembrete_texto', 'casca_equipe_lembrete_titulo',
-      'casca_equipe_termo_aceitar', 'casca_equipe_termo_rolar', 'casca_equipe_termo_texto', 'casca_equipe_termo_titulo'],
-    'a casca da equipe tem o termo, a dica dele e o lembrete diário: o aviso e a explicação da localização o tempo todo saíram');
+      'casca_equipe_termo_aceitar', 'casca_equipe_termo_rolar', 'casca_equipe_termo_texto', 'casca_equipe_termo_titulo',
+      'casca_equipe_trava_liberar', 'casca_equipe_trava_motivo', 'casca_equipe_trava_texto', 'casca_equipe_trava_titulo'],
+    'a casca da equipe tem o termo, a dica dele, o lembrete diário e a trava: o aviso e a explicação da localização o tempo todo saíram');
   assert.ok(daEquipe.length >= 15, 'o teste leu os textos da localização da equipe, do aviso das 6h e do aviso do que falta');
   for (const s of daEquipe) {
     assert.ok(citados.some((t) => t === s.texto), `a lista "O que aprovar" não cita o ${s.nome}: "${s.texto}"`);
@@ -612,7 +695,7 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // Cada item leva ao quadro certo, que existe.
   for (const [item, quadro] of [['ok-equipe-termo', 't-equipe-termo'], ['ok-equipe-notificacao', 't-equipe-notificacao'],
     ['ok-equipe-inicio', 't-equipe-inicio'], ['ok-equipe-falta', 't-equipe-falta'],
-    ['ok-equipe-lembrete', 't-equipe-lembrete']]) {
+    ['ok-equipe-lembrete', 't-equipe-lembrete'], ['ok-equipe-trava', 't-equipe-trava']]) {
     const li = d.getElementById(item)?.closest('li');
     assert.ok(li, `o item ${item} da lista "O que aprovar"`);
     assert.equal(li.querySelector('a.ver')?.getAttribute('href'), `#${quadro}`);
@@ -671,13 +754,14 @@ test('a lista "O que aprovar" cita cada texto da localização da equipe, inteir
   // a 5 (Task 14), por último, a tela do Início automático nos celulares Xiaomi.
   assert.match(dito, /localização \(a precisa, durante o uso\), o do Permitir o tempo todo, a janela da bateria sem restrição e, nos celulares Xiaomi com o Início automático desligado, a tela dele/);
   assert.match(dito, /volta sozinha se o celular reiniciar, o aplicativo for atualizado ou o Android fechar o aplicativo, e nunca sem a abertura do dia/);
-  // A seção da equipe tem o termo, a notificação, o aviso das 6h, o aviso do que falta e o lembrete diário (as telas do
-  // Android e do HyperOS que vêm depois do termo e do Liberar agora não são do Nexus Field, e só as legendas as dizem), com o
-  // tempo todo de volta (R15).
+  // A seção da equipe tem o termo, a notificação, o aviso das 6h, o aviso do que falta, o lembrete diário e a trava (as
+  // telas do Android e do HyperOS que vêm depois do termo e do Liberar agora não são do Nexus Field, e só as legendas as
+  // dizem), com o tempo todo de volta (R15).
   const secao = d.getElementById('g-equipe')?.closest('section');
   assert.ok(secao, 'a seção Localização da equipe');
   assert.deepEqual([...secao.querySelectorAll('figure.item')].map((f) => f.id),
-    ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao', 't-equipe-inicio', 't-equipe-falta', 't-equipe-lembrete']);
+    ['t-equipe-termo', 't-equipe-termo-fim', 't-equipe-notificacao', 't-equipe-inicio', 't-equipe-falta', 't-equipe-lembrete',
+      't-equipe-trava']);
   assert.match(compactar(d.querySelector('#t-equipe-termo-fim figcaption').textContent),
     /a coleta liga, e vem o pedido do Permitir o tempo todo.*Depois, a janela da bateria sem restrição.*Por último, nos celulares Xiaomi com o Início automático desligado, a tela do Início automático/,
     'a legenda do fim do termo diz a ordem das telas do Android e do HyperOS');
@@ -814,6 +898,7 @@ test('os nomes entre aspas da lista "O que aprovar" são textos de verdade do ap
   const permitidos = new Set([...stringsDaCasca(), ...stringsDosCanais(), ...stringsDosAtalhos(), ...daEquipe].map((s) => s.texto));
   permitidos.add(EXEMPLO_DO_QUE_FALTA); // o texto do aviso do que falta, com a lista de exemplo
   permitidos.add(EXEMPLO_DO_LEMBRETE); // e o do lembrete diário, com a dele
+  permitidos.add(EXEMPLO_DA_TRAVA); // e o da trava, com a dela
   for (const nome of ['app_name', 'title_activity_main']) permitidos.add(stringDoApp(nome)); // o nome, Nexus Field
   const erro = new JSDOM(ERRO_HTML).window.document;
   for (const el of erro.querySelectorAll('h1, p, button')) permitidos.add(compactar(el.textContent));

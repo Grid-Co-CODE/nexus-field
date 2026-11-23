@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A trava do App de Campo até o celular estar pronto (Task 16, EquipeNaCasca.TelaDaActivity): a tela inteira, por cima da
+  WebView, no visual da tela Sem internet (o navy do ícone, o texto claro e o botão verde). A raiz fica com o toque
+  (clickable): nada passa ao App de Campo embaixo, e tocar nela não fecha nada. A rolagem é a da fonte grande na tela
+  pequena (o caso do termo da equipe): o botão sempre se alcança. O texto com a lista entra pelo código. O Overdraw do lint
+  supõe que esta é a raiz da activity, por cima só do fundo do tema; ela vai por cima da WebView, e o fundo dela é o que
+  cobre o App de Campo.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/equipe_trava"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ic_launcher_background"
+    tools:ignore="Overdraw"
+    android:clickable="true"
+    android:fillViewport="true"
+    android:focusable="true"
+    android:focusableInTouchMode="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="vertical"
+        android:paddingStart="24dp"
+        android:paddingTop="32dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="32dp">
+
+        <TextView
+            android:id="@+id/equipe_trava_titulo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/casca_equipe_trava_titulo"
+            android:textColor="@color/casca_texto"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/equipe_trava_texto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:lineSpacingMultiplier="1.2"
+            android:textColor="@color/casca_texto"
+            android:textSize="17sp" />
+
+        <TextView
+            android:id="@+id/equipe_trava_motivo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:lineSpacingMultiplier="1.2"
+            android:text="@string/casca_equipe_trava_motivo"
+            android:textColor="@color/casca_texto_suave"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/equipe_trava_liberar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:background="@drawable/equipe_trava_botao"
+            android:minHeight="52dp"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:text="@string/casca_equipe_trava_liberar"
+            android:textAllCaps="false"
+            android:textColor="@color/ic_launcher_background"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</ScrollView>

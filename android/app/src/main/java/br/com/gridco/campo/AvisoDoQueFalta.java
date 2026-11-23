@@ -129,7 +129,7 @@ final class AvisoDoQueFalta {
      * sem restrição e o Início automático (só o desligado; o nulo não conta). A notificação não entra.
      */
     static List<String> oQueFalta(Context contexto, JSONObject ajustes) {
-        return oQueFalta(contexto, ajustes, true);
+        return oQueFalta(contexto, ajustes, true, false);
     }
 
     /**
@@ -138,15 +138,33 @@ final class AvisoDoQueFalta {
      * vem com ela dada: sem a durante o uso, o Android nem mostra o pedido do tempo todo.
      */
     static List<String> oQueFaltaLiberar(Context contexto, JSONObject ajustes) {
-        return oQueFalta(contexto, ajustes, false);
+        return oQueFalta(contexto, ajustes, false, false);
     }
 
-    private static List<String> oQueFalta(Context contexto, JSONObject ajustes, boolean comALocalizacao) {
+    /**
+     * O que trava o App de Campo (Task 16, {@link EquipeNaCasca}): os mesmos nomes, com a notificação entre o tempo todo e
+     * a bateria, na ordem do Liberar agora da trava. A notificação entra só aqui: sem ela, este aviso nem aparece, e a trava
+     * é o que a diz ao técnico (o pedido do dono em 23/11/2026: "falta notificação"). O Permitir o tempo todo só do Android
+     * 10 em diante: antes dele ele não existe à parte (o {@code tempoTodo} dos ajustes é a localização precisa), e a precisa
+     * basta, já na lista.
+     */
+    static List<String> oQueTrava(Context contexto, JSONObject ajustes) {
+        return oQueFalta(contexto, ajustes, true, true);
+    }
+
+    private static List<String> oQueFalta(Context contexto, JSONObject ajustes, boolean comALocalizacao,
+            boolean daTrava) {
         List<String> faltas = new ArrayList<>();
         if (comALocalizacao && !"precisa".equals(ajustes.optString("localizacao"))) {
             faltas.add(contexto.getString(R.string.notificacao_falta_localizacao));
         }
-        if (!ajustes.optBoolean("tempoTodo", false)) faltas.add(contexto.getString(R.string.notificacao_falta_tempo_todo));
+        boolean tempoTodoAParte = !daTrava || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+        if (tempoTodoAParte && !ajustes.optBoolean("tempoTodo", false)) {
+            faltas.add(contexto.getString(R.string.notificacao_falta_tempo_todo));
+        }
+        if (daTrava && !ajustes.optBoolean("notificacao", false)) {
+            faltas.add(contexto.getString(R.string.notificacao_falta_notificacao));
+        }
         if (!ajustes.optBoolean("bateriaSemRestricao", false)) {
             faltas.add(contexto.getString(R.string.notificacao_falta_bateria));
         }

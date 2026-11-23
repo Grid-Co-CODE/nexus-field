@@ -396,15 +396,15 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       **Permitir o tempo todo** e voltar ao app: a janela da bateria vem em seguida, e o log da casca diz "o tempo todo
       dado com a coleta ligada: a casca a inicia de novo". Noutra conta de teste (ou depois do **Sair**), ficar com a
       durante o uso: a coleta segue igual, a janela da bateria vem igual, o mapa não muda (não é falta de permissão), e o
-      pedido não volta sozinho para a mesma conta (fechar e abrir o app, reiniciar o celular); no dia seguinte, quem o traz
-      é o lembrete diário (1.2.5, abaixo). Num aparelho com o tempo todo já dado, nada se pede.
+      pedido não volta sozinho para a mesma conta (fechar e abrir o app, reiniciar o celular); quem o traz é o **Liberar
+      agora** da trava (1.2.7, abaixo). Num aparelho com o tempo todo já dado, nada se pede.
 - [ ] A janela da bateria, uma vez depois do termo: logo depois do **Li e aceito**, da localização dada e da resposta ao
       pedido do tempo todo (a ordem: a localização, o tempo todo, a bateria), com a coleta ligada, aparece a janela do
       próprio Android que pede deixar o Nexus Field sem restrição de bateria (o texto é do Android e muda com a versão e a
       marca: anote o que apareceu), sem outra tela do Nexus Field antes, e a notificação fixa **Localização da equipe
       ligada** já está na barra (a coleta liga antes das duas). Recusar: a coleta segue
-      igual, e a janela não volta sozinha para a mesma conta (fechar e abrir o app, reiniciar o celular); no dia
-      seguinte, quem a traz é o lembrete diário. Noutra conta de teste (ou depois do **Sair**), o termo e a janela aparecem de novo. Aceitar: em
+      igual, e a janela não volta sozinha para a mesma conta (fechar e abrir o app, reiniciar o celular); quem a traz é o
+      **Liberar agora** da trava. Noutra conta de teste (ou depois do **Sair**), o termo e a janela aparecem de novo. Aceitar: em
       Configurações, Bateria, o Nexus Field fica **Sem restrições** (o nome muda com a marca), e a janela não volta. Num
       aparelho com o Nexus Field já liberado antes do termo, nenhuma janela aparece. Se o aparelho não tiver a janela, o
       log da casca diz "a janela da bateria sem restrição não abriu" e nada mais acontece: anote o modelo.
@@ -416,8 +416,8 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       ajustes do Nexus Field (o log diz "a tela do Início automático do HyperOS não abriu"), onde ele também está: anote
       o modelo e a versão do HyperOS. Ligar o Nexus Field nela e voltar: nada mais aparece. Noutra conta de teste (ou
       depois do **Sair**), desligá-lo antes e recusar: a coleta segue igual, e a tela não volta sozinha para a mesma conta
-      (fechar e abrir o app, reiniciar o celular); no dia seguinte, quem a traz é o lembrete diário. Num aparelho com ele
-      já ligado, ou de outra marca, nenhuma tela.
+      (fechar e abrir o app, reiniciar o celular); quem a traz é o **Liberar agora** da trava. Num aparelho com ele já
+      ligado, ou de outra marca, nenhuma tela.
 - [ ] O aviso do que falta (1.2.3): recusar o Permitir o tempo todo, a bateria e o Início automático no fluxo do termo.
       No meio dos pedidos nada aparece; na volta ao app depois da última tela, chega o aviso **Falta liberar no
       celular**, **Falta: Permitir o tempo todo, bateria sem restrição e Início automático. Toque para abrir os ajustes do
@@ -430,33 +430,11 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       e depois das 22h, nada; às 22h ele sai sozinho. Depois do **Sair**, ele some e não volta. Às 6h e depois de
       reiniciar o celular, com algo faltando, ele aparece sem abrir o app (no Xiaomi, só com o Início automático ligado:
       anote se, sem ele, apareceu).
-- [ ] O lembrete diário (1.2.5, o pedido do dono em 16/11/2026: técnicos que instalavam e não deixavam o Permitir o
-      tempo todo). Recusar o Permitir o tempo todo (e, se der, a bateria e o Início automático) no fluxo do termo: no
-      mesmo dia, fechar e abrir o app e voltar a ele não traz o lembrete (o fluxo da instalação já pediu hoje). No dia
-      seguinte, depois das 6h (ou com o relógio do aparelho no dia seguinte, com o horário automático desligado), abrir o
-      Nexus Field: com a coleta ligando, aparece a tela do Nexus Field **Falta liberar no celular**, **Para a localização
-      da equipe funcionar com o app fechado, falta liberar: Permitir o tempo todo, bateria sem restrição e Início
-      automático. Toque em Liberar agora e siga as telas do Android.** (só o que falta; o Início automático só num
-      Xiaomi), com os botões **Agora não** e **Liberar agora**, sem o aviso da barra tocando junto (ele vem na volta ou no
-      envio seguinte). O log da casca diz "o lembrete do dia: falta liberar". Anote o modelo e a versão do Android.
-- [ ] O **Liberar agora** leva às telas, uma por vez e só do que falta: o pedido do Permitir o tempo todo (a tela do
-      Android 10, ou os ajustes do Nexus Field do 11 em diante); na volta, a janela da bateria sem restrição; na volta
-      dela, num Xiaomi, a tela do Início automático do HyperOS. Liberar tudo e voltar: o aviso **Falta liberar no
-      celular** some, e nada mais aparece. Do Android 11 em diante, depois de recusar o tempo todo duas vezes (o Android
-      não pergunta mais), o **Liberar agora** abre direto os detalhes do Nexus Field nos ajustes, sem pedido nenhum antes
-      (o log diz "o Android não pergunta mais o tempo todo: a casca abriu os detalhes do app"), também no celular mais
-      simples do piloto (de preferência logo depois de reiniciá-lo), e a janela da bateria só vem na volta deles, nunca
-      por cima. Anote se, num Android 10 com a recusa rápida (menos de 1,5 s), os detalhes abriram.
-- [ ] O **Agora não** só fecha, como tocar fora e o Voltar: nada se pede, e a volta ao app não o mostra de novo no mesmo
-      dia. Fechar o app com o lembrete aberto (tirá-lo dos recentes) e abrir de novo: ele não volta no mesmo dia. No dia
-      seguinte, com algo ainda faltando, ele volta uma vez. Com tudo liberado, nada aparece, em nenhum dia. Antes das 6h e
-      depois das 22h, nada. Num dia de Release (só no APK da Release: o de depuração não procura versão nova), abrir o app
-      com algo faltando: a **Nova versão do Nexus Field** aparece sozinha, sem o lembrete por baixo nem por cima dela; depois
-      do **Depois** (ou da atualização), o lembrete vem numa volta seguinte ao app. Sem versão nova, ele aparece logo depois
-      de a conferência da versão voltar da rede (em até uns 3 s); com a rede lenta, numa volta seguinte. Com outro diálogo
-      na frente, também numa volta seguinte. O lembrete de ontem que ficou aberto (o app deixado no fundo pela noite, sem
-      responder): na manhã seguinte ele sai, e só o de hoje fica, uma tela só. Depois do **Sair**, a conta seguinte só vê o
-      lembrete no dia seguinte ao aceite do termo dela.
+- [ ] O lembrete diário (1.2.5) não aparece com a trava no ar (1.2.7), que lista o mesmo que ele: recusar o Permitir
+      o tempo todo (e, se der, a bateria e o Início automático) no fluxo do termo. No mesmo dia e no dia seguinte, depois
+      das 6h (ou com o relógio do aparelho no dia seguinte, com o horário automático desligado), abrir o Nexus Field: a
+      trava aparece (ver "A trava do App de Campo", abaixo), e a tela **Falta liberar no celular**, com o **Agora não**,
+      não aparece por cima nem por baixo dela. O **Liberar agora** é o mesmo dos dois e se prova na seção da trava.
 - [ ] O termo é uma vez por conta: fechar e abrir o Nexus Field, reiniciar o celular, voltar no dia seguinte: o termo não
       aparece de novo para a mesma conta.
 - [ ] A coleta liga: a notificação fixa **Localização da equipe ligada** fica na barra, sem som e sem vibração.
@@ -505,6 +483,51 @@ piloto passa este roteiro inteiro em pelo menos um aparelho de cada linha (anote
       primeiro lote. Tirar o Permitir o tempo todo (deixar só durante o uso) ou pôr a bateria em **Otimizada**, voltar ao
       app: no lote seguinte, o Piloto mostra o que falta (e, num Xiaomi, o Início automático desligado, quando o Nexus
       já ler o `inicioAutomatico` dos ajustes). Quem aceitou a versão 4 do termo vê a versão 5 ao abrir.
+
+### A trava do App de Campo (1.2.7)
+
+A trava (Task 16, o pedido do dono em 23/11/2026: técnicos sem o Permitir o tempo todo e sem a notificação, e o lembrete
+diário e o aviso da barra não bastaram) cobre o App de Campo enquanto faltar algo no celular, para quem está na coleta.
+Num aparelho de prova, com a conta do piloto e o termo aceito; os textos são os da prévia (o quadro `#t-equipe-trava`) e
+valem só depois de aprovados. Anote o modelo e a versão do Android.
+
+- [ ] Negar cada item, um de cada vez, e voltar ao Nexus Field: aparece a tela inteira **Libere o celular para usar o App
+      de Campo**, com o texto menor **É o que deixa a localização da equipe funcionar com o app fechado. Os celulares são
+      da Grid Co.** e um botão só, **Liberar agora**. (1) Em Permissões, Localização, desligar **Usar localização
+      precisa**: **Falta liberar: localização precisa.** (2) Trocar **Permitir o tempo todo** pela durante o uso: **Falta
+      liberar: Permitir o tempo todo.** (do Android 10 em diante; no 9 ou mais velho, nada trava). (3) Desligar as
+      notificações do Nexus Field, ou só o canal **Localização da equipe**: **Falta liberar: notificação.** (4) Pôr a
+      bateria em **Otimizada** (o nome muda com a marca): **Falta liberar: bateria sem restrição.** (5) Num Xiaomi,
+      desligar o Início automático: **Falta liberar: Início automático.** Com dois ou mais, a lista vem nessa ordem, com a
+      vírgula e o "e" no último. Ela aparece também antes das 6h e depois das 22h, e na abertura com o app fechado.
+- [ ] A trava não fecha: tocar nela fora do botão não faz nada, e nada do App de Campo embaixo responde (nem pelo
+      TalkBack, que só lê a trava). O Voltar do Android (o gesto ou o botão) só manda o Nexus Field para o fundo: voltar a
+      ele pelos recentes ou pelo ícone mostra a trava de novo, no mesmo lugar. Girar a tela, a fonte no máximo e a tela
+      pequena (ou a tela dividida): o título, o texto e o botão continuam legíveis, e o botão se alcança, rolando se
+      preciso; do Android 15 em diante, nada fica por baixo da barra de status nem da de navegação.
+- [ ] O **Liberar agora** com tudo faltando: abre, um por vez e só o que falta, o pedido do Android da localização, o do
+      Permitir o tempo todo (a tela do Android 10, ou os ajustes do Nexus Field do 11 em diante), o da notificação (do
+      Android 13 em diante), a janela da bateria sem restrição e, num Xiaomi, a tela do Início automático do HyperOS;
+      recusar um não segura o seguinte, e a trava fica com o que ainda falta. Com a permissão da notificação dada e o canal
+      **Localização da equipe** desligado, abrem direto os ajustes de notificação do Nexus Field (o log da casca diz "os
+      ajustes de notificação"). Tocar duas vezes seguidas no **Liberar agora**: um pedido só.
+- [ ] O Android que não pergunta mais: do Android 11 em diante, depois de recusar duas vezes a localização, o tempo todo
+      ou a notificação, o **Liberar agora** abre direto os detalhes do Nexus Field nos ajustes (ou, para a notificação, os
+      ajustes de notificação dele), sem pedido nenhum antes (o log diz "o Android não pergunta mais"), também no celular
+      mais simples do piloto (de preferência logo depois de reiniciá-lo), e a tela seguinte só vem na volta deles, nunca
+      por cima. Anote se, num Android 10 com a recusa rápida (menos de 1,5 s), os detalhes abriram.
+- [ ] Liberar tudo e voltar ao Nexus Field: a trava some sozinha, e o App de Campo volta a responder onde estava; o
+      aviso **Falta liberar no celular** sai da barra.
+- [ ] A instalação vem antes: numa conta de teste nova (ou depois do **Sair**), o termo e os pedidos logo depois do **Li e
+      aceito** aparecem sem a trava no meio deles; recusando algo neles, a trava aparece na volta depois do último. Numa
+      abertura a frio com a localização negada (o **Antes de começar** na frente): a trava espera ele, o pedido do Android
+      e o aviso **Permissões necessárias**, e aparece logo depois do **Agora não**, sem fechar e abrir o app.
+- [ ] Num dia de Release (só no APK da Release: o de depuração não procura versão nova), com a trava no ar: a **Nova
+      versão do Nexus Field** aparece por cima dela, e o **Atualizar agora** funciona.
+- [ ] Com a trava no ar, o aviso **Falta liberar no celular** da barra continua como antes (sem a notificação na lista: sem
+      ela, ele nem aparece).
+- [ ] Uma conta fora da coleta (a conta Admin, ou uma conta de teste que o Nexus não escolheu) nunca vê a trava, com
+      qualquer item negado. Depois do `coleta:false` (o chat do Nexus tira o aparelho do piloto), ela some na hora.
 
 ### O aviso das 6h
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  As cores das telas nossas de tela cheia (a trava do App de Campo, Task 16, o layout equipe_trava): as da tela Sem internet
+  (www/erro.html), a outra tela nossa de tela cheia, sobre o navy do ícone (o ic_launcher_background). O técnico vê a mesma
+  casca nas duas, e não um terceiro visual. O testes/previas.test.mjs confere que a prévia e o erro.html têm estas mesmas.
+-->
+<resources>
+    <!-- O texto: o claro do erro.html (a variável texto de lá). -->
+    <color name="casca_texto">#F2F0FA</color>
+    <!-- O texto menor, que explica (a variável texto-suave do erro.html). -->
+    <color name="casca_texto_suave">#B9B4CF</color>
+    <!-- O botão: o verde do erro.html (a variável destaque), com o texto no navy do ícone. -->
+    <color name="casca_destaque">#A3D900</color>
+    <!-- O toque no botão: o navy do ícone a 20%. -->
+    <color name="casca_destaque_toque">#33090D18</color>
+</resources>

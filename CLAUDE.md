@@ -1099,8 +1099,9 @@ O site (App de Campo) e o Fracttal não mudam.
     reagenda o do dia seguinte).
   - `EquipeNaCasca`: a regra (`decidir`, pura: a janela, a chave, o termo aceito, a localização precisa e a notificação à
     vista; a conta conferida é do envio) e quem a executa. Antes de a coleta ligar, uma tela nossa só (R10, o pedido do
-    dono depois da prévia: "essa quantidade de telas e avisos atrapalham muito a experiência"; a outra tela nossa, desde
-    a 1.2.5, é o lembrete diário, só com a coleta ligada, abaixo): o **Termo de uso e privacidade da localização**,
+    dono depois da prévia: "essa quantidade de telas e avisos atrapalham muito a experiência"; as outras telas nossas
+    são o lembrete diário, desde a 1.2.5, só com a coleta ligada, e a trava, desde a 1.2.7, as duas abaixo): o **Termo de
+    uso e privacidade da localização**,
     uma vez por conta e por versão do texto, que não fecha tocando fora nem pelo Voltar, com um botão só, o Li e aceito
     (sem o aceite nada coleta, e a próxima abertura mostra o termo de novo). Logo depois do aceite, se faltar a
     localização, o pedido do próprio Android (a precisa e a aproximada juntas: do 12 em diante a precisa sozinha é
@@ -1114,7 +1115,7 @@ O site (App de Campo) e o Fracttal não mudam.
     do próprio Android; do 11 em diante, o Android leva aos ajustes do app. Uma vez por conta e por termo: o Li e aceito
     deixa a marca `tempo_todo_por_pedir`, que sai com a resposta do técnico, dada ou não (recusado, a coleta segue só com a
     durante o uso, e o pedido não volta sozinho até a próxima conta ou o próximo termo: quem o traz de novo é o Liberar
-    agora do lembrete diário, abaixo), ou com o tempo todo já dado; o pedido que
+    agora da trava, abaixo), ou com o tempo todo já dado; o pedido que
     não abriu ou foi interrompido pede na próxima volta. A resposta é reconhecida pelo nome da permissão, e não só pela
     memória: do Android 11 em diante o processo pode morrer nos ajustes, e a resposta chega a uma tela nova. A janela da
     bateria espera a resposta (a ordem: a localização, o tempo todo, a bateria e, no Xiaomi, o Início automático). O
@@ -1141,7 +1142,7 @@ O site (App de Campo) e o Fracttal não mudam.
     `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (a permissão `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` no manifesto; o
     `BatteryLife` do lint, calado no manifesto e no código, fala da regra da loja do Google, e o Nexus Field não é da
     loja), sem tela nossa antes. Uma vez por conta e por termo: o Li e aceito deixa a marca `bateria_por_pedir`, que sai
-    quando a janela abre (recusada, só volta com a próxima conta, o próximo termo ou o Liberar agora do lembrete diário;
+    quando a janela abre (recusada, só volta com a próxima conta, o próximo termo ou o Liberar agora da trava;
     o 401 da mesma conta não a traz) ou
     com o app já liberado; a que não abriu (a tela saindo) abre na próxima volta. A coleta funciona igual com a recusa.
     Por que importa: sem a otimização de bateria, o Android 12+ deixa o app ligar o serviço em primeiro plano com o app no
@@ -1160,7 +1161,7 @@ O site (App de Campo) e o Fracttal não mudam.
     (o `ActivityNotFoundException` ou o `SecurityException`) cai nos detalhes do app
     (`ACTION_APPLICATION_DETAILS_SETTINGS`), sem tela nossa antes. A marca é a da bateria: `inicio_automatico_por_pedir`,
     posta pelo Li e aceito, tirada quando a tela abre ou com nada a abrir (fora do Xiaomi, sem saber, já ligado); a
-    recusa só volta com a próxima conta, o próximo termo ou o Liberar agora do lembrete diário; o Sair, a troca de conta e
+    recusa só volta com a próxima conta, o próximo termo ou o Liberar agora da trava; o Sair, a troca de conta e
     o `coleta:false` a apagam.
     **O aviso** (`AvisoDoQueFalta`): **Falta liberar no celular** / "Falta: " e a lista ("localização precisa",
     "Permitir o tempo todo", "bateria sem restrição", "Início automático", com a vírgula e o "e" no último) e ". Toque
@@ -1179,10 +1180,10 @@ O site (App de Campo) e o Fracttal não mudam.
     vão ao Nexus. Sai quando nada falta, fora da janela (às 22h pelo `setTimeoutAfter`) e com a chave que sai (o
     `semOsAvisos` da `ChaveDaEquipe`, o mesmo caminho que cancela o aviso das 6h: o Sair no toque, o `apagar` e o 401).
     Conferido sem laço próprio: no fim de cada decisão da volta ao app (com algo da casca na frente do técnico, o termo,
-    a localização, o tempo todo, a bateria, o Início automático, o lembrete diário ou os detalhes do app, só sai, e
+    a localização, o tempo todo, a bateria, o Início automático, o lembrete diário ou os ajustes do recuo, só sai, e
     aparece na volta seguinte: no meio dos pedidos ele listaria o que a casca ainda vai pedir, e por cima do lembrete
-    repetiria o título dele), em cada lote (`AjustesDaColeta.doLote`) e no `ReceptorDoInicio` (o boot, a atualização e o
-    alarme das 6h).
+    repetiria o título dele; a trava não conta, e com ela no ar ele continua como estava), em cada lote
+    (`AjustesDaColeta.doLote`) e no `ReceptorDoInicio` (o boot, a atualização e o alarme das 6h).
   - **O lembrete diário do que falta liberar (1.2.5, Task 15, o pedido do dono em 16/11/2026: "Eu estou tendo pouca
     adesão na parte dos técnicos. Ou eles não instalam, ou quando eles instalam, eles não marcam lá o permit o tempo
     todo"; aprovado: "Faz os dois").** Recusados no fluxo da instalação, o tempo todo, a bateria e o Início automático não
@@ -1221,7 +1222,48 @@ O site (App de Campo) e o Fracttal não mudam.
     ganhar o foco, e a conferência que volta sem versão nova solta o Atualizador logo. Depois disso ele desiste sem marcar
     o dia, e a volta seguinte decide de novo. O lembrete de ontem ainda aberto (o processo que passou a noite com a
     activity de pé) sai antes do de hoje: com o foco nele, o de hoje esperava à toa ou abria duas vezes seguidas. O aviso
-    da barra continua como está.
+    da barra continua como está. **Desde a 1.2.7, com a trava no ar, o lembrete não aparece** (`lembrarSeFalta` só roda
+    sem ela): o que ele lista, ela também lista, e as duas seriam duas telas nossas com a mesma lista. Na prática ele não
+    aparece mais (todo caso dele é caso da trava); o código e os textos ficaram, e tirá-los é decisão do dono.
+  - **A trava do App de Campo até o celular estar pronto (1.2.7, Task 16, o pedido do dono em 23/11/2026: "tem vários
+    colaboradores que está faltando [...] falta permitir o tempo todo [...] falta notificação"; "a gente precisa obrigar
+    eles a aceitarem isso [...] A gente não pode ficar só dependendo da boa vontade deles"; "Faz a trava").** Os
+    celulares são da empresa e o App de Campo é a ferramenta de trabalho; o lembrete diário e o aviso da barra não
+    bastaram. **Quem trava**: a conta na coleta (o `AvisoDoInicio.vale`: a chave, o termo de agora, nenhum Sair por
+    terminar), a qualquer hora do dia (o que falta vale para a coleta de amanhã), faltando um destes, pelo que o app lê,
+    nesta ordem: a localização precisa, o Permitir o tempo todo (do Android 10 em diante; antes, a precisa basta), a
+    notificação (o `notificacaoAVista` do serviço), a bateria sem restrição e o Início automático (só o desligado; o nulo
+    não trava). Supervisor, administrador e quem está fora da coleta não têm a chave e nunca a veem. A lista é a do aviso
+    do que falta com a notificação (`AvisoDoQueFalta.oQueTrava`, o nome `notificacao_falta_notificacao`), sobre os mesmos
+    ajustes que vão ao Nexus. **A tela** (`TelaDaActivity.mostrarTrava`, o layout `equipe_trava`): uma vista no conteúdo
+    da activity, por cima da WebView, na tela inteira (com as barras do sistema fora do texto), nas cores da tela Sem
+    internet (`res/values/cores.xml`: o navy do ícone, o texto claro e o botão verde do `erro.html`). **Libere o celular
+    para usar o App de Campo** / "Falta liberar: " e a lista / o texto menor / o **Liberar agora**, um botão só. Não fecha
+    tocando nela (a raiz fica com o toque, e nada passa ao App de Campo); o Voltar só manda o app para o fundo (um
+    `OnBackPressedCallback` dela, por cima do `Voltar` da casca, que perguntaria à página e fecharia uma camada que o
+    técnico nem vê). O que fica embaixo sai do TalkBack e o teclado fecha. Não é um diálogo: os diálogos (o termo, a Nova
+    versão, os do Android) ficam por cima dela, e a atualização segue possível com ela no ar. **Quando confere**: no fim
+    de cada decisão (`conferirATrava`: a volta ao app pelo `reavaliar` do `onResume` e logo depois de cada resposta de
+    pedido), e com tudo liberado, ou a conta fora da coleta (o `coleta:false`, o 401, o Sair), ela sai sozinha. **A
+    convivência**: o termo e o fluxo da instalação vêm antes; com algo da casca na frente (o `algoNaFrente`) ela espera a
+    decisão seguinte, e na tela ela espera também o que a casca não conhece (o foco da janela e o `Atualizador.noAr`, a
+    regra do lembrete), mas sem desistir: a decisão seguinte troca o texto da que espera, e a tela que sai da vista
+    larga a espera (para não conferir a cada 100 ms com o app no fundo). Com ela no ar o lembrete diário não aparece, e
+    o aviso da barra continua como está. **O Liberar agora** (`liberarAgora`, o mesmo do lembrete) reaproveita os pedidos
+    que já existiam: as três marcas da instalação por pedir de novo (`liberarDeNovo`), mais a localização (o mesmo
+    pedido de logo depois do termo) e a notificação, se faltam; a decisão (`seguirOLiberar`, depois dos pedidos do
+    `decidir`) pede o primeiro que falta, na ordem da lista, um por vez, e o recusado não segura o seguinte: a
+    localização, o tempo todo (só com a localização dada: sem a durante o uso o Android nem o mostra), a notificação (do
+    Android 13 em diante o pedido do Android; com a permissão dada e as notificações ou o canal da equipe desligados, os
+    ajustes de notificação do app, `ACTION_APP_NOTIFICATION_SETTINGS` com o pacote, direto), a janela da bateria e a
+    tela do Início automático; nada mais a pedir, ele acaba, e a trava fica com o que ainda falta. **Os recuos** são os da
+    Task 15, num pedido só (`pedir`, o `Pedido` de cada um): no Liberar agora, o `shouldShowRequestPermissionRationale`
+    falso é o "não perguntar de novo", e o recuo abre no lugar do pedido (os detalhes do app para a localização e o tempo
+    todo; os ajustes de notificação para a notificação, com os detalhes do app quando eles não abrem); a recusa em menos
+    de `RECUSA_NA_HORA_MS` também cai nele; o pedido seguinte espera a volta do recuo (`ajustesACaminho`). O toque no
+    Liberar agora com um pedido já na frente não pede de novo (o botão da trava não fecha com o toque, como o de um
+    diálogo). Os testes: o `EquipeNaCascaTest` (a seção da trava e a da tela de verdade dela) e o `AvisoDoQueFaltaTest`
+    (a lista); no aparelho, a seção "A trava" do `docs/prova-no-aparelho.md`.
   - **O termo é o aviso de privacidade inteiro, e só se aceita depois de rolar até o fim (R11, o pedido do dono em
     09/11/2026: "Quero que o termo de notificação inclua tudo referente a LGPD e seja que nem as empresas grandes fazem,
     aparece a pessoa tem que rolar até o final para aceitar").** O texto (12 seções; o jurídico ainda confirma a base
@@ -1331,21 +1373,22 @@ O site (App de Campo) e o Fracttal não mudam.
   Microsoft no nativo; botão de pausa; coletar fora da janela, sem a notificação fixa à vista ou com `coleta: false`;
   ligar a coleta com o app no fundo fora do dia começado pela abertura ou sem o tempo todo (o aviso das 6h só abre o
   app; quem começa o dia é a abertura); alarme exato (`SCHEDULE_EXACT_ALARM`, `USE_EXACT_ALARM`); tela nossa além do
-  termo e do lembrete diário (e o lembrete mais de uma vez por dia, ou com uma segunda cópia dos pedidos da
-  instalação); mudar o texto do
+  termo, do lembrete diário e da trava (e o lembrete mais de uma vez por dia ou junto com a trava, a trava com um Agora
+  não ou que fecha pelo Voltar, ou uma segunda cópia dos pedidos da instalação); mudar o texto do
   termo sem mudar a `TERMO_VERSAO`; o Li e aceito que liga antes do fim do texto; texto novo de interface sem o
   `strings.xml` PENDENTE e a prévia (o `testes/previas.test.mjs` exige o quadro e o item do "O que aprovar", com o texto
   inteiro); nome de pessoa em arquivo versionado (o `testes/dados-pessoais` pega). Xiaomi e afins: a coleta com o app
   fechado, e a que volta sozinha, dependem do Início automático (também no HyperOS) e da bateria sem restrições, com o
   Permitir o tempo todo: os três, a casca pede depois do termo (R15, e o Início automático pela tela do HyperOS desde a
-  1.2.3), o aviso do que falta diz o que ficou, o lembrete diário pede de novo uma vez por dia (1.2.5), e o guia de
+  1.2.3), o aviso do que falta diz o que ficou, a trava cobre o App de Campo até tudo estar liberado (1.2.7), e o guia de
   instalação (`docs/instalacao/`) manda ligar os três; sem o
   tempo todo, o app morto pelo sistema para a coleta até a próxima abertura. O roteiro do piloto é a seção "A
   localização da equipe" do `docs/prova-no-aparelho.md`; falta o piloto no aparelho (bateria, a parada às 22h, a tela
   apagada, as marcas, o aviso das 6h, a conta conferida guardada, o pedido do tempo todo, a janela da bateria, a tela do
   Início automático e a leitura dele por reflexão, o aviso do que falta, o lembrete diário com o foco da janela na
-  partida a frio, o dia de Release e o Android que não pergunta mais o tempo todo, que leva aos detalhes do app, e a
-  coleta que volta sozinha depois de matar o app, reiniciar e atualizar).
+  partida a frio, o dia de Release e o Android que não pergunta mais o tempo todo, que leva aos detalhes do app, a
+  trava com cada item negado, o Voltar que só manda para o fundo, a tela inteira com as barras do sistema e a fonte
+  grande, os ajustes de notificação, e a coleta que volta sozinha depois de matar o app, reiniciar e atualizar).
 
 ## Distribuição
 

@@ -19,6 +19,10 @@ const SOBRE_O_SITE = [
     motivo: 'depois de apagar a WebView a tela recriada carrega o site, que é o que abre' },
   { arquivo: 'novidades/1.0.0.md', trecho: 'O App de Campo em tela cheia',
     motivo: 'o que o Nexus Field mostra é o site do App de Campo, em tela cheia' },
+  { arquivo: 'android/app/src/main/res/values/strings.xml', trecho: 'para usar o App de Campo',
+    motivo: 'a trava (1.2.7) cobre o site do App de Campo, e o Nexus Field segue aberto por baixo dela' },
+  { arquivo: 'novidades/1.2.7.md', trecho: 'o App de Campo só abre com o celular pronto',
+    motivo: 'é o site do App de Campo que a trava cobre até o celular estar pronto' },
 ];
 
 // Os textos de um strings.xml, um por <string>, como o Android os mostra (o XML resolvido, sem os comentários).

@@ -9,17 +9,33 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.TextView;
 
+import androidx.activity.ComponentActivity;
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleOwner;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -86,11 +102,22 @@ import java.util.function.LongSupplier;
  *       tela à vista, se falta um dos três, a tela nossa <b>Falta liberar no celular</b>, com o Agora não e o Liberar agora
  *       ({@link #lembrarSeFalta}). Não aparece com algo na frente do técnico (um pedido, uma janela, outro diálogo da casca,
  *       o Atualizador no ar: {@link TelaDaActivity#mostrarLembrete} confere o foco da janela e o {@link Atualizador#noAr}),
- *       com a instalação ainda pedindo ({@link ChaveDaEquipe#ajustesPorPedir}) nem no dia em que ela já pediu
- *       ({@link ChaveDaEquipe#lembrado}). O Liberar agora reaproveita os pedidos da instalação: as três marcas por pedir de
- *       novo, e o fluxo de depois do termo pede só o que falta, na ordem dele. Com o Android que não pergunta mais o tempo
- *       todo ({@link Tela#aindaPergunta}), os detalhes do app no lugar do pedido; a recusa que vem na hora
- *       ({@link #RECUSA_NA_HORA_MS}) também cai neles.</li>
+ *       com a instalação ainda pedindo ({@link ChaveDaEquipe#ajustesPorPedir}), no dia em que ela já pediu
+ *       ({@link ChaveDaEquipe#lembrado}) nem com a trava (abaixo) no ar, que cobre o caso. O Liberar agora é o mesmo da
+ *       trava ({@link #liberarAgora}).</li>
+ *   <li><b>A trava do App de Campo até o celular estar pronto</b> (Task 16, 1.2.7, o pedido do dono em 23/11/2026: "a gente
+ *       precisa obrigar eles a aceitarem isso [...] A gente não pode ficar só dependendo da boa vontade deles"; os celulares
+ *       são da empresa, e o lembrete diário e o aviso da barra não bastaram): com a chave, o termo de agora e nenhum Sair
+ *       por terminar ({@link AvisoDoInicio#vale}), a qualquer hora do dia, se falta a localização precisa, o Permitir o
+ *       tempo todo (do Android 10 em diante), a notificação à vista, a bateria sem restrição ou o Início automático (só o
+ *       desligado), a tela nossa de tela cheia por cima da WebView, que não fecha e cujo Voltar só manda o app para o fundo
+ *       ({@link TelaDaActivity#mostrarTrava}), com um botão só, o Liberar agora ({@link #conferirATrava}). Ela não aparece
+ *       no meio do termo e do fluxo da instalação, pela regra do lembrete, e sai sozinha com tudo liberado. O
+ *       <b>Liberar agora</b> reaproveita os pedidos que já existiam, sem uma segunda cópia: as três marcas da instalação
+ *       por pedir de novo, mais a localização e a notificação, e a decisão pede só o que falta, um por vez, na ordem da
+ *       lista ({@link #seguirOLiberar}). Com o Android que não pergunta mais ({@link Tela#aindaPergunta}), o recuo do
+ *       pedido abre no lugar dele (os detalhes do app; os ajustes de notificação, para a notificação), e a recusa que vem
+ *       na hora ({@link #RECUSA_NA_HORA_MS}) também cai nele.</li>
  *   <li><b>A casca só liga o serviço com a tela à vista</b> ({@link #aTelaFicouAVista}, do onResume ao onStop): a decisão
  *       que roda na thread do envio depois de o técnico sair do app (a chave que o Nexus deu com o app já no fundo, a volta
  *       ao app atrás de um envio pendurado) não o liga. Iniciado com o app no fundo, sem o tempo todo ele não teria a
@@ -163,16 +190,16 @@ final class EquipeNaCasca {
     static final long INTERVALO_SEM_PERMISSAO_MS = 30L * 60L * 1000L;
 
     /**
-     * O reforço do recuo para os detalhes do app no Liberar agora (Task 15). Quem decide primeiro é o
-     * {@link Tela#aindaPergunta}: com o pedido já feito na instalação, o false é o "não perguntar de novo" (do Android 11
-     * em diante, a partir da segunda recusa), e os detalhes abrem sem pedir. Este tempo pega o que escapar dele: a recusa
-     * do pedido do tempo todo que chega antes disto não passou pela mão do técnico. O relógio sozinho não bastava (a
-     * revisão): num celular simples o PermissionController parte a frio, e a recusa automática pode passar de 1,5 s. A
-     * pessoa que lê a tela do Android e escolhe leva mais que isso, e a que escolher rápido demais vê os detalhes do app,
+     * O reforço do recuo no Liberar agora (Task 15; desde a Task 16, também na localização e na notificação). Quem decide
+     * primeiro é o {@link Tela#aindaPergunta}: com o pedido já feito antes (na instalação, ou pelo Antes de começar), o
+     * false é o "não perguntar de novo" (do Android 11 em diante, a partir da segunda recusa), e o recuo abre sem pedir.
+     * Este tempo pega o que escapar dele: a recusa que chega antes disto não passou pela mão do técnico. O relógio sozinho
+     * não bastava (a revisão): num celular simples o PermissionController parte a frio, e a recusa automática pode passar
+     * de 1,5 s. A pessoa que lê a tela do Android e escolhe leva mais que isso, e a que escolher rápido demais vê o recuo,
      * onde também se libera.
      */
     static final long RECUSA_NA_HORA_MS = 1_500L;
-    // Sem pedido do tempo todo a medir (o tempoTodoPedidoEm).
+    // Sem pedido a medir (o pedidoEm).
     private static final long SEM_PEDIDO = Long.MIN_VALUE;
 
     /**
@@ -183,6 +210,35 @@ final class EquipeNaCasca {
         Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION,
     };
     private static final String PRECISA = Manifest.permission.ACCESS_FINE_LOCATION;
+    // A permissão é do Android 13 e o minSdk é 24: só é pedida do 13 em diante (pedirANotificacao), como na MainActivity.
+    @SuppressLint("InlinedApi")
+    private static final String A_NOTIFICACAO = Manifest.permission.POST_NOTIFICATIONS;
+
+    /**
+     * Os pedidos de permissão que a casca faz ao Android pelo launcher do plugin, com a resposta pelo {@link #aposOPedido}:
+     * a localização (logo depois do termo, ou no Liberar agora), o Permitir o tempo todo (R15) e a notificação (Task 16, só
+     * do Android 13 em diante, e só no Liberar agora: na instalação quem a pede é o Antes de começar da MainActivity).
+     */
+    enum Pedido {
+        LOCALIZACAO(A_LOCALIZACAO),
+        TEMPO_TODO(ServicoDaEquipe.O_TEMPO_TODO),
+        NOTIFICACAO(A_NOTIFICACAO);
+
+        final String[] permissoes;
+
+        Pedido(String... permissoes) {
+            this.permissoes = permissoes;
+        }
+
+        // A resposta que chega a uma tela que não sabe do pedido (do Android 11 em diante o do tempo todo leva aos ajustes
+        // do app, e o processo pode morrer lá) é reconhecida pelo nome da permissão; a vazia, sem nome, é a da localização,
+        // como era.
+        static Pedido daResposta(Map<String, Boolean> resultado) {
+            if (resultado != null && resultado.containsKey(ServicoDaEquipe.O_TEMPO_TODO)) return TEMPO_TODO;
+            if (resultado != null && resultado.containsKey(A_NOTIFICACAO)) return NOTIFICACAO;
+            return LOCALIZACAO;
+        }
+    }
 
     private static final String TAG = CascaPlugin.TAG;
     // Quando o Nexus soube, pela última vez, que falta a permissão (epoch ms). Fora do backup, como tudo (regras_dados.xml).
@@ -208,12 +264,30 @@ final class EquipeNaCasca {
     }
 
     /**
-     * O que o técnico vê e responde: o termo, os pedidos da localização e do tempo todo ao Android, a janela da bateria do
-     * Android, a tela do Início automático do HyperOS, o lembrete diário e os detalhes do app ({@link TelaDaActivity}).
-     * Tudo na thread de UI. O que devolve false não apareceu (a tela saindo): a casca não fica esperando uma resposta que
-     * não vem.
+     * O que o técnico vê e responde: o termo, os pedidos da localização, do tempo todo e da notificação ao Android, a janela
+     * da bateria do Android, a tela do Início automático do HyperOS, o lembrete diário, a trava, os detalhes do app e os
+     * ajustes de notificação ({@link TelaDaActivity}). Tudo na thread de UI. O que devolve false não apareceu (a tela
+     * saindo): a casca não fica esperando uma resposta que não vem.
      */
     interface Tela {
+        /**
+         * A trava do App de Campo até o celular estar pronto (Task 16): a tela nossa de tela cheia por cima da WebView, com
+         * o título, o {@code texto} com a lista do que falta, o texto menor e o Liberar agora, que roda {@code liberar}. Não
+         * fecha tocando nela, e o Voltar só manda o app para o fundo. A que já está no ar só troca o texto e o Liberar
+         * agora; a que vai aparecer espera ter nada na frente do técnico, pela regra do lembrete, mas sem desistir: a
+         * decisão seguinte troca o texto da que espera, e a tela que sai da vista larga a espera.
+         */
+        void mostrarTrava(String texto, Runnable liberar);
+
+        /** Tira a trava do ar (tudo liberado, a conta fora da coleta), e a que esperava não aparece mais. */
+        void tirarTrava();
+
+        /**
+         * Os ajustes de notificação do Nexus Field (Task 16), o recuo do pedido da notificação, ou os detalhes do app quando
+         * eles não abrem. False se nenhum abriu (a tela saindo, o aparelho sem os dois).
+         */
+        boolean abrirOsAjustesDeNotificacao();
+
         /**
          * O lembrete diário do que falta liberar (Task 15): o título, o {@code texto} com a lista, o Agora não (só fecha) e
          * o Liberar agora, que roda {@code liberar}. Só com nada na frente do técnico. {@code depois} recebe true quando
@@ -223,8 +297,9 @@ final class EquipeNaCasca {
         void mostrarLembrete(String texto, Consumer<Boolean> depois, Runnable liberar);
 
         /**
-         * Os detalhes do Nexus Field nos ajustes do Android (Task 15): o recuo do pedido do tempo todo que o Android recusou
-         * sem mostrar nada. False se não abriram (a tela saindo, o aparelho sem a tela).
+         * Os detalhes do Nexus Field nos ajustes do Android (Task 15): o recuo do pedido do tempo todo (e, desde a Task 16,
+         * do da localização) que o Android recusou sem mostrar nada. False se não abriram (a tela saindo, o aparelho sem a
+         * tela).
          */
         boolean abrirOsDetalhesDoApp();
 
@@ -241,7 +316,10 @@ final class EquipeNaCasca {
         /** Pede as permissões ao Android; a resposta volta pelo {@link EquipeNaCasca#aposOPedido}. */
         boolean pedir(String[] permissoes);
 
-        /** Tira da tela o termo que estiver aberto (o Sair, a coleta que deixou de valer, a tela saindo). */
+        /**
+         * Tira da tela o termo ou o lembrete que estiver aberto, e a trava (o Sair, a coleta que deixou de valer, a tela
+         * saindo).
+         */
         void fechar();
 
         /**
@@ -273,12 +351,18 @@ final class EquipeNaCasca {
     // Só na thread do trabalho. O termo ou o pedido do Android estão na frente do técnico: a resposta dele decide, e a
     // volta ao app não abre outro por cima.
     private boolean esperandoOTecnico = false;
-    // O termo acabou de ser aceito nesta tela e a localização falta: o pedido do Android vem agora, uma vez. Fora disso a
-    // casca não pede (o Antes de começar da MainActivity pede a cada abertura).
-    private boolean pedirDepoisDoTermo = false;
-    // Só na thread do trabalho. O pedido na frente do técnico é o do tempo todo, e não o da localização: a resposta dele
-    // (também a vazia, do pedido interrompido) é desse pedido.
-    private boolean pedindoOTempoTodo = false;
+    // O pedido da localização vem agora, uma vez: o termo acabou de ser aceito nesta tela, ou o Liberar agora foi tocado,
+    // com a localização faltando. Fora disso a casca não pede (o Antes de começar da MainActivity pede a cada abertura).
+    private boolean localizacaoPorPedir = false;
+    // Só na thread do trabalho. O pedido da notificação vem no Liberar agora (Task 16), uma vez: posto no toque, com a
+    // notificação faltando, e tirado quando a resposta chega ou os ajustes de notificação abrem.
+    private boolean notificacaoPorPedir = false;
+    // Só na thread do trabalho. O pedido na frente do técnico (ou null): a resposta dele, também a vazia do pedido
+    // interrompido, é desse pedido.
+    private Pedido pedindo;
+    // Só na thread do trabalho. O pedido na frente veio do Liberar agora: a recusa na hora cai no recuo dele. No fluxo da
+    // instalação, como antes, não.
+    private boolean pedidoDoLiberar = false;
     // Só na thread do trabalho. A janela da bateria a caminho da tela: a decisão seguinte (a volta ao app, a chave que
     // chega) não abre outra por cima antes de a marca sair.
     private boolean bateriaACaminho = false;
@@ -287,17 +371,19 @@ final class EquipeNaCasca {
     // Só na thread do trabalho. O lembrete diário a caminho da tela (Task 15), até ela dizer se ele apareceu: a decisão
     // seguinte (a chave que a página entrega logo depois do onResume, na partida a frio) não manda outro.
     private boolean lembreteACaminho = false;
-    // Só na thread do trabalho. Os detalhes do app abertos pelo recuo do tempo todo (Task 15), até a tela sair da vista
-    // (a volta deles é a decisão seguinte): a decisão do onResume que vem logo depois da recusa não abre a bateria por cima.
-    // Volatile: o aTelaSaiuDaVista o lê na thread de UI.
-    private volatile boolean detalhesACaminho = false;
-    // Só na thread do trabalho. O pedido do tempo todo de agora veio do Liberar agora do lembrete: a recusa na hora cai
-    // nos detalhes do app. No fluxo da instalação, como antes, não.
-    private boolean liberandoPeloLembrete = false;
-    // Quando a tela mandou o pedido do tempo todo ao Android (o monotonico, na thread de UI), ou SEM_PEDIDO.
-    private volatile long tempoTodoPedidoEm = SEM_PEDIDO;
+    // Só na thread do trabalho. Os ajustes do Android abertos no lugar de um pedido (os detalhes do app, ou os ajustes de
+    // notificação: o recuo da Task 15 e da Task 16), até a tela sair da vista (a volta deles é a decisão seguinte): a
+    // decisão do onResume que vem logo depois da recusa não abre outra tela por cima. Volatile: o aTelaSaiuDaVista o lê na
+    // thread de UI.
+    private volatile boolean ajustesACaminho = false;
+    // Só na thread do trabalho. O Liberar agora (o da trava, Task 16, e o do lembrete, Task 15) em curso: a decisão pede o
+    // que falta, um por vez, até não haver mais nada a pedir (seguirOLiberar).
+    private boolean liberando = false;
+    // Quando a tela mandou o pedido de agora ao Android (o monotonico, na thread de UI), ou SEM_PEDIDO.
+    private volatile long pedidoEm = SEM_PEDIDO;
     // Só na thread do trabalho. Esta decisão mandou algo à frente do técnico (o termo, um pedido do Android, a janela da
-    // bateria, a tela do Início automático, o lembrete diário): o aviso do que falta espera a volta seguinte.
+    // bateria, a tela do Início automático, o lembrete diário, os ajustes): o aviso do que falta e a trava esperam a volta
+    // seguinte.
     private boolean pediuAgora = false;
     // A tela à vista (do onResume ao onStop, na thread de UI): só com ela o serviço liga.
     private volatile boolean aVista = false;
@@ -445,41 +531,36 @@ final class EquipeNaCasca {
     }
 
     /**
-     * A resposta do Android ao pedido da localização ou ao do tempo todo (o launcher do plugin, na thread de UI). A do tempo
-     * todo traz o nome dele: assim vale também a que chega a uma tela nova (do Android 11 em diante o pedido leva aos
-     * ajustes do app, e o processo pode morrer lá), que não sabe do pedido.
+     * A resposta do Android ao pedido da localização, ao do tempo todo ou ao da notificação (o launcher do plugin, na
+     * thread de UI). A do tempo todo e a da notificação trazem o nome da permissão: assim vale também a que chega a uma
+     * tela nova (do Android 11 em diante o pedido do tempo todo leva aos ajustes do app, e o processo pode morrer lá), que
+     * não sabe do pedido.
      */
     void aposOPedido(Map<String, Boolean> resultado) {
-        // A hora da resposta, aqui na thread de UI, contra a do pedido (pedirOTempoTodo): a recusa que chegou antes de
+        // A hora da resposta, aqui na thread de UI, contra a do pedido (pedir): a recusa que chegou antes de
         // RECUSA_NA_HORA_MS não passou pela mão do técnico.
         long respondidoEm = monotonico.getAsLong();
         trabalhar(() -> {
-            boolean doTempoTodo = pedindoOTempoTodo
-                || (resultado != null && resultado.containsKey(ServicoDaEquipe.O_TEMPO_TODO));
-            long pedidoEm = tempoTodoPedidoEm;
-            tempoTodoPedidoEm = SEM_PEDIDO;
+            Pedido qual = pedindo != null ? pedindo : Pedido.daResposta(resultado);
+            boolean doLiberar = pedidoDoLiberar;
+            long pedidoAntes = pedidoEm;
+            pedidoEm = SEM_PEDIDO;
             esperandoOTecnico = false;
-            pedindoOTempoTodo = false;
+            pedindo = null;
+            pedidoDoLiberar = false;
             if (resultado == null || resultado.isEmpty()) {
                 // O pedido interrompido (a tela saiu no meio): o técnico não respondeu, e a próxima volta ao app pergunta
                 // (o do tempo todo segue por fazer, e a janela da bateria espera por ele).
-                if (!doTempoTodo) pedirDepoisDoTermo = true;
+                naoRespondido(qual);
                 return;
             }
-            if (doTempoTodo) {
-                // Respondido, dado ou não: não se pede de novo até a próxima conta, o próximo termo ou o Liberar agora.
-                chave.tempoTodoPedido();
-                boolean dado = temOTempoTodo();
-                Log.i(TAG, "a localização o tempo todo " + (dado ? "dada" : "não dada: a coleta segue só "
-                    + "com a durante o uso"));
-                boolean doLembrete = liberandoPeloLembrete;
-                liberandoPeloLembrete = false;
-                if (doLembrete && !dado && pedidoEm != SEM_PEDIDO && respondidoEm - pedidoEm < RECUSA_NA_HORA_MS) {
-                    abrirOsDetalhesNoLugar();
-                    return;
-                }
-            } else {
-                Log.i(TAG, "a localização precisa " + (tem(PRECISA) ? "dada" : "não dada"));
+            // Respondido, dado ou não: não se pede de novo até a próxima conta, o próximo termo ou o Liberar agora.
+            respondido(qual);
+            boolean dado = dado(qual);
+            Log.i(TAG, nomeNoLog(qual) + (dado ? " dada" : " não dada"));
+            if (doLiberar && !dado && pedidoAntes != SEM_PEDIDO && respondidoEm - pedidoAntes < RECUSA_NA_HORA_MS) {
+                abrirORecuoNoLugar(qual);
+                return;
             }
             reavaliarAgora();
         });
@@ -493,10 +574,10 @@ final class EquipeNaCasca {
     /** A tela fora da vista (o handleOnStop do plugin): a decisão que vier depois não liga o serviço. */
     void aTelaSaiuDaVista() {
         aVista = false;
-        // Os detalhes do app do recuo do tempo todo tiram a tela da vista: a volta deles é a decisão seguinte, que segue
-        // para a bateria. Pela thread do trabalho, atrás da decisão do onResume que veio logo depois da recusa (ela entrou
-        // na fila antes de os detalhes abrirem, e não pode abrir a bateria por cima deles).
-        if (detalhesACaminho) trabalhar(() -> detalhesACaminho = false);
+        // Os ajustes do recuo (os detalhes do app, os de notificação) tiram a tela da vista: a volta deles é a decisão
+        // seguinte, que segue para o próximo pedido. Pela thread do trabalho, atrás da decisão do onResume que veio logo
+        // depois da recusa (ela entrou na fila antes de os ajustes abrirem, e não pode abrir outra tela por cima deles).
+        if (ajustesACaminho) trabalhar(() -> ajustesACaminho = false);
     }
 
     /**
@@ -571,7 +652,8 @@ final class EquipeNaCasca {
                 pedirALocalizacao();
                 break;
             case SEM_A_NOTIFICACAO:
-                // Quem pede a notificação é o Antes de começar da MainActivity, uma vez: aqui só o Nexus fica sabendo.
+                // Quem pede a notificação é o Antes de começar da MainActivity, uma vez, e o Liberar agora da trava (Task
+                // 16, seguirOLiberar): aqui só o Nexus fica sabendo.
                 if (rodando) servico.parar();
                 avisarSemPermissao("sem a notificação fixa à vista");
                 break;
@@ -586,27 +668,268 @@ final class EquipeNaCasca {
                 }
                 break;
         }
-        if (comAColeta) lembrarSeFalta();
+        seguirOLiberar();
+        boolean travado = conferirATrava();
+        if (comAColeta && !travado) lembrarSeFalta();
         // O aviso do que falta (Task 14), depois da decisão: com algo na frente do técnico, ele só sai (o que deixou de
-        // valer), e aparece na volta seguinte.
+        // valer), e aparece na volta seguinte. A trava não conta: com ela no ar, ele continua como estava (Task 16).
         AvisoDoQueFalta.conferir(app, chave, relogio.getAsLong(), !algoNaFrente());
     }
 
     // Algo desta casca na frente do técnico, ou a caminho dela: o termo ou um pedido do Android esperando a resposta, a
-    // janela da bateria, a tela do Início automático, o lembrete diário ou os detalhes do app; ou mandado nesta decisão.
+    // janela da bateria, a tela do Início automático, o lembrete diário ou os ajustes do recuo; ou mandado nesta decisão.
     private boolean algoNaFrente() {
         return pediuAgora || esperandoOTecnico || bateriaACaminho || inicioACaminho || lembreteACaminho
-            || detalhesACaminho;
+            || ajustesACaminho;
     }
 
     // Os ajustes que vêm depois da localização dada, nesta ordem e um por vez: o tempo todo, a bateria e o Início
     // automático. A janela da bateria mandada agora segura o Início automático até a volta dela: as duas telas abertas
-    // juntas ficariam uma por cima da outra, e a de baixo só apareceria depois. Com os detalhes do app abertos pelo recuo
-    // do tempo todo (Task 15), nada até a volta deles.
+    // juntas ficariam uma por cima da outra, e a de baixo só apareceria depois. Com os ajustes abertos pelo recuo de um
+    // pedido (Task 15 e Task 16), nada até a volta deles.
     private void pedirOsAjustes() {
-        if (detalhesACaminho) return;
+        if (ajustesACaminho) return;
         pedirOTempoTodo();
         if (!pedirABateria()) pedirOInicioAutomatico();
+    }
+
+    /**
+     * O texto da trava (Task 16), com a lista do que falta juntada como no aviso do que falta: a vírgula entre os nomes e o
+     * "e" antes do último.
+     */
+    static String textoDaTrava(Context contexto, List<String> faltas) {
+        return contexto.getString(R.string.casca_equipe_trava_texto, AvisoDoQueFalta.emLista(faltas));
+    }
+
+    // Task 16, o pedido do dono em 23/11/2026 ("a gente precisa obrigar eles a aceitarem isso [...] A gente não pode ficar
+    // só dependendo da boa vontade deles"; "Faz a trava"): os celulares são da empresa, e o lembrete diário e o aviso da
+    // barra não bastaram. Com a conta na coleta (a chave, o termo de agora, nenhum Sair por terminar), a qualquer hora (o
+    // que falta vale para a coleta de amanhã) e faltando algo da lista, a trava cobre o App de Campo; com tudo liberado, ou
+    // a conta fora da coleta, ela sai sozinha. Supervisor, administrador e quem está fora da coleta não têm a chave, e
+    // nunca a veem. Ela não aparece no meio do termo e do fluxo da instalação (os pedidos logo depois do Li e aceito): com
+    // algo da casca na frente, espera a decisão seguinte, e a tela de verdade espera também o que a casca não conhece (a
+    // regra do lembrete). Na tela, ela só aparece com a tela à vista; a que está no ar fica no ar com a tela no fundo. True
+    // se a trava vale agora: o lembrete diário não aparece com ela, que cobre o caso dele.
+    private boolean conferirATrava() {
+        if (!AvisoDoInicio.vale(chave)) {
+            naTela(tela::tirarTrava);
+            return false;
+        }
+        List<String> faltas;
+        try {
+            faltas = oQueTrava();
+        } catch (RuntimeException e) {
+            // O sistema que não respondeu agora: a trava fica como está, e a decisão seguinte confere de novo.
+            Log.w(TAG, "a trava do que falta não foi conferida agora (" + e.getClass().getSimpleName() + ")");
+            return true;
+        }
+        if (faltas.isEmpty()) {
+            naTela(tela::tirarTrava);
+            return false;
+        }
+        if (!aVista || algoNaFrente()) return true;
+        String texto = textoDaTrava(app, faltas);
+        naTela(() -> tela.mostrarTrava(texto, () -> trabalhar(this::liberarAgora)));
+        return true;
+    }
+
+    // Os mesmos ajustes que vão ao Nexus e ao aviso do que falta (o técnico, o Piloto e a trava dizem o mesmo), com a
+    // notificação pelo serviço da casca: o mesmo notificacaoAVista do ServicoDaEquipe, que o decidir também confere.
+    private List<String> oQueTrava() {
+        JSONObject ajustes = AjustesDaColeta.ler(app, chave);
+        try {
+            ajustes.put("notificacao", servico.notificacaoAVista());
+        } catch (JSONException e) {
+            throw new IllegalStateException("ajustes inválidos");
+        }
+        return AvisoDoQueFalta.oQueTrava(app, ajustes);
+    }
+
+    // O Liberar agora (o da trava, Task 16, e o do lembrete, Task 15): os mesmos pedidos de depois do termo, nada de uma
+    // segunda cópia, mais o da localização e o da notificação, que a trava também lista. As três marcas da instalação ficam
+    // por pedir de novo, e as da localização e da notificação, se faltam; a decisão de agora pede pela ordem da trava (a
+    // localização, o tempo todo, a notificação, a bateria e o Início automático), um por vez e só o que falta: cada pedido
+    // sai sem abrir o que já está liberado. O toque com um pedido já na frente (o botão da trava não fecha com o toque,
+    // como o de um diálogo) não pede de novo.
+    private void liberarAgora() {
+        if (algoNaFrente()) {
+            Log.i(TAG, "o Liberar agora com um pedido já na frente: nada a pedir de novo");
+            return;
+        }
+        chave.liberarDeNovo();
+        liberando = true;
+        localizacaoPorPedir = !tem(PRECISA);
+        notificacaoPorPedir = !servico.notificacaoAVista();
+        Log.i(TAG, "o Liberar agora: a casca pede o que falta, na ordem da trava");
+        reavaliarAgora();
+    }
+
+    // O Liberar agora em curso, depois dos pedidos da decisão (o switch do reavaliarAgora): o primeiro que falta, na ordem
+    // da trava. A localização (o mesmo pedido de logo depois do termo; dentro da janela, o PEDIR_PERMISSAO já o fez), o
+    // tempo todo (só com a localização dada: sem a durante o uso o Android nem o mostra), a notificação, a bateria e o
+    // Início automático: os da instalação, com a coleta ligada ou não, e o recusado não segura o seguinte. Nada mais a
+    // pedir, com a tela à vista e nada na frente: o Liberar agora acabou, e a trava fica com o que ainda falta.
+    private void seguirOLiberar() {
+        if (!liberando) return;
+        if (!AvisoDoInicio.vale(chave)) {
+            terminarOLiberar();
+            return;
+        }
+        if (!aVista || algoNaFrente()) return;
+        if (localizacaoPorPedir && !tem(PRECISA)) {
+            pedirAPrecisa();
+            return;
+        }
+        localizacaoPorPedir = false;
+        pedirOTempoTodo();
+        if (pediuAgora || pedirANotificacao() || pedirABateria()) return;
+        pedirOInicioAutomatico();
+        if (pediuAgora) return;
+        terminarOLiberar();
+        Log.i(TAG, "o Liberar agora terminou: nada mais a pedir");
+    }
+
+    private void terminarOLiberar() {
+        liberando = false;
+        localizacaoPorPedir = false;
+        notificacaoPorPedir = false;
+    }
+
+    // Task 16: a notificação no Liberar agora, uma vez. Do Android 13 em diante, sem a permissão, o pedido do Android (com
+    // o recuo para os ajustes de notificação, o Android que não pergunta mais); com a permissão dada (ou antes do 13, em
+    // que ela não existe), as notificações do Nexus Field ou o canal da equipe desligados: não há pedido que os ligue, e
+    // os ajustes de notificação do app abrem direto. True se algo foi mandado à tela agora.
+    private boolean pedirANotificacao() {
+        if (!notificacaoPorPedir || !aVista || algoNaFrente()) return false;
+        if (servico.notificacaoAVista()) {
+            notificacaoPorPedir = false;
+            return false;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !tem(A_NOTIFICACAO)) {
+            Log.i(TAG, "a casca pede ao Android a notificação, pelo Liberar agora");
+            pedir(Pedido.NOTIFICACAO);
+            return true;
+        }
+        notificacaoPorPedir = false;
+        Log.i(TAG, "a notificação dada com as notificações ou o canal da equipe desligados: os ajustes de notificação");
+        abrirORecuoNoLugar(Pedido.NOTIFICACAO);
+        return true;
+    }
+
+    // Um pedido de permissão ao Android pelo launcher do plugin, com a resposta pelo aposOPedido. No Liberar agora, o
+    // Android que não pergunta mais (o "não perguntar de novo", do Android 11 em diante depois da segunda recusa)
+    // recusaria sem mostrar nada, e o técnico que tocou ficaria sem tela nenhuma: quem decide é o
+    // shouldShowRequestPermissionRationale (Tela.aindaPergunta, na thread de UI). A trava e o lembrete só vêm com o termo
+    // aceito, e o pedido já foi feito (o Antes de começar, o de logo depois do termo, os da instalação): o false é o "não
+    // perguntar de novo", e o recuo abre no lugar do pedido, que conta como feito. Na instalação, o mesmo false é o pedido
+    // que nunca foi feito, e se pede.
+    private void pedir(Pedido qual) {
+        esperandoOTecnico = true;
+        pediuAgora = true;
+        pedindo = qual;
+        pedidoDoLiberar = liberando;
+        boolean doLiberar = liberando;
+        naTela(() -> {
+            if (doLiberar && !tela.aindaPergunta(qual.permissoes[0])) {
+                // Aqui, na thread de UI, antes de abrir: o onStop dos ajustes já o vê, e solta o pedido seguinte na volta
+                // deles.
+                ajustesACaminho = true;
+                boolean abriu = abrirORecuo(qual);
+                trabalhar(() -> oAndroidNaoPerguntaMais(qual, abriu));
+                return;
+            }
+            // A hora do pedido, para a recusa que vem na hora (aposOPedido, RECUSA_NA_HORA_MS).
+            pedidoEm = monotonico.getAsLong();
+            if (!tela.pedir(qual.permissoes)) trabalhar(() -> pedidoNaoApareceu(qual));
+        });
+    }
+
+    // O recuo de cada pedido, na thread de UI: os detalhes do app (a localização e o tempo todo se liberam em Permissões,
+    // Localização) ou os ajustes de notificação do app (com o recuo para os detalhes, na tela).
+    private boolean abrirORecuo(Pedido qual) {
+        return qual == Pedido.NOTIFICACAO ? tela.abrirOsAjustesDeNotificacao() : tela.abrirOsDetalhesDoApp();
+    }
+
+    // O pedido do Liberar agora que o Android recusou sem mostrar nada: o técnico tocou em Liberar agora e ficaria sem tela
+    // nenhuma. O recuo abre, e o pedido seguinte espera a volta dele (ajustesACaminho), para não abrir uma tela por cima da
+    // outra.
+    private void abrirORecuoNoLugar(Pedido qual) {
+        ajustesACaminho = true;
+        pediuAgora = true;
+        Log.i(TAG, nomeNoLog(qual) + ": a casca abre o recuo, os ajustes do app");
+        naTela(() -> {
+            if (!abrirORecuo(qual)) trabalhar(this::recuoNaoAbriu);
+        });
+    }
+
+    // O recuo que não abriu (o aparelho sem a tela, a tela saindo): o fluxo segue agora, sem esperar uma volta que não vem.
+    private void recuoNaoAbriu() {
+        ajustesACaminho = false;
+        reavaliarAgora();
+    }
+
+    // O Liberar agora com o Android que não pergunta mais (a revisão da Task 15): no lugar do pedido, o recuo, e o pedido
+    // conta como feito. Caso: pelo relógio só, num celular simples o PermissionController parte a frio, a recusa automática
+    // passa de RECUSA_NA_HORA_MS, e o técnico que negou duas vezes, o do pedido de 16/11/2026, nunca veria a tela do
+    // Permitir o tempo todo. O pedido seguinte vem na volta do recuo; se ele não abriu, agora.
+    private void oAndroidNaoPerguntaMais(Pedido qual, boolean abriu) {
+        esperandoOTecnico = false;
+        pedindo = null;
+        pedidoDoLiberar = false;
+        respondido(qual);
+        if (abriu) {
+            Log.i(TAG, "o Android não pergunta mais " + nomeNoLog(qual) + ": a casca abriu os ajustes do app");
+            return;
+        }
+        recuoNaoAbriu();
+    }
+
+    // O pedido que não abriu (a tela saindo): a próxima volta ao app pede de novo.
+    private void pedidoNaoApareceu(Pedido qual) {
+        esperandoOTecnico = false;
+        pedindo = null;
+        pedidoDoLiberar = false;
+        naoRespondido(qual);
+    }
+
+    // O pedido que o técnico não respondeu (não abriu, ou foi interrompido): o da localização volta a ficar por pedir; o do
+    // tempo todo e o da notificação seguem por fazer, nas marcas deles.
+    private void naoRespondido(Pedido qual) {
+        if (qual == Pedido.LOCALIZACAO) localizacaoPorPedir = true;
+    }
+
+    // O pedido respondido, dado ou não (ou trocado pelo recuo): o do tempo todo sai da marca dele, até a próxima conta, o
+    // próximo termo ou o Liberar agora; o da notificação, do Liberar agora, e o Antes de começar da MainActivity não a pede
+    // de novo. O da localização já saiu quando foi pedido.
+    private void respondido(Pedido qual) {
+        if (qual == Pedido.TEMPO_TODO) {
+            chave.tempoTodoPedido();
+        } else if (qual == Pedido.NOTIFICACAO) {
+            notificacaoPorPedir = false;
+            MainActivity.marcarNotificacaoPedida(app);
+        }
+    }
+
+    private boolean dado(Pedido qual) {
+        switch (qual) {
+            case TEMPO_TODO:
+                return temOTempoTodo();
+            case NOTIFICACAO:
+                return tem(A_NOTIFICACAO);
+            default:
+                return tem(PRECISA);
+        }
+    }
+
+    private static String nomeNoLog(Pedido qual) {
+        switch (qual) {
+            case TEMPO_TODO:
+                return "a localização o tempo todo";
+            case NOTIFICACAO:
+                return "a notificação";
+            default:
+                return "a localização precisa";
+        }
     }
 
     /**
@@ -650,36 +973,7 @@ final class EquipeNaCasca {
                 lembreteACaminho = false;
                 if (apareceu) chave.lembrado(hoje);
             }),
-            () -> trabalhar(this::liberarPeloLembrete)));
-    }
-
-    // O Liberar agora do lembrete: os mesmos pedidos de depois do termo, nada de uma segunda cópia. As três marcas ficam
-    // por pedir de novo, e esta decisão os faz pela ordem da instalação (o tempo todo; depois da resposta, a bateria; depois
-    // da volta dela, o Início automático), um por vez e só o que falta: cada um sai sem pedir o que já está liberado.
-    private void liberarPeloLembrete() {
-        chave.liberarDeNovo();
-        liberandoPeloLembrete = true;
-        Log.i(TAG, "o Liberar agora do lembrete: a casca pede o que falta, na ordem da instalação");
-        reavaliarAgora();
-    }
-
-    // O pedido do tempo todo do Liberar agora que o Android recusou sem mostrar nada (o "não perguntar de novo": do Android
-    // 11 em diante, depois da segunda recusa): o técnico tocou em Liberar agora e ficaria sem tela nenhuma. Os detalhes do
-    // app, onde ele escolhe o Permitir o tempo todo em Permissões, Localização. A bateria e o Início automático esperam a
-    // volta deles (detalhesACaminho), para não abrir uma tela por cima da outra.
-    private void abrirOsDetalhesNoLugar() {
-        detalhesACaminho = true;
-        Log.i(TAG, "o Android recusou o tempo todo sem mostrar nada: a casca abre os detalhes do app");
-        naTela(() -> {
-            if (!tela.abrirOsDetalhesDoApp()) trabalhar(this::detalhesNaoAbriram);
-        });
-    }
-
-    // Os detalhes que não abriram (o aparelho sem a tela, a tela saindo): o fluxo segue agora, sem esperar uma volta que não
-    // vem.
-    private void detalhesNaoAbriram() {
-        detalhesACaminho = false;
-        reavaliarAgora();
+            () -> trabalhar(this::liberarAgora)));
     }
 
     // O dia de hoje, no relógio do celular, como já lembrado: o Li e aceito e os pedidos da instalação pedem tudo hoje, e o
@@ -691,57 +985,18 @@ final class EquipeNaCasca {
     // R15: logo depois da localização dada e da coleta ligada, o pedido do Android da localização o tempo todo, sozinho
     // (o Android 10 mostra a tela dele; do 11 em diante ele leva aos ajustes do app), uma vez por conta e por termo. A
     // marca sai com a resposta do técnico (aposOPedido); a que não apareceu ou foi interrompida pede na próxima volta. Com
-    // o tempo todo já dado (do Android 9 para trás, a localização dada), nada a pedir, e a marca sai também.
+    // o tempo todo já dado (do Android 9 para trás, a localização dada), nada a pedir, e a marca sai também. Sem a
+    // localização dada (o Liberar agora com ela recusada), nada: sem a durante o uso o Android nem mostra o pedido, e a
+    // marca fica para quando ela vier. No Liberar agora, o recuo para os detalhes do app (pedir).
     private void pedirOTempoTodo() {
-        if (!aVista || esperandoOTecnico || !chave.tempoTodoPorPedir()) return;
+        if (!aVista || esperandoOTecnico || !chave.tempoTodoPorPedir() || !tem(PRECISA)) return;
         if (temOTempoTodo()) {
             chave.tempoTodoPedido();
             return;
         }
-        esperandoOTecnico = true;
-        pedindoOTempoTodo = true;
-        pediuAgora = true;
         lembradoHoje();
-        boolean doLembrete = liberandoPeloLembrete;
         Log.i(TAG, "a casca pede ao Android a localização o tempo todo, logo depois da localização durante o uso");
-        naTela(() -> {
-            // No Liberar agora, a instalação já fez este pedido (o lembrete só vem com as marcas dela tiradas): o Android
-            // que não sugere explicar de novo é o "não perguntar de novo", e o pedido seria recusado sem mostrar nada.
-            // Os detalhes do app, direto. Na instalação, o mesmo false é o pedido que nunca foi feito, e se pede.
-            if (doLembrete && !tela.aindaPergunta(ServicoDaEquipe.O_TEMPO_TODO)) {
-                // Aqui, na thread de UI, antes de abrir: o onStop dos detalhes já o vê, e solta a bateria na volta deles.
-                detalhesACaminho = true;
-                boolean abriram = tela.abrirOsDetalhesDoApp();
-                trabalhar(() -> oAndroidNaoPerguntaMais(abriram));
-                return;
-            }
-            // A hora do pedido, para a recusa que vem na hora (aposOPedido, RECUSA_NA_HORA_MS).
-            tempoTodoPedidoEm = monotonico.getAsLong();
-            if (!tela.pedir(new String[] {ServicoDaEquipe.O_TEMPO_TODO})) trabalhar(this::tempoTodoNaoApareceu);
-        });
-    }
-
-    // O pedido do tempo todo que não abriu (a tela saindo): a marca fica, e a próxima volta ao app pede.
-    private void tempoTodoNaoApareceu() {
-        esperandoOTecnico = false;
-        pedindoOTempoTodo = false;
-    }
-
-    // O Liberar agora com o Android que não pergunta mais o tempo todo (a revisão da Task 15): no lugar do pedido, os
-    // detalhes do app, e o pedido conta como feito. Caso: pelo relógio só, num celular simples o PermissionController parte
-    // a frio, a recusa automática passa de RECUSA_NA_HORA_MS, e o técnico que negou duas vezes, o do pedido de 16/11/2026,
-    // nunca veria a tela do Permitir o tempo todo. A bateria e o Início automático vêm na volta dos detalhes; se eles não
-    // abriram, agora.
-    private void oAndroidNaoPerguntaMais(boolean abriram) {
-        esperandoOTecnico = false;
-        pedindoOTempoTodo = false;
-        liberandoPeloLembrete = false;
-        chave.tempoTodoPedido();
-        if (abriram) {
-            Log.i(TAG, "o Android não pergunta mais o tempo todo: a casca abriu os detalhes do app");
-            return;
-        }
-        detalhesNaoAbriram();
+        pedir(Pedido.TEMPO_TODO);
     }
 
     // O serviço que ligou sem o tempo todo pediu ao Android para não ser religado, e é o último início que vale: com o tempo
@@ -761,10 +1016,10 @@ final class EquipeNaCasca {
     // que já está ligada), a janela do próprio Android que pede a bateria sem restrição, uma vez por conta e por termo. A
     // marca sai quando a janela abriu: recusada (ou só fechada), ela não volta; a que não abriu (a tela saindo) fica por
     // pedir. Com o app já liberado, nada a pedir, e a marca sai também (a liberação tirada depois nos ajustes não traz a
-    // janela fora do fluxo do termo). True se a janela foi mandada à tela agora. Com os detalhes do app a caminho (o recuo
-    // do tempo todo no Liberar agora), espera a volta deles.
+    // janela fora do fluxo do termo, só o Liberar agora). True se a janela foi mandada à tela agora. Com os ajustes do
+    // recuo a caminho (o Liberar agora), espera a volta deles.
     private boolean pedirABateria() {
-        if (!aVista || esperandoOTecnico || bateriaACaminho || detalhesACaminho || !chave.bateriaPorPedir()) return false;
+        if (!aVista || esperandoOTecnico || bateriaACaminho || ajustesACaminho || !chave.bateriaPorPedir()) return false;
         if (liberadoDaBateria()) {
             chave.bateriaPedida();
             return false;
@@ -793,7 +1048,7 @@ final class EquipeNaCasca {
     // saber o estado ou com ele já ligado, nada a abrir, e a marca sai também (desligado depois nos ajustes, quem diz é o
     // aviso do que falta).
     private void pedirOInicioAutomatico() {
-        if (!aVista || esperandoOTecnico || bateriaACaminho || inicioACaminho || detalhesACaminho
+        if (!aVista || esperandoOTecnico || bateriaACaminho || inicioACaminho || ajustesACaminho
                 || chave.bateriaPorPedir() || !chave.inicioAutomaticoPorPedir()) {
             return;
         }
@@ -848,12 +1103,12 @@ final class EquipeNaCasca {
         esperandoOTecnico = false;
         chave.aceitarTermo();
         lembradoHoje();
-        liberandoPeloLembrete = false;
-        pedirDepoisDoTermo = true;
+        terminarOLiberar();
+        localizacaoPorPedir = true;
         reavaliarAgora();
         // Com a localização já dada nada foi pedido: o pedido não fica guardado para quando ela for tirada mais tarde
-        // nesta tela (aí só o Nexus fica sabendo, e o Antes de começar pede na próxima abertura).
-        if (tem(PRECISA)) pedirDepoisDoTermo = false;
+        // nesta tela (aí só o Nexus fica sabendo, a trava diz, e o Antes de começar pede na próxima abertura).
+        if (tem(PRECISA)) localizacaoPorPedir = false;
     }
 
     // O termo que não apareceu (a tela saindo): ninguém vai responder, e a próxima volta ao app mostra de novo.
@@ -861,27 +1116,23 @@ final class EquipeNaCasca {
         esperandoOTecnico = false;
     }
 
-    // Logo depois do aceite, o pedido do Android, sem tela nossa antes; fora dele, só o Nexus fica sabendo (quem pede a
-    // cada abertura é o Antes de começar da MainActivity, e o Android que não mostra mais o pedido também cai aqui).
+    // Logo depois do aceite (ou no Liberar agora da trava), o pedido do Android, sem tela nossa antes; fora deles, só o
+    // Nexus fica sabendo (quem pede a cada abertura é o Antes de começar da MainActivity, e o Android que não mostra mais o
+    // pedido também cai aqui; no Liberar agora, os detalhes do app abrem no lugar dele).
     private void pedirALocalizacao() {
         if (esperandoOTecnico) return; // a resposta dele decide
-        if (!pedirDepoisDoTermo) {
+        if (!localizacaoPorPedir) {
             avisarSemPermissao("sem a permissão de localização");
             return;
         }
-        pedirDepoisDoTermo = false;
-        esperandoOTecnico = true;
-        pediuAgora = true;
-        Log.i(TAG, "a casca pede a localização durante o uso, logo depois do termo");
-        naTela(() -> {
-            if (!tela.pedir(A_LOCALIZACAO)) trabalhar(this::pedidoNaoApareceu);
-        });
+        pedirAPrecisa();
     }
 
-    // O pedido do Android que não abriu (a tela saindo): a próxima volta ao app pede de novo.
-    private void pedidoNaoApareceu() {
-        esperandoOTecnico = false;
-        pedirDepoisDoTermo = true;
+    private void pedirAPrecisa() {
+        localizacaoPorPedir = false;
+        Log.i(TAG, "a casca pede a localização durante o uso, "
+            + (liberando ? "pelo Liberar agora" : "logo depois do termo"));
+        pedir(Pedido.LOCALIZACAO);
     }
 
     private SharedPreferences prefs() {
@@ -1019,10 +1270,12 @@ final class EquipeNaCasca {
             esperandoOTecnico = false;
             Log.w(TAG, "o diálogo da equipe não fechou agora (" + e.getClass().getSimpleName() + ")");
         }
-        pedirDepoisDoTermo = false;
-        // O Liberar agora e os detalhes do app eram de quem saiu (o lembrete que esperava saiu com o fechar acima).
-        liberandoPeloLembrete = false;
-        detalhesACaminho = false;
+        // O Liberar agora e os ajustes do recuo eram de quem saiu (o lembrete que esperava e a trava saíram com o fechar
+        // acima).
+        terminarOLiberar();
+        pedindo = null;
+        pedidoDoLiberar = false;
+        ajustesACaminho = false;
         lembreteACaminho = false;
         limparAFila();
         try {
@@ -1105,9 +1358,10 @@ final class EquipeNaCasca {
     }
 
     /**
-     * O termo nesta activity, os pedidos ao Android (a localização e o tempo todo) pelo launcher do plugin, a janela da
-     * bateria, a tela do Início automático, o lembrete diário e os detalhes do app. Só na thread de UI. Um diálogo por vez:
-     * o novo tira o anterior.
+     * O termo nesta activity, os pedidos ao Android (a localização, o tempo todo e a notificação) pelo launcher do plugin,
+     * a janela da bateria, a tela do Início automático, o lembrete diário, a trava, os detalhes do app e os ajustes de
+     * notificação. Só na thread de UI. Um diálogo por vez: o novo tira o anterior. A trava não é um diálogo: é uma vista
+     * no conteúdo da activity, por cima da WebView, e os diálogos ficam por cima dela.
      */
     static final class TelaDaActivity implements Tela {
         /**
@@ -1130,10 +1384,167 @@ final class EquipeNaCasca {
         // O lembrete que espera ter nada na frente: a conferência seguinte e quem espera a resposta (ou nulos).
         private Runnable conferirDeNovo;
         private Consumer<Boolean> depoisDaEspera;
+        // A trava no ar (Task 16), ou null, e o Liberar agora dela (o da decisão mais nova).
+        private View trava;
+        private Runnable liberarDaTrava;
+        // A trava que espera ter nada na frente: o texto e o Liberar agora dela (ou nulos), e a conferência seguinte.
+        private String travaEsperando;
+        private Runnable liberarEsperando;
+        private Runnable conferirATravaDeNovo;
+        // O Voltar com a trava no ar, que só manda o app para o fundo, ou null.
+        private OnBackPressedCallback voltarComATrava;
+        // As vistas que a trava cobre e o que elas eram para o TalkBack antes dela, para devolver quando ela sai.
+        private final Map<View, Integer> acessibilidadeDeAntes = new HashMap<>();
 
         TelaDaActivity(Activity activity, Consumer<String[]> pedido) {
             this.activity = activity;
             this.pedido = pedido;
+        }
+
+        // Task 16: a trava aparece com nada na frente do técnico (nadaNaFrente, a regra do lembrete) e, ao contrário do
+        // lembrete, não desiste: ela vale a qualquer hora, e o que falta não muda por esperar. A decisão seguinte troca o
+        // texto da que espera. A tela que sai da vista (o técnico foi para o Início com um diálogo na frente) larga a
+        // espera, para não conferir a cada 100 ms com o app no fundo; a volta ao app decide de novo. Caso: o Antes de
+        // começar fica na frente até o técnico tocar em Continuar, e a trava aparece logo depois dos pedidos dele.
+        @Override
+        public void mostrarTrava(String texto, Runnable liberar) {
+            if (!ativa()) return;
+            if (trava != null) {
+                TextView lista = trava.findViewById(R.id.equipe_trava_texto);
+                lista.setText(texto);
+                liberarDaTrava = liberar;
+                return;
+            }
+            travaEsperando = texto;
+            liberarEsperando = liberar;
+            if (conferirATravaDeNovo != null) return; // a espera já roda, e mostra o texto de agora
+            conferirATravaDeNovo = new Runnable() {
+                @Override
+                public void run() {
+                    if (travaEsperando == null || !ativa() || !aTelaAVista()) {
+                        pararDeEsperarATrava();
+                    } else if (nadaNaFrente()) {
+                        String t = travaEsperando;
+                        Runnable l = liberarEsperando;
+                        pararDeEsperarATrava();
+                        abrirATrava(t, l);
+                    } else {
+                        principal.postDelayed(this, PASSO_DA_ESPERA_MS);
+                    }
+                }
+            };
+            conferirATravaDeNovo.run();
+        }
+
+        @Override
+        public void tirarTrava() {
+            pararDeEsperarATrava();
+            View vista = trava;
+            trava = null;
+            liberarDaTrava = null;
+            if (voltarComATrava != null) {
+                voltarComATrava.remove();
+                voltarComATrava = null;
+            }
+            for (Map.Entry<View, Integer> antes : acessibilidadeDeAntes.entrySet()) {
+                antes.getKey().setImportantForAccessibility(antes.getValue());
+            }
+            acessibilidadeDeAntes.clear();
+            if (vista == null) return;
+            ViewGroup pai = (ViewGroup) vista.getParent();
+            if (pai != null) pai.removeView(vista);
+        }
+
+        private void pararDeEsperarATrava() {
+            if (conferirATravaDeNovo != null) principal.removeCallbacks(conferirATravaDeNovo);
+            conferirATravaDeNovo = null;
+            travaEsperando = null;
+            liberarEsperando = null;
+        }
+
+        // A tela à vista (do onStart ao onStop): a activity que não diz o ciclo dela conta como à vista.
+        private boolean aTelaAVista() {
+            return !(activity instanceof LifecycleOwner) || ((LifecycleOwner) activity).getLifecycle().getCurrentState()
+                .isAtLeast(Lifecycle.State.STARTED);
+        }
+
+        // A trava por cima de tudo o que está no conteúdo da activity (a WebView do App de Campo), na tela inteira. Os
+        // diálogos (o termo, a Nova versão, os do Android) são janelas à parte e ficam por cima dela: a atualização segue
+        // possível com a trava no ar. O que fica embaixo sai do TalkBack, o teclado do App de Campo fecha, e o Voltar só
+        // manda o app para o fundo: o da casca perguntaria à página, que fecharia uma camada que o técnico nem vê.
+        private void abrirATrava(String texto, Runnable liberar) {
+            ViewGroup conteudo = activity.findViewById(android.R.id.content);
+            if (conteudo == null) return;
+            View vista;
+            try {
+                vista = LayoutInflater.from(activity).inflate(R.layout.equipe_trava, conteudo, false);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "a trava não abriu (" + e.getClass().getSimpleName() + ")");
+                return;
+            }
+            TextView lista = vista.findViewById(R.id.equipe_trava_texto);
+            lista.setText(texto);
+            liberarDaTrava = liberar;
+            vista.findViewById(R.id.equipe_trava_liberar).setOnClickListener(v -> {
+                Runnable agora = liberarDaTrava;
+                if (agora != null) agora.run();
+            });
+            ViewCompat.setAccessibilityHeading(vista.findViewById(R.id.equipe_trava_titulo), true);
+            ViewCompat.setAccessibilityPaneTitle(vista, activity.getString(R.string.casca_equipe_trava_titulo));
+            // A tela inteira, também com o Android 15 em diante, que desenha o app atrás das barras do sistema: o texto e o
+            // botão ficam fora delas.
+            int esquerda = vista.getPaddingLeft();
+            int cima = vista.getPaddingTop();
+            int direita = vista.getPaddingRight();
+            int baixo = vista.getPaddingBottom();
+            ViewCompat.setOnApplyWindowInsetsListener(vista, (v, bordas) -> {
+                Insets b = bordas.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                v.setPadding(esquerda + b.left, cima + b.top, direita + b.right, baixo + b.bottom);
+                return bordas;
+            });
+            for (int i = 0; i < conteudo.getChildCount(); i++) {
+                View embaixo = conteudo.getChildAt(i);
+                acessibilidadeDeAntes.put(embaixo, embaixo.getImportantForAccessibility());
+                embaixo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            }
+            conteudo.addView(vista, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+            trava = vista;
+            ViewCompat.requestApplyInsets(vista);
+            InputMethodManager teclado = (InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (teclado != null) teclado.hideSoftInputFromWindow(conteudo.getWindowToken(), 0);
+            vista.requestFocus();
+            if (activity instanceof ComponentActivity) {
+                ComponentActivity dona = (ComponentActivity) activity;
+                voltarComATrava = new OnBackPressedCallback(true) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        activity.moveTaskToBack(true);
+                    }
+                };
+                dona.getOnBackPressedDispatcher().addCallback(dona, voltarComATrava);
+            }
+            Log.i(TAG, "a trava do App de Campo no ar: falta liberar algo no celular");
+        }
+
+        // Os ajustes de notificação do Nexus Field (o recuo do pedido da notificação, Task 16), do Android 8 em diante (é
+        // dele a tela); antes dele, ou sem ela (há fabricante que a tira), os detalhes do app, que também levam às
+        // notificações.
+        @Override
+        public boolean abrirOsAjustesDeNotificacao() {
+            if (!ativa()) return false;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Intent ajustes = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName());
+                try {
+                    activity.startActivity(ajustes);
+                    return true;
+                } catch (ActivityNotFoundException | SecurityException e) {
+                    Log.w(TAG, "os ajustes de notificação não abriram (" + e.getClass().getSimpleName()
+                        + "): os detalhes do app");
+                }
+            }
+            return abrirOsDetalhesDoApp();
         }
 
         // Task 15: o lembrete só aparece com nada na frente do técnico (nadaNaFrente). Sem isso agora, ele confere de novo a
@@ -1297,6 +1708,12 @@ final class EquipeNaCasca {
 
         @Override
         public void fechar() {
+            fecharODialogo();
+            // A trava também sai (o Sair, o coleta:false, a tela saindo): a conta deixou a coleta, ou a tela vai embora.
+            tirarTrava();
+        }
+
+        private void fecharODialogo() {
             // O lembrete que esperava não aparece depois (o Sair, o coleta:false, a tela saindo).
             Consumer<Boolean> esperava = pararDeEsperar();
             if (esperava != null) esperava.accept(false);
@@ -1310,8 +1727,9 @@ final class EquipeNaCasca {
             }
         }
 
+        // Um diálogo por vez: o novo tira o anterior (a trava não, que fica embaixo dele).
         private boolean mostrar(AlertDialog dialogo) {
-            fechar();
+            fecharODialogo();
             try {
                 dialogo.show();
             } catch (RuntimeException e) {

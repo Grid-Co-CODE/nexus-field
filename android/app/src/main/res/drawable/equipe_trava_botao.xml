@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- O Liberar agora da trava (Task 16): o botão do erro.html, verde, com o canto de 12 dp, e o toque à vista. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/casca_destaque_toque">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="12dp" />
+            <solid android:color="@color/casca_destaque" />
+        </shape>
+    </item>
+</ripple>
