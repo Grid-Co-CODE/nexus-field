@@ -64,8 +64,9 @@ import java.util.regex.Pattern;
  *       resumo é o SHA-256 dos bytes da imagem (os 16 primeiros bytes), e não o {@link Fnv}: o Fnv tem 32 bits e é do
  *       texto em UTF-16, igual ao do inicio.js, e com 5000 fotos no registro uma foto nova tomada por "já está na
  *       galeria" (e que nunca chegaria lá) teria uma chance em ~860 mil a cada foto, somando ao longo da vida do
- *       aparelho; com 128 bits, nunca. A foto só entra no registro depois de gravada: a que falhou tenta de novo na
- *       próxima cópia que a página mandar.</li>
+ *       aparelho; com 128 bits, nunca. A foto só entra no registro depois de gravada: a que falhou só volta se a
+ *       página mandar outra cópia dela (a fila do Concluir da OS manda; a Ronda, a Zeladoria, o Extintor, o Inventário
+ *       e a Segurança guardam uma vez só).</li>
  *   <li><b>Nunca atrasa nem derruba o espelho.</b> Tudo o que pesa (decodificar o base64, ler o arquivo, o resumo, o
  *       MediaStore, o registro em disco) roda numa thread só, a {@code GcCasca-galeria}, de prioridade de fundo, fora da
  *       thread do espelho e da de UI. A thread do espelho só confere o começo do texto ou o mime e, no Blob, abre o
@@ -362,7 +363,8 @@ final class GaleriaDaFoto implements Mensageiro.Galeria {
     // --- na thread da galeria ---------------------------------------------------------------------------------------
 
     // A foto já em bytes: confere o formato, pula a que já está na galeria e grava a nova. Só entra no registro a que
-    // gravou: a que falhou vai de novo na próxima cópia que a página mandar (a fila do Concluir, a reconciliação).
+    // gravou: a que falhou só volta se a página mandar outra cópia dela (a fila do Concluir da OS manda; as outras telas
+    // guardam a foto uma vez só, e a falha a deixa fora da galeria).
     private void levar(byte[] bytes) {
         String mime = formatoPelosBytes(bytes);
         if (mime == null) {

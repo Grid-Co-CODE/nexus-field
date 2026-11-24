@@ -121,6 +121,8 @@ ou a Galeria do fabricante) antes, para ver o álbum mudar.
 - [ ] Concluir a OS com essa foto (o App de Campo a grava de novo, na fila): o álbum continua com uma cópia só.
 - [ ] Uma foto na Ronda, uma na APR, uma num serviço da Zeladoria e uma de extintor: cada uma aparece uma vez no álbum.
 - [ ] Um vídeo na OS: não vai ao álbum.
+- [ ] Anexar numa OS uma foto escolhida da galeria (não tirada agora): ela volta ao álbum Grid Co como uma cópia
+      carimbada, com a data do anexo. É o esperado.
 - [ ] Em modo avião: a foto vai ao álbum do mesmo jeito (a cópia não depende da rede).
 - [ ] Tirar o Nexus Field dos recentes, abrir de novo e voltar à OS: nenhuma foto se repete no álbum.
 - [ ] Depois da prova de apagar o armazenamento da WebView (a seção dela, mais acima, no APK de depuração): as fotos que

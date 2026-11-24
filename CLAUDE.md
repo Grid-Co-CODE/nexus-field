@@ -1055,7 +1055,9 @@ foto na galeria do celular" do `docs/prova-no-aparelho.md`). O site, as rotas e 
   acrescentada; reescrito numa cópia que troca o arquivo de uma vez quando passa de 6000 linhas), e atravessa o app
   fechado. Não é o `Fnv`: ele tem 32 bits e é do texto em UTF-16 (o contrato com o `inicio.js`), e com 5000 no registro
   cada foto nova teria uma chance em ~860 mil de ser tomada por "já está lá" e nunca chegar à galeria. Só entra no
-  registro a foto gravada: a que falhou vai na próxima cópia. O registro ilegível vale como vazio (o custo é uma foto
+  registro a foto gravada: a que falhou só volta se a página mandar outra cópia dela (a OS manda de novo pela fila do
+  Concluir; a Ronda, a Zeladoria, o Extintor, o Inventário e a Segurança guardam a foto uma vez só, e a falha a deixa fora
+  da galeria; a revisão de 24/11/2026 aceitou o custo). O registro ilegível vale como vazio (o custo é uma foto
   repetida, nunca uma perdida). O "Limpar armazenamento" apaga o registro junto com o espelho (o suporte nunca o manda).
 - **Fora do caminho do espelho.** A thread do espelho só confere o cabeçalho ou o mime e, no Blob, abre o arquivo (aberto,
   ele segue legível no Linux mesmo que a página regrave ou apague a chave antes de a galeria chegar nele); decodificar,
@@ -1068,8 +1070,8 @@ foto na galeria do celular" do `docs/prova-no-aparelho.md`). O site, as rotas e 
   thread do app derruba o processo inteiro, com o espelho); o `Mensageiro` ainda embrulha a chamada. O log diz `galeria:`
   com a contagem ("uma foto foi para a galeria (N nesta partida)", "uma foto não foi para a galeria (N falha(s) nesta
   partida)", a fila cheia, o conteúdo que não é foto), nunca o nome da chave nem o conteúdo.
-- **O que fica de fora** (conhecido): a foto escolhida da galeria (a Zeladoria deixa escolher) volta a ela como uma cópia
-  carimbada; o `DATE_TAKEN` é a hora da cópia, que só difere da foto nas antigas que o espelho recriado mandar de uma vez;
+- **O que fica de fora** (conhecido): a foto escolhida da galeria (a OS, a Ronda, o Extintor, a APR e a Zeladoria deixam escolher) volta a ela
+  como uma cópia carimbada, com a data do anexo; o `DATE_TAKEN` é a hora da cópia, que só difere da foto nas antigas que o espelho recriado mandar de uma vez;
   as fotos de antes da 1.2.8 só vão se voltarem pelo canal; e a foto na galeria fica à vista dos apps com a permissão de
   fotos (e do backup do Google Fotos, se o aparelho o tiver ligado), com o carimbo de local.
 
