@@ -68,6 +68,9 @@ import org.json.JSONObject;
  *       carga seguinte, e o disco cheio que recusa sempre faria disso um laço que segura a página a cada abertura.
  *       Estourada a da perda, ela recarrega sem conferência (a página segue sem espelho até a janela andar); estourada a
  *       do IndexedDB, o idbPedir ganha um idbRecusado (a página abre na hora).</li>
+ *   <li><b>A foto que a página guarda também vai à galeria do celular</b> (1.2.8, {@link Galeria}): o idbPut de texto
+ *       que é foto em dataURL e o Blob de foto inteiro, logo depois do espelho. Aqui só se confere o começo do texto ou
+ *       o mime; o resto é da {@link GaleriaDaFoto}, na thread dela, e nada dela segura nem derruba o canal.</li>
  * </ul>
  *
  * Não é seguro entre threads: o plugin chama {@link #tratar} e {@link #enviarIdb} sempre da mesma thread (a do
@@ -200,6 +203,31 @@ public final class Mensageiro {
     /** Por onde sai cada mensagem da resposta do idbPedir. Devolve false quando a ponte caiu: o envio para ali. */
     public interface Saida {
         boolean enviar(String mensagem);
+    }
+
+    /**
+     * Para onde vai a cópia das fotos que a página guarda no IndexedDB das fotos: a galeria do celular (1.2.8, o pedido
+     * do dono em 24/11/2026, "assim que tira a foto já vai para a galeria"; a {@link GaleriaDaFoto}). As duas chamadas
+     * vêm da thread do espelho, logo depois da gravação, só com o que é foto, e voltam na hora: quem grava é a thread da
+     * galeria. O Mensageiro ainda as embrulha, para uma galeria que lançasse não derrubar o canal.
+     */
+    public interface Galeria {
+        /** Uma foto em texto: o dataURL que o {@link GaleriaDaFoto#ehFotoEmTexto} reconheceu. */
+        void fotoEmTexto(String dataUrl);
+
+        /** Uma foto em Blob, já inteira no espelho: o arquivo dela e o mime que a página deu. */
+        void fotoEmArquivo(File arquivo, String mime);
+
+        /** Sem galeria: o Mensageiro dos testes que não falam dela, e o plugin que não conseguiu montar a do app. */
+        Galeria NENHUMA = new Galeria() {
+            @Override
+            public void fotoEmTexto(String dataUrl) {
+            }
+
+            @Override
+            public void fotoEmArquivo(File arquivo, String mime) {
+            }
+        };
     }
 
     /**
@@ -444,29 +472,48 @@ public final class Mensageiro {
     private final Disjuntor disjuntor;
     private final DisjuntorDaPerda perdas;
     private final LongSupplier relogio;
+    private final Galeria galeria;
     private int falhas = 0;
     private int errosDaPagina = 0;
+    private int falhasDaGaleria = 0;
 
     /**
      * @param disjuntor o do processo: a tela recriada passa o mesmo (ver {@link Disjuntor})
      * @param perdas    o do aparelho, com as duas contas do dia (ver {@link DisjuntorDaPerda}), também um por processo
      */
     public Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, DisjuntorDaPerda perdas) {
+        this(armazem, acoes, disjuntor, perdas, Galeria.NENHUMA);
+    }
+
+    /** @param galeria para onde vai a cópia das fotos (a do processo, como o espelho: ver {@link Galeria}) */
+    public Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, DisjuntorDaPerda perdas,
+                      Galeria galeria) {
         // O relógio que não anda para trás com a troca de hora do aparelho.
-        this(armazem, acoes, disjuntor, perdas, SystemClock::elapsedRealtime);
+        this(armazem, acoes, disjuntor, perdas, SystemClock::elapsedRealtime, galeria);
     }
 
     /** Para o teste: o relógio dos dois disjuntores, em milissegundos, e o do dia só na memória. */
     Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, LongSupplier relogio) {
-        this(armazem, acoes, disjuntor, new DisjuntorDaPerda(DisjuntorDaPerda.naMemoria(), relogio), relogio);
+        this(armazem, acoes, disjuntor, relogio, Galeria.NENHUMA);
+    }
+
+    /** Para o teste da galeria: o mesmo, com a galeria de mentira (ou a de verdade com o gravador de mentira). */
+    Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, LongSupplier relogio, Galeria galeria) {
+        this(armazem, acoes, disjuntor, new DisjuntorDaPerda(DisjuntorDaPerda.naMemoria(), relogio), relogio, galeria);
     }
 
     Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, DisjuntorDaPerda perdas, LongSupplier relogio) {
+        this(armazem, acoes, disjuntor, perdas, relogio, Galeria.NENHUMA);
+    }
+
+    Mensageiro(ArmazemEspelho armazem, Acoes acoes, Disjuntor disjuntor, DisjuntorDaPerda perdas, LongSupplier relogio,
+               Galeria galeria) {
         this.armazem = armazem;
         this.acoes = acoes;
         this.disjuntor = disjuntor;
         this.perdas = perdas;
         this.relogio = relogio;
+        this.galeria = galeria == null ? Galeria.NENHUMA : galeria;
     }
 
     /**
@@ -508,7 +555,15 @@ public final class Mensageiro {
                     String tipo = texto(m, "tipo");
                     String v = texto(m, "v");
                     if (k == null || tipo == null || v == null) return recusar(t);
-                    armazem.gravarIdbTexto(k, tipo, v);
+                    try {
+                        armazem.gravarIdbTexto(k, tipo, v);
+                    } finally {
+                        // A foto em texto (o dataURL que o site grava, já carimbado) vai também à galeria do celular.
+                        // Depois do espelho, e mesmo com ele falhando: a foto está na página, e a cópia na galeria não
+                        // depende do banco do espelho (o SQLite corrompido não impede o MediaStore). O JSON (o rascunho
+                        // da ronda, a programação, com ou sem foto dentro) e o texto que não é foto nunca vão.
+                        if ("texto".equals(tipo) && GaleriaDaFoto.ehFotoEmTexto(v)) fotoEmTextoParaAGaleria(v);
+                    }
                     return true;
                 }
                 case "idbDel": {
@@ -655,8 +710,35 @@ public final class Mensageiro {
         } catch (IllegalArgumentException e) {
             return recusar("idbPedaco");
         }
-        armazem.receberPedaco(k, id, i, n, texto(m, "mime"), dados);
+        String mime = texto(m, "mime");
+        File concluido = armazem.receberPedacoConcluindo(k, id, i, n, mime, dados);
+        // O Blob de foto inteiro (o espelho conferiu a sequência e o arquivo está no lugar) vai também à galeria do
+        // celular. O pedaço do meio, a sequência quebrada, o vídeo e o áudio, não.
+        if (concluido != null && GaleriaDaFoto.ehMimeDeFoto(mime)) fotoEmArquivoParaAGaleria(concluido, mime);
         return true;
+    }
+
+    // A galeria nunca derruba o canal nem a gravação que acabou de dar certo: o que ela lançasse (não devia) vira uma
+    // contagem no log, e a mensagem segue como entregue.
+    private void fotoEmTextoParaAGaleria(String dataUrl) {
+        try {
+            galeria.fotoEmTexto(dataUrl);
+        } catch (RuntimeException e) {
+            falhouNaGaleria();
+        }
+    }
+
+    private void fotoEmArquivoParaAGaleria(File arquivo, String mime) {
+        try {
+            galeria.fotoEmArquivo(arquivo, mime);
+        } catch (RuntimeException e) {
+            falhouNaGaleria();
+        }
+    }
+
+    private void falhouNaGaleria() {
+        falhasDaGaleria++;
+        avisar("galeria", "a cópia da foto falhou (" + falhasDaGaleria + " falha(s) nesta partida)");
     }
 
     // Todo pedido recarrega a página (ela parou e espera). O completo sai enquanto o disjuntor deixa; se ele falhar ao

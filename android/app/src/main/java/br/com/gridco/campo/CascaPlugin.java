@@ -61,8 +61,8 @@ import org.json.JSONObject;
  * do Firebase para ela registrar o aparelho, o Sair, a OS aberta), leva à página a OS do toque na emergência
  * ({@link #abrirOS}) e o teste dos avisos do atalho do ícone, só para administrador ({@link #testarAvisos},
  * {@link AtalhosDeTeste}), liga e desliga a coleta da posição da equipe pela chave que o Nexus deu ao aparelho, na volta
- * ao app e no Sair ({@link EquipeNaCasca}) e, uma vez por processo, apaga as fotos velhas da reserva da câmera
- * ({@link FaxinaDaCamera}).
+ * ao app e no Sair ({@link EquipeNaCasca}), copia na galeria do celular cada foto que a página guarda, pelo canal
+ * ({@link GaleriaDaFoto}) e, uma vez por processo, apaga as fotos velhas da reserva da câmera ({@link FaxinaDaCamera}).
  *
  * Ordem no Capacitor 8.5.3 (conferida no código dele): o construtor do Bridge roda initWebView, registerAllPlugins (o
  * PluginHandle chama o load() de cada plugin) e só então loadWebView, que faz o primeiro webView.loadUrl(appUrl). Por
@@ -109,6 +109,10 @@ public class CascaPlugin extends Plugin {
     // contagem dele vale quando o SharedPreferences não grava). Fora do backup, como tudo (regras_dados.xml).
     private static final String PREFERENCIAS_DO_ESPELHO = "casca_espelho";
     private static Mensageiro.DisjuntorDaPerda perdasDoProcesso;
+    // A cópia das fotos na galeria do celular (1.2.8), uma por processo, como o espelho: o registro do que já foi para
+    // a galeria (a deduplicação) e a thread dela são do aparelho, e a tela recriada pelo renderer que morreu, com dois
+    // registros na memória, gravaria de novo a foto que a outra já gravou.
+    private static Mensageiro.Galeria galeriaDoProcesso;
     // A OS do toque na emergência, até a página dizer que a abriu (OsDoToque), e a regra dos 10 s do teste dos avisos:
     // as duas atravessam a tela recriada pelo renderer que morreu, que tem plugin novo. O relógio da OS é o de parede (o
     // dia em Brasília); o dos 10 s, o que não volta com a troca de hora.
@@ -297,7 +301,8 @@ public class CascaPlugin extends Plugin {
             Log.e(TAG, "a casca ficou sem espelho nesta partida (" + e.getClass().getSimpleName() + ")");
             return;
         }
-        mensageiro = new Mensageiro(armazem, new AcoesDaCasca(), DISJUNTOR_DO_PROCESSO, perdas(getContext()));
+        mensageiro = new Mensageiro(armazem, new AcoesDaCasca(), DISJUNTOR_DO_PROCESSO, perdas(getContext()),
+            galeria(getContext()));
 
         try {
             WebViewCompat.addWebMessageListener(webView, CANAL, Collections.singleton(origem), this::aoReceber);
@@ -377,6 +382,20 @@ public class CascaPlugin extends Plugin {
                 System::currentTimeMillis);
         }
         return perdasDoProcesso;
+    }
+
+    // A galeria que não monta não impede o espelho: o App de Campo segue como antes, sem a cópia na galeria.
+    private static synchronized Mensageiro.Galeria galeria(Context contexto) {
+        if (galeriaDoProcesso == null) {
+            try {
+                galeriaDoProcesso = GaleriaDaFoto.doApp(contexto);
+            } catch (RuntimeException e) {
+                Log.e(TAG, "a cópia das fotos na galeria ficou desligada nesta partida (" + e.getClass().getSimpleName()
+                    + ")");
+                galeriaDoProcesso = Mensageiro.Galeria.NENHUMA;
+            }
+        }
+        return galeriaDoProcesso;
     }
 
     private String lerScriptDeInicio() throws IOException {

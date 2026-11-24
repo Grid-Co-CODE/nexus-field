@@ -97,7 +97,7 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
   fictício e rede falsa.
 - **Gradle com `Unable to establish loopback connection`:** o JDK 21 no Windows abre o `Selector` por um socket de
   domínio Unix numa pasta temporária, e onde o `TEMP` do perfil não é gravável (visto no terminal do assistente, em
-  16/10/2026) isso falha, até no `./gradlew help`. Contorno, antes do `./gradlew`: `mkdir -p android/.gradle/uds` e
+  16/10/2026 e de novo em 24/11/2026) isso falha, até no `./gradlew help`. Contorno, antes do `./gradlew`: `mkdir -p android/.gradle/uds` e
   `export JAVA_TOOL_OPTIONS="-Djdk.net.unixdomain.tmpdir=<caminho de android/.gradle/uds no formato C:/...>"`
   (`android/.gradle/` é ignorado pelo git). No terminal normal do desenvolvedor não deve ser preciso.
 - **Robolectric no Windows precisa de duas coisas** (medido em 17/10/2026, JDK 21, Robolectric 4.17, SDK 36), e as duas
@@ -1018,6 +1018,60 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
     atividade" não: o projeto mais usado que fazia isso foi desativado pelo GitHub por violar os termos. A primeira prova
     de que o PUT segura é nossa: conferir na aba Actions, uns 70 dias depois do último commit, que o contrato ainda roda
     (e não ignorar o e-mail "The workflow will be disabled soon", se ele vier).
+
+## A foto na galeria do celular (1.2.8)
+
+O pedido do dono em 24/11/2026: "Quando o técnico tira foto [...] assim que tira a foto já vai para a galeria". Toda foto
+que o App de Campo guarda vai também à galeria do celular, no álbum Grid Co (`Pictures/Grid Co`), na hora e sem o técnico
+fazer nada (`GaleriaDaFoto`; testes `GaleriaDaFotoTest`, `MensageiroTest` e `EspelhoSqliteTest`; no aparelho, a seção "A
+foto na galeria do celular" do `docs/prova-no-aparelho.md`). O site, as rotas e o `inicio.js` não mudam, nem o manifesto.
+
+- **Por que na casca.** O site não grava na galeria de dentro da WebView (não há DownloadListener nem plugin de mídia),
+  mas a casca já recebe cada foto pelo espelho do IndexedDB das fotos, na versão que o site guarda: já carimbada (data,
+  hora, local), em JPEG de 1280 px. O `Mensageiro` chama a galeria logo depois do espelho, em dois casos: o `idbPut` de
+  `tipo: 'texto'` cujo valor é um dataURL de foto (`data:image/jpeg`, `png` ou `webp`, com `;base64,`; o
+  `GaleriaDaFoto.ehFotoEmTexto` só lê o cabeçalho, até 128 caracteres, porque roda na thread do espelho a cada idbPut),
+  e o Blob de mime `image/jpeg`, `png` ou `webp` que o espelho concluiu. Quem diz que concluiu é o
+  `ArmazemEspelho.receberPedacoConcluindo`, um método padrão da interface que devolve o arquivo do blob no pedaço que o
+  conclui e null nos outros (o do meio, a sequência quebrada): o `EspelhoSqlite` o implementa, e o `receberPedaco` de
+  sempre passa por ele; os armazéns de mentira dos testes ficam com o padrão. O JSON (o `rdraft:` da ronda, a APR, a
+  programação, com ou sem foto dentro), o texto que não é foto, o SVG, o GIF, o vídeo e o áudio nunca vão. O texto de
+  foto vai mesmo com o espelho falhando (a foto está na página, e o MediaStore não depende do SQLite); o Blob só vai
+  concluído. O formato que vai ao MediaStore é o dos bytes (a assinatura do JPEG, do PNG e do WebP), não o que a página
+  declarou: o Blob que diz `image/jpeg` e não é foto fica fora.
+- **Só do Android 10 (API 29) em diante**, pelo MediaStore com o `RELATIVE_PATH` e o `IS_PENDING`, que não pedem permissão
+  para a foto que o próprio app cria. Abaixo dele nada vai (o minSdk segue 24): gravar em Pictures pediria o
+  `WRITE_EXTERNAL_STORAGE`, que a casca não pede (mais uma tela ao técnico, e a permissão abre o armazenamento inteiro).
+- **A gravação** (`GaleriaDaFoto.NoMediaStore`, `@RequiresApi(29)`, sobre a interface `Destino`, que no app é o
+  `ContentResolver` em `MediaStore.Images.Media.EXTERNAL_CONTENT_URI`): a linha nasce com o `DISPLAY_NAME`
+  `GridCo_AAAAMMDD_HHMMSS.jpg` (a hora local do aparelho; o nome repetido o MediaStore resolve), o `MIME_TYPE`, o
+  `RELATIVE_PATH` `Pictures/Grid Co`, o `DATE_TAKEN` de agora e o `IS_PENDING` 1; recebe os bytes; e vai ao `IS_PENDING`
+  0. Se a escrita ou a troca falhar, a linha é apagada (a pendente ficaria invisível até o Android a apagar, dias depois).
+  O teste passa pelo `ContentResolver` do Robolectric com um provedor `media` de mentira.
+- **Sem duplicata, pelo conteúdo.** O site grava a mesma foto mais de uma vez com chaves diferentes (o `d_` na captura e
+  o `f_` ou `fi_` no Concluir da OS; o rascunho e o `a_` da APR; lidos no `campo.html` em 24/11/2026), e a restauração e a
+  reconciliação do espelho podem devolvê-las pelo canal. O registro (`GaleriaDaFoto.Registro`) guarda os 16 primeiros
+  bytes do SHA-256 de cada foto gravada, os 5000 mais novos, em `files/fotos_na_galeria.txt` (uma por linha,
+  acrescentada; reescrito numa cópia que troca o arquivo de uma vez quando passa de 6000 linhas), e atravessa o app
+  fechado. Não é o `Fnv`: ele tem 32 bits e é do texto em UTF-16 (o contrato com o `inicio.js`), e com 5000 no registro
+  cada foto nova teria uma chance em ~860 mil de ser tomada por "já está lá" e nunca chegar à galeria. Só entra no
+  registro a foto gravada: a que falhou vai na próxima cópia. O registro ilegível vale como vazio (o custo é uma foto
+  repetida, nunca uma perdida). O "Limpar armazenamento" apaga o registro junto com o espelho (o suporte nunca o manda).
+- **Fora do caminho do espelho.** A thread do espelho só confere o cabeçalho ou o mime e, no Blob, abre o arquivo (aberto,
+  ele segue legível no Linux mesmo que a página regrave ou apague a chave antes de a galeria chegar nele); decodificar,
+  ler, resumir, gravar e anotar rodam na `GcCasca-galeria`, uma thread só, de prioridade de fundo, uma por processo
+  (estática no `CascaPlugin`, como o espelho: a tela recriada pelo renderer que morreu não ganha outro registro na
+  memória). O que espera a thread tem teto de 32 MB (o texto conta 2 bytes por caractere); passou, a foto fica fora, com
+  aviso (o caso: a reconciliação do espelho recriado manda todas as fotos de uma vez). O Blob de foto vazio ou com mais
+  de 16 MB também fica fora.
+- **Nunca lança, e nada do técnico no log.** A tarefa da thread pega até o `OutOfMemoryError` (o erro que sai de uma
+  thread do app derruba o processo inteiro, com o espelho); o `Mensageiro` ainda embrulha a chamada. O log diz `galeria:`
+  com a contagem ("uma foto foi para a galeria (N nesta partida)", "uma foto não foi para a galeria (N falha(s) nesta
+  partida)", a fila cheia, o conteúdo que não é foto), nunca o nome da chave nem o conteúdo.
+- **O que fica de fora** (conhecido): a foto escolhida da galeria (a Zeladoria deixa escolher) volta a ela como uma cópia
+  carimbada; o `DATE_TAKEN` é a hora da cópia, que só difere da foto nas antigas que o espelho recriado mandar de uma vez;
+  as fotos de antes da 1.2.8 só vão se voltarem pelo canal; e a foto na galeria fica à vista dos apps com a permissão de
+  fotos (e do backup do Google Fotos, se o aparelho o tiver ligado), com o carimbo de local.
 
 ## Localização da equipe (1.2.0, spec `docs/superpowers/specs/2026-11-08-mapa-de-equipe-design.md`)
 

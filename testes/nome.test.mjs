@@ -23,6 +23,10 @@ const SOBRE_O_SITE = [
     motivo: 'a trava (1.2.7) cobre o site do App de Campo, e o Nexus Field segue aberto por baixo dela' },
   { arquivo: 'novidades/1.2.7.md', trecho: 'o App de Campo só abre com o celular pronto',
     motivo: 'é o site do App de Campo que a trava cobre até o celular estar pronto' },
+  { arquivo: 'novidades/1.2.8.md', trecho: 'o App de Campo só abre com o celular pronto',
+    motivo: 'a linha da trava da 1.2.7, que a 1.2.8 repete: é o site que ela cobre' },
+  { arquivo: 'novidades/1.2.8.md', trecho: 'As fotos que você tira no App de Campo',
+    motivo: 'quem tira a foto é o site do App de Campo; o Nexus Field só leva a cópia à galeria (1.2.8)' },
 ];
 
 // Os textos de um strings.xml, um por <string>, como o Android os mostra (o XML resolvido, sem os comentários).

@@ -107,6 +107,29 @@ deixa o espelho nativo intacto. O APK da Release não tem esse caminho (o `teste
       volta.
 - [ ] Com o sinal cortado no meio do download, aparece o aviso de que a atualização não deu certo.
 
+## A foto na galeria do celular (1.2.8)
+
+Toda foto que o App de Campo guarda vai também à galeria do celular, no álbum Grid Co (a pasta `Pictures/Grid Co`), sem o
+técnico fazer nada, só do Android 10 em diante. Use a conta e a OS de teste. Abra a galeria do aparelho (o Google Fotos
+ou a Galeria do fabricante) antes, para ver o álbum mudar.
+
+- [ ] Android 10 ou mais novo: tirar uma foto numa OS pela câmera interna do App de Campo. Em poucos segundos ela aparece
+      no álbum Grid Co, com o carimbo de data, hora e local que o App de Campo põe, e com a data e a hora em que foi
+      tirada. O nome do arquivo (nos detalhes da foto) é `GridCo_` com a data e a hora do aparelho.
+- [ ] A mesma coisa pela reserva do `<input capture>` (a câmera do sistema): a foto do álbum Grid Co é a carimbada do
+      App de Campo.
+- [ ] Concluir a OS com essa foto (o App de Campo a grava de novo, na fila): o álbum continua com uma cópia só.
+- [ ] Uma foto na Ronda, uma na APR, uma num serviço da Zeladoria e uma de extintor: cada uma aparece uma vez no álbum.
+- [ ] Um vídeo na OS: não vai ao álbum.
+- [ ] Em modo avião: a foto vai ao álbum do mesmo jeito (a cópia não depende da rede).
+- [ ] Tirar o Nexus Field dos recentes, abrir de novo e voltar à OS: nenhuma foto se repete no álbum.
+- [ ] Depois da prova de apagar o armazenamento da WebView (a seção dela, mais acima, no APK de depuração): as fotos que
+      voltaram do espelho não se repetem no álbum.
+- [ ] Android 7, 8 ou 9: a foto não vai à galeria, e o App de Campo funciona como antes (a cópia é só do Android 10 em
+      diante; abaixo dele ela pediria a permissão de armazenamento, que o Nexus Field não pede).
+- [ ] (com o cabo) O logcat do app mostra `galeria:` com a contagem ("uma foto foi para a galeria (N nesta partida)"),
+      sem nome de chave nem conteúdo.
+
 ## As notificações (1.1.0)
 
 O servidor do App de Campo escreve o título e o texto de cada notificação (o Nexus Field só os mostra), então aqui se

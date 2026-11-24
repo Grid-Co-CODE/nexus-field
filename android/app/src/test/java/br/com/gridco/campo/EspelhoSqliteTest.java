@@ -498,6 +498,25 @@ public class EspelhoSqliteTest {
         assertTrue(espelho.idbChaves().isEmpty());
     }
 
+    // O gancho da galeria do celular (1.2.8): o arquivo do blob só sai no pedaço que o conclui, já no lugar e com os
+    // bytes na ordem; o pedaço do meio, a sequência quebrada e o pedaço sem chave dão null.
+    @Test
+    public void oPedacoQueConcluiOBlobDevolveOArquivoDeleEOsOutrosNao() throws IOException {
+        assertNull(espelho.receberPedacoConcluindo("f_123", "p7-a-1", 0, 2, "image/jpeg", bytes(1, 2)));
+        File arquivo = espelho.receberPedacoConcluindo("f_123", "p7-a-1", 1, 2, "image/jpeg", bytes(3));
+        assertNotNull(arquivo);
+        assertEquals(pasta("espelho/idb/df227124c824cab638e40035658b57381ab2a7fb.bin").getAbsoluteFile(),
+            arquivo.getAbsoluteFile());
+        assertArrayEquals(bytes(1, 2, 3), Files.readAllBytes(arquivo.toPath()));
+        assertEquals(arquivo.getAbsoluteFile(), idbTudo(espelho).get("f_123").arquivo.getAbsoluteFile());
+
+        assertNull("o último sem os anteriores",
+            espelho.receberPedacoConcluindo("f_2", "p7-a-2", 1, 2, "image/png", bytes(7)));
+        assertNull("sem chave", espelho.receberPedacoConcluindo("", "p7-a-3", 0, 1, "image/png", bytes(7)));
+        assertNotNull("o de um pedaço só", espelho.receberPedacoConcluindo("v_1", "p7-a-4", 0, 1, "video/mp4", bytes(9)));
+        assertEquals(Arrays.asList("f_123", "v_1"), espelho.idbChaves());
+    }
+
     @Test
     public void pedacoDeNovaGravacaoDaMesmaChaveSubstituiOBlobEMantemUmArquivoSo() throws IOException {
         espelho.receberPedaco("f_123", "p5-a-1", 0, 1, "image/jpeg", bytes(1, 1, 1, 1));

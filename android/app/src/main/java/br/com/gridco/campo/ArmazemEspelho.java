@@ -53,6 +53,17 @@ public interface ArmazemEspelho {
      */
     void receberPedaco(String k, String id, int i, int n, String mime, byte[] dados);
 
+    /**
+     * O mesmo que {@link #receberPedaco}, e devolve o arquivo do blob quando ESTE pedaço o concluiu (o último, com todos
+     * os anteriores na ordem); null nos outros, e na sequência quebrada. É por onde a foto em Blob chega à galeria do
+     * celular ({@link GaleriaDaFoto}, 1.2.8): ela só existe inteira no último pedaço, e só o armazém sabe se a sequência
+     * fechou. O padrão só repassa e devolve null, para o armazém que não tem o arquivo (os de mentira dos testes).
+     */
+    default File receberPedacoConcluindo(String k, String id, int i, int n, String mime, byte[] dados) {
+        receberPedaco(k, id, i, n, mime, dados);
+        return null;
+    }
+
     /** Apaga a entrada (e o arquivo, se for blob). */
     void apagarIdb(String k);
 

@@ -1037,6 +1037,124 @@ public class MensageiroTest {
         }
     }
 
+    // --- a cópia das fotos na galeria do celular (1.2.8) ---------------------------------------------------------------
+
+    private static final String FOTO = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+
+    @Test
+    public void aFotoEmTextoVaiAGaleriaDepoisDoEspelho() {
+        GaleriaFalsa galeria = new GaleriaFalsa();
+        Mensageiro comGaleria = new Mensageiro(fake, acoes, new Mensageiro.Disjuntor(), () -> agora, galeria);
+        String png = "data:image/png;base64,iVBORw0KGgo=";
+        String webp = "data:image/webp;base64,UklGRiQAAABXRUJQ";
+
+        assertTrue(comGaleria.tratar(idbPut("d_" + CHAVE_COM_EMAIL, "texto", FOTO)));
+        assertTrue(comGaleria.tratar(idbPut("a_tk_1", "texto", png)));
+        assertTrue(comGaleria.tratar(idbPut("a_tk_2", "texto", webp)));
+
+        assertEquals("o espelho guardou como antes", "texto|" + FOTO, fake.idbTexto.get("d_" + CHAVE_COM_EMAIL));
+        assertEquals(Arrays.asList(FOTO, png, webp), galeria.textos);
+        assertTrue(galeria.arquivos.isEmpty());
+        assertTrue(acoes.erros.isEmpty());
+        semDadosDoTecnico();
+    }
+
+    @Test
+    public void oJsonOTextoQueNaoEFotoEOVideoEmTextoNaoVaoAGaleria() {
+        GaleriaFalsa galeria = new GaleriaFalsa();
+        Mensageiro comGaleria = new Mensageiro(fake, acoes, new Mensageiro.Disjuntor(), () -> agora, galeria);
+
+        // O rascunho da ronda (rdraft:) e a APR são JSON, com ou sem foto dentro; a programação é texto que não é foto.
+        assertTrue(comGaleria.tratar(idbPut("rdraft:u1", "json", "{\"foto\":\"" + FOTO + "\"}")));
+        assertTrue(comGaleria.tratar(idbPut("x", "json", FOTO)));
+        assertTrue(comGaleria.tratar(idbPut("prog", "texto", "{\"tarefas\":[]}")));
+        assertTrue(comGaleria.tratar(idbPut("v", "texto", "data:video/mp4;base64,AAAAIGZ0eXA=")));
+        assertTrue(comGaleria.tratar(idbPut("s", "texto", "data:image/svg+xml;base64,PHN2Zz4=")));
+
+        assertEquals("tudo foi ao espelho", 5, fake.idbTexto.size());
+        assertTrue(galeria.textos.isEmpty());
+        assertTrue(galeria.arquivos.isEmpty());
+    }
+
+    @Test
+    public void oBlobDeFotoSoVaiAGaleriaNoPedacoQueOConclui() {
+        GaleriaFalsa galeria = new GaleriaFalsa();
+        Mensageiro comGaleria = new Mensageiro(fake, acoes, new Mensageiro.Disjuntor(), () -> agora, galeria);
+        String b64 = Base64.encodeToString(new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff}, Base64.NO_WRAP);
+
+        assertTrue(comGaleria.tratar(pedacoDeBlob("idb:r1", "r1-a-1", 0, 2, "image/jpeg", b64)));
+        assertTrue("o pedaço do meio não vai", galeria.arquivos.isEmpty());
+        assertTrue(comGaleria.tratar(pedacoDeBlob("idb:r1", "r1-a-1", 1, 2, "image/jpeg", b64)));
+
+        assertEquals(Arrays.asList(ArmazemFalso.CONCLUIDO.getName() + "|image/jpeg"), galeria.arquivos);
+        assertEquals("o espelho recebeu os dois", 2, fake.pedacos.size());
+        assertTrue(galeria.textos.isEmpty());
+    }
+
+    @Test
+    public void oBlobQueOEspelhoNaoConcluiuEOVideoEOAudioNaoVaoAGaleria() {
+        GaleriaFalsa galeria = new GaleriaFalsa();
+        Mensageiro comGaleria = new Mensageiro(fake, acoes, new Mensageiro.Disjuntor(), () -> agora, galeria);
+        String b64 = Base64.encodeToString(new byte[] {1, 2, 3}, Base64.NO_WRAP);
+
+        assertTrue(comGaleria.tratar(pedacoDeBlob("v_tk", "r1-a-2", 0, 1, "video/mp4", b64)));
+        assertTrue(comGaleria.tratar(pedacoDeBlob("au", "r1-a-3", 0, 1, "audio/webm", b64)));
+        assertTrue(comGaleria.tratar(pedacoDeBlob("sem", "r1-a-4", 0, 1, "", b64)));
+        fake.concluir = false; // a sequência que o espelho descartou (fora de ordem, de outra gravação)
+        assertTrue(comGaleria.tratar(pedacoDeBlob("idb:r2", "r1-a-5", 0, 1, "image/jpeg", b64)));
+
+        assertTrue(galeria.arquivos.isEmpty());
+        assertEquals(4, fake.pedacos.size());
+    }
+
+    @Test
+    public void aFotoEmTextoVaiAGaleriaMesmoComOEspelhoFalhando() {
+        GaleriaFalsa galeria = new GaleriaFalsa();
+        Mensageiro comGaleria = new Mensageiro(fake, acoes, new Mensageiro.Disjuntor(), () -> agora, galeria);
+        fake.lancarAoEscrever = new IllegalStateException("disco cheio em " + CHAVE_COM_EMAIL);
+
+        assertFalse("o espelho falhou: a mensagem conta como falha, como antes",
+            comGaleria.tratar(idbPut("d_" + CHAVE_COM_EMAIL, "texto", FOTO)));
+        assertEquals("a foto está na página, e a galeria não depende do banco do espelho", Arrays.asList(FOTO),
+            galeria.textos);
+        assertEquals(Arrays.asList("idbPut: falhou no espelho (1 falha(s) nesta partida)"), acoes.erros);
+        semDadosDoTecnico();
+    }
+
+    @Test
+    public void aGaleriaQueLancaNaoDerrubaOCanal() {
+        GaleriaFalsa galeria = new GaleriaFalsa();
+        galeria.lancar = new IllegalStateException("foto de " + EMAIL);
+        Mensageiro comGaleria = new Mensageiro(fake, acoes, new Mensageiro.Disjuntor(), () -> agora, galeria);
+        String b64 = Base64.encodeToString(new byte[] {1, 2, 3}, Base64.NO_WRAP);
+
+        assertTrue(comGaleria.tratar(idbPut("d_" + CHAVE_COM_EMAIL, "texto", FOTO)));
+        assertTrue(comGaleria.tratar(pedacoDeBlob("idb:r1", "r1-a-1", 0, 1, "image/jpeg", b64)));
+
+        assertEquals("texto|" + FOTO, fake.idbTexto.get("d_" + CHAVE_COM_EMAIL));
+        assertEquals(1, fake.pedacos.size());
+        assertEquals(Arrays.asList("galeria: a cópia da foto falhou (1 falha(s) nesta partida)",
+            "galeria: a cópia da foto falhou (2 falha(s) nesta partida)"), acoes.erros);
+        semDadosDoTecnico();
+    }
+
+    @Test
+    public void oMensageiroSemGaleriaSegueComoAntes() {
+        assertTrue(m.tratar(idbPut("d_tk_1", "texto", FOTO)));
+        assertEquals("texto|" + FOTO, fake.idbTexto.get("d_tk_1"));
+        assertTrue(acoes.erros.isEmpty());
+    }
+
+    private static String idbPut(String k, String tipo, String v) {
+        return "{\"t\":\"idbPut\",\"k\":" + JSONObject.quote(k) + ",\"tipo\":\"" + tipo + "\",\"v\":" + JSONObject.quote(v)
+            + "}";
+    }
+
+    private static String pedacoDeBlob(String k, String id, int i, int n, String mime, String b64) {
+        return "{\"t\":\"idbPedaco\",\"k\":" + JSONObject.quote(k) + ",\"id\":\"" + id + "\",\"i\":" + i + ",\"n\":" + n
+            + ",\"mime\":\"" + mime + "\",\"b64\":\"" + b64 + "\"}";
+    }
+
     // --- ajudantes ---------------------------------------------------------------------------------------------------
 
     /** A chave da equipe também não vai ao log (nem pelas ações, nem pelo android.util.Log). */
@@ -1124,6 +1242,10 @@ public class MensageiroTest {
         int sentinelas;
         RuntimeException lancarAoEscrever;
         RuntimeException lancarAoLer;
+        /** O arquivo que o espelho de mentira diz que o blob virou (só o nome importa: a galeria é de mentira). */
+        static final File CONCLUIDO = new File("blob-concluido.bin");
+        /** Se o último pedaço conclui o blob (false: a sequência que o espelho descartou). */
+        boolean concluir = true;
 
         private void talvezLancar() {
             if (lancarAoEscrever != null) throw lancarAoEscrever;
@@ -1150,6 +1272,12 @@ public class MensageiroTest {
             pedacos.add(p);
         }
 
+        @Override
+        public File receberPedacoConcluindo(String k, String id, int i, int n, String mime, byte[] dados) {
+            receberPedaco(k, id, i, n, mime, dados);
+            return concluir && i == n - 1 ? CONCLUIDO : null;
+        }
+
         @Override public void apagarIdb(String k) { talvezLancar(); idbTexto.remove(k); }
         @Override public void marcarSentinela() { talvezLancar(); sentinela = true; sentinelas++; }
         @Override public boolean temEspelho() { talvezLancarAoLer(); return sentinela; }
@@ -1162,6 +1290,25 @@ public class MensageiroTest {
         public void paraCadaIdb(ItemIdb consumidor) {
             talvezLancarAoLer();
             for (EntradaIdb e : idbOrdem) consumidor.aceitar(e.k, e.tipo, e.mime, e.texto, e.arquivo);
+        }
+    }
+
+    /** A galeria de mentira: anota o que a recebeu, e lança quando pedido. */
+    private static final class GaleriaFalsa implements Mensageiro.Galeria {
+        final List<String> textos = new ArrayList<>();
+        final List<String> arquivos = new ArrayList<>();
+        RuntimeException lancar;
+
+        @Override
+        public void fotoEmTexto(String dataUrl) {
+            if (lancar != null) throw lancar;
+            textos.add(dataUrl);
+        }
+
+        @Override
+        public void fotoEmArquivo(File arquivo, String mime) {
+            if (lancar != null) throw lancar;
+            arquivos.add(arquivo.getName() + "|" + mime);
         }
     }
 

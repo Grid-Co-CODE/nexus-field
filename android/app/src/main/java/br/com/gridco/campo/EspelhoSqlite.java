@@ -274,12 +274,19 @@ public class EspelhoSqlite implements ArmazemEspelho {
 
     @Override
     public synchronized void receberPedaco(String k, String id, int i, int n, String mime, byte[] dados) {
+        receberPedacoConcluindo(k, id, i, n, mime, dados);
+    }
+
+    // Devolve o arquivo do blob (idb/<sha1 da chave>.bin) quando este pedaço o concluiu: é o que vai à galeria do
+    // celular, se for foto (o Mensageiro decide). Nos outros casos, null.
+    @Override
+    public synchronized File receberPedacoConcluindo(String k, String id, int i, int n, String mime, byte[] dados) {
         // Erro de quem manda (bug do script ou do canal): sobe. A exceção não leva a chave.
         if (id == null || !ID_DA_PARTE.matcher(id).matches()) {
             throw new IllegalArgumentException("id de pedaço inválido");
         }
         if (n < 1 || i < 0 || i >= n) throw new IllegalArgumentException("índice ou total de pedaços impossível");
-        if (k == null || k.isEmpty() || dados == null) return;
+        if (k == null || k.isEmpty() || dados == null) return null;
 
         File parte = new File(pastaTmp, id + ".parte");
         Remessa remessa = emAndamento.get(id);
@@ -293,7 +300,7 @@ public class EspelhoSqlite implements ArmazemEspelho {
             // manda de novo. Só contagem no log.
             descartarRemessa(id);
             Log.w(TAG, "pedaço fora da sequência descartado (" + i + " de " + n + ")");
-            return;
+            return null;
         }
 
         boolean ultimo = i == n - 1;
@@ -306,14 +313,14 @@ public class EspelhoSqlite implements ArmazemEspelho {
         }
         remessa.recebidos++;
         if (mime != null && !mime.isEmpty()) remessa.mime = mime;
-        if (ultimo) concluirRemessa(id, parte, remessa);
+        return ultimo ? concluirRemessa(id, parte, remessa) : null;
     }
 
     // O último pedaço chegou e todos vieram na ordem: a parte vira o arquivo da entrada e a linha é gravada. O nome é o
     // sha1 da chave, então regravar a mesma chave troca o arquivo (ver trocarArquivo). A linha vai numa transação que só
     // confirma se a troca deu certo; o arquivo não volta atrás: se a troca falhar depois de o antigo ter sido apagado
     // (só no caminho do "apaga e repete"), a linha antiga fica sem arquivo e sai do retrato até a página mandar de novo.
-    private void concluirRemessa(String id, File parte, Remessa remessa) {
+    private File concluirRemessa(String id, File parte, Remessa remessa) {
         String nome = sha1(remessa.chave) + ".bin";
         File destino = new File(pastaIdb, nome);
         SQLiteDatabase db = bd();
@@ -323,6 +330,7 @@ public class EspelhoSqlite implements ArmazemEspelho {
                 new Object[] {remessa.chave, nome, remessa.mime});
             trocarArquivo(parte, destino, File::renameTo);
             db.setTransactionSuccessful();
+            return destino;
         } finally {
             db.endTransaction();
             emAndamento.remove(id);

@@ -863,6 +863,22 @@ test('o que a casca promete da emergência é o que a spec garante: em poucos mi
   }
 });
 
+test('o que as novidades da 1.2.8 prometem da galeria é o que a GaleriaDaFoto faz: a pasta dela, do Android 10 em diante', () => {
+  // A cópia das fotos na galeria (1.2.8, o pedido do dono em 24/11/2026) só existe do Android 10 (API 29) em diante:
+  // abaixo dele ela pediria a permissão de armazenamento, que a casca não pede. A linha que prometesse a galeria a todo
+  // celular faria o técnico do Android 9 procurar a pasta que nunca vem. E a pasta da linha é a que o código cria.
+  const daGaleria = novidadesDe('1.2.8').filter((n) => /galeria/.test(n));
+  assert.equal(daGaleria.length, 1, 'uma linha das novidades da 1.2.8 fala da galeria');
+  const fonte = lerArquivo(PASTA_JAVA + 'GaleriaDaFoto.java');
+  const pasta = fonte.match(/static final String PASTA = Environment\.DIRECTORY_PICTURES \+ "\/([^"]+)";/);
+  assert.ok(pasta, 'o teste achou a pasta da galeria no GaleriaDaFoto');
+  assert.match(daGaleria[0], new RegExp(`\\bna pasta ${pasta[1]}\\b`), `a linha cita a pasta ${pasta[1]}, a que o código cria`);
+  // O Android 10 da linha é o Build.VERSION_CODES.Q das duas conferências do código (a da fábrica e a da galeria).
+  assert.match(fonte, /if \(Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.Q\)/);
+  assert.match(fonte, /this\.ativa = sdk >= Build\.VERSION_CODES\.Q && gravador != null;/);
+  assert.match(daGaleria[0], /\(no Android 10 ou mais novo\)$/, 'a linha diz que a galeria é do Android 10 em diante');
+});
+
 test('os diálogos e o toast estáticos têm nome acessível, e os ids não se repetem', () => {
   const d = doc();
   const dialogos = [...d.querySelectorAll('.celular .dialogo')];
