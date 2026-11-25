@@ -551,6 +551,14 @@ todo dia às 11h UTC, o contrato com o site (`contrato.yml`). Detalhes na seçã
     pendente da emergência de verdade (a última vence) e trazia o app para a frente, ou um teste que mandava dois pares
     de avisos a cada aparelho da conta. A alias herda o `singleTask` da MainActivity, e o Android entrega o toque com a
     tela aberta no `onNewIntent` dela.
+  - **A porta do link do navegador** (`MainActivity.ABRIR_PELO_NAVEGADOR`, a `activity-alias` `.AbrirPeloNavegador`,
+    exportada, com o filtro VIEW e BROWSABLE só de `nexusfield://abrir`; 1.2.8, 25/11/2026). Caso que criou: técnicos com
+    o Nexus Field instalado seguiam usando o App de Campo pelo navegador, sem a localização da equipe, os avisos e a trava.
+    O App de Campo aberto no Chrome por quem já entrou pelo Nexus Field cobre a tela e manda ao app com
+    `intent://abrir#Intent;scheme=nexusfield;package=br.com.gridco.nexusfield;S.browser_fallback_url=<o instalador>;end`
+    (sem o app, o Chrome baixa o instalador). O Chrome só abre um app por link se a activity tiver esse filtro. A porta só
+    traz o app para a frente: como não é a porta interna, a OS e o teste que viessem nela não valem (o `extraDoToque`), e
+    nenhum outro endereço `nexusfield://` a abre (`MainActivityTest`).
   - **A `MainActivity` o lê no `onCreate` (só sem estado salvo) e no `onNewIntent`**, confere com `Notificacoes.osValida`
     (1 a 12 dígitos ASCII: o número vai a um script), consome o extra na leitura e ignora o Intent que o Android
     reentrega ao voltar pelos recentes (`FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`). O `BridgeActivity.load()` do Capacitor

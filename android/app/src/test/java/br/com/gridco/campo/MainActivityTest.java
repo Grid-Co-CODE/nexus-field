@@ -9,6 +9,7 @@ import android.app.Application;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -16,6 +17,7 @@ import android.content.pm.ResolveInfo;
 
 import com.getcapacitor.CapConfig;
 
+import java.util.List;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -122,6 +124,31 @@ public class MainActivityTest {
         ActivityInfo principal = app.getPackageManager()
             .getActivityInfo(new ComponentName(app, MainActivity.class.getName()), 0);
         assertTrue("a MainActivity segue exportada (o ícone)", principal.exported);
+    }
+
+    @Test
+    public void oLinkDoNavegadorAbreONexusFieldSemLevarNadaAPagina() throws Exception {
+        // O pedido do dono (25/11/2026): quem já tem o Nexus Field e abre o App de Campo pelo link do navegador é mandado
+        // ao app. O Chrome só abre um app por link (intent://abrir#Intent;scheme=nexusfield;package=...) se a activity
+        // tiver um filtro VIEW e BROWSABLE: a alias AbrirPeloNavegador. Ela só traz o app para a frente: nenhum dado do
+        // link chega à página, e a OS de um extra não vale por ela.
+        Application app = RuntimeEnvironment.getApplication();
+        Intent link = new Intent(Intent.ACTION_VIEW, Uri.parse("nexusfield://abrir"))
+            .addCategory(Intent.CATEGORY_BROWSABLE).addCategory(Intent.CATEGORY_DEFAULT).setPackage(app.getPackageName());
+        List<ResolveInfo> quem = app.getPackageManager().queryIntentActivities(link, 0);
+        assertEquals(1, quem.size());
+        assertEquals(MainActivity.ABRIR_PELO_NAVEGADOR, quem.get(0).activityInfo.name);
+        ActivityInfo alias = app.getPackageManager()
+            .getActivityInfo(new ComponentName(app, MainActivity.ABRIR_PELO_NAVEGADOR), 0);
+        assertEquals(MainActivity.class.getName(), alias.targetActivity);
+        assertTrue("exportada: o Chrome a abre", alias.exported);
+        Intent comOs = new Intent(link).setComponent(new ComponentName(app, MainActivity.ABRIR_PELO_NAVEGADOR))
+            .putExtra(Notificacoes.EXTRA_OS, "12345");
+        assertNull("a OS não entra pelo link", MainActivity.osDoToque(comOs));
+        // Outro endereço do mesmo esquema não abre nada.
+        Intent outro = new Intent(Intent.ACTION_VIEW, Uri.parse("nexusfield://os/12345"))
+            .addCategory(Intent.CATEGORY_BROWSABLE).setPackage(app.getPackageName());
+        assertTrue(app.getPackageManager().queryIntentActivities(outro, 0).isEmpty());
     }
 
     @Test

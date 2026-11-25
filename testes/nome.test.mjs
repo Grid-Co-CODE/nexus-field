@@ -35,6 +35,10 @@ const SOBRE_O_SITE = [
     motivo: 'a pré-versão repete as linhas da 1.2.8' },
   { arquivo: 'novidades/1.2.8-rc.2.md', trecho: 'As fotos que você tira no App de Campo',
     motivo: 'a pré-versão repete as linhas da 1.2.8' },
+  { arquivo: 'novidades/1.2.8-rc.3.md', trecho: 'o App de Campo só abre com o celular pronto',
+    motivo: 'a pré-versão repete as linhas da 1.2.8' },
+  { arquivo: 'novidades/1.2.8-rc.3.md', trecho: 'As fotos que você tira no App de Campo',
+    motivo: 'a pré-versão repete as linhas da 1.2.8' },
 ];
 
 // Os textos de um strings.xml, um por <string>, como o Android os mostra (o XML resolvido, sem os comentários).

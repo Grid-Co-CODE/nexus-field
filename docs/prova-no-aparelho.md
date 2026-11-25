@@ -215,6 +215,14 @@ Vale para todo item das subseções abaixo.
       instalado fora da loja, e sem elas a emergência não aparece por cima da tela. Anotar se vinham desligadas: é o que
       cada técnico com Xiaomi vai encontrar.
 
+### O link do navegador (1.2.8)
+
+- [ ] (com o cabo) `adb shell am start -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d
+      nexusfield://abrir`: o Nexus Field vem para a frente na tela em que estava, sem recarregar e sem abrir OS.
+- [ ] No Chrome do celular, com o Nexus Field instalado e a conta que já entrou por ele, abrir o App de Campo pelo
+      endereço do site: a tela do App manda ao Nexus Field, e o botão abre o aplicativo. Num celular sem o Nexus Field, o
+      mesmo botão baixa o instalador.
+
 ### O registro do aparelho e o atalho de teste (só Admin)
 
 - [ ] O toque no atalho abre o Nexus Field (o atalho entra por uma porta interna do aplicativo) e, logo depois, aparece

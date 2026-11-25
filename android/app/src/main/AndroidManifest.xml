@@ -44,6 +44,24 @@
             android:exported="false" />
 
         <!--
+          O link do navegador (25/11/2026): o App de Campo aberto pelo Chrome manda quem já tem o Nexus Field ao app, com
+          intent://abrir#Intent;scheme=nexusfield;package=...;S.browser_fallback_url=<o instalador>;end. O Chrome só abre
+          um app por link se a activity tiver um filtro VIEW e BROWSABLE. Só nexusfield://abrir, e a alias só traz o app
+          para a frente: nada do link chega à página (o MainActivity.osDoToque só lê a porta interna).
+        -->
+        <activity-alias
+            android:name=".AbrirPeloNavegador"
+            android:targetActivity=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nexusfield" android:host="abrir" />
+            </intent-filter>
+        </activity-alias>
+
+        <!--
           Este é o provider do template do Capacitor, e fica: o BridgeWebChromeClient procura exatamente
           "<pacote>.fileprovider" para entregar à câmera o arquivo da foto do <input capture>, a reserva da câmera
           interna do App. Sem ele, essa reserva quebra.

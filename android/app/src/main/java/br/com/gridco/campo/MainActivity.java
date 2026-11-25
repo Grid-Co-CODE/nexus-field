@@ -49,6 +49,9 @@ public class MainActivity extends BridgeActivity {
      * applicationId.
      */
     static final String PORTA_INTERNA = "br.com.gridco.campo.PortaInterna";
+    // A porta do link do navegador (nexusfield://abrir, 25/11/2026): o App de Campo aberto pelo link manda quem já tem o
+    // Nexus Field ao app. Só traz o app para a frente; nada do link chega à página (o osDoToque só lê a porta interna).
+    static final String ABRIR_PELO_NAVEGADOR = "br.com.gridco.campo.AbrirPeloNavegador";
 
     private static final String[] PERMISSOES = {
         Manifest.permission.CAMERA,
